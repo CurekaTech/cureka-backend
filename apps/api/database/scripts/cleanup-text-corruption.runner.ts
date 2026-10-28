@@ -1,5 +1,6 @@
 /**
- * Detect and selectively remove known mojibake indicator fragments.
+ * Detect known UTF-8 / Windows-1252 mojibake and restore the original
+ * Unicode character. Ambiguous leftovers are reported, never deleted.
  *
  * Usage:
  *   npm run db:text-corruption -- --dry-run
@@ -15,15 +16,29 @@ import { existsSync, mkdirSync, statSync } from 'fs';
 import { randomUUID } from 'crypto';
 import { homedir } from 'os';
 import { basename, isAbsolute, relative, resolve } from 'path';
+import {
+  SQL_INDICATOR,
+  cleanJson as repairJson,
+  hasIndicator as hasCorruptionIndicator,
+  repairText,
+  type UnresolvedFragment,
+} from './text-corruption-repair';
 
 dotenv.config();
 
-const INDICATOR = '(â€™|â€œ|â€|Ã[[:alpha:]]|ï¿½|ðŸ)';
-const JS_INDICATOR = /â€™|â€œ|â€|Ã\p{L}|ï¿½|ðŸ/gu;
+export {
+  SQL_INDICATOR,
+  cleanJson,
+  cleanString,
+  hasIndicator,
+  repairText,
+} from './text-corruption-repair';
+
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 const SAMPLE_LIMIT = 50;
 const PREVIEW_CHARS = 100;
 const skippedFields = new Set<string>();
+const reviewItems: ReviewItem[] = [];
 const BACKUP_ROOT =
   process.env['TEXT_CORRUPTION_BACKUP_DIR']?.trim() || resolve(homedir(), 'cureka-db-backups');
 
@@ -43,6 +58,13 @@ type Candidate = {
   pk: Record<string, unknown>;
   before: unknown;
   after: unknown;
+};
+type ReviewItem = {
+  table: string;
+  column: string;
+  pk: Record<string, unknown>;
+  unresolved: UnresolvedFragment[];
+  preview: string;
 };
 type QueryResult<T> = { rows: T[]; rowCount: number | null };
 type PgClient = {
@@ -104,39 +126,21 @@ function quoteIdent(identifier: string): string {
   return `"${identifier.replace(/"/g, '""')}"`;
 }
 
-export function hasIndicator(value: unknown): boolean {
-  return typeof value === 'string' && /â€™|â€œ|â€|Ã\p{L}|ï¿½|ðŸ/u.test(value);
-}
-
-export function cleanString(value: string): string {
-  return value.replace(JS_INDICATOR, '');
-}
-
-export function cleanJson(value: unknown): { value: unknown; changed: boolean } {
-  if (typeof value === 'string') {
-    const cleaned = cleanString(value);
-    return { value: cleaned, changed: cleaned !== value };
-  }
-  if (Array.isArray(value)) {
-    let changed = false;
-    const next = value.map((item) => {
-      const result = cleanJson(item);
-      changed ||= result.changed;
-      return result.value;
-    });
-    return { value: next, changed };
-  }
-  if (value && typeof value === 'object') {
-    let changed = false;
-    const next: Record<string, unknown> = {};
-    for (const [key, item] of Object.entries(value)) {
-      const result = cleanJson(item);
-      next[key] = result.value;
-      changed ||= result.changed;
-    }
-    return { value: next, changed };
-  }
-  return { value, changed: false };
+function recordReviews(
+  table: string,
+  column: string,
+  pk: Record<string, unknown>,
+  before: unknown,
+  unresolved: UnresolvedFragment[],
+): void {
+  if (!unresolved.length) return;
+  reviewItems.push({
+    table,
+    column,
+    pk,
+    unresolved,
+    preview: safePreview(before),
+  });
 }
 
 function isJsonColumn(column: PgColumn): boolean {
@@ -275,7 +279,7 @@ async function scanTable(
     .join(' OR ');
   const result = await client.query(
     `SELECT ${selected.map(quoteIdent).join(', ')} FROM public.${quoteIdent(spec.table)} WHERE ${predicates}`,
-    [INDICATOR],
+    [SQL_INDICATOR],
   );
   const candidates: Candidate[] = [];
   for (const row of result.rows as Record<string, unknown>[]) {
@@ -284,14 +288,19 @@ async function scanTable(
       const before = row[column.column_name];
       let after = before;
       let changed = false;
+      let unresolved: UnresolvedFragment[] = [];
       if (isJsonColumn(column)) {
-        const result = cleanJson(before);
-        after = result.value;
-        changed = result.changed;
-      } else if (hasIndicator(before)) {
-        after = cleanString(before as string);
-        changed = after !== before;
+        const repaired = repairJson(before);
+        after = repaired.value;
+        changed = repaired.changed;
+        unresolved = repaired.unresolved;
+      } else if (typeof before === 'string' && hasCorruptionIndicator(before)) {
+        const repaired = repairText(before);
+        after = repaired.value;
+        changed = repaired.changed;
+        unresolved = repaired.unresolved;
       }
+      recordReviews(spec.table, column.column_name, pk, before, unresolved);
       if (changed) {
         candidates.push({
           table: spec.table,
@@ -338,9 +347,10 @@ async function main(): Promise<void> {
     console.log(
       `[target] PostgreSQL ${serverVersion.rows[0]?.server_version ?? 'version unavailable'}; server address=${identity.rows[0]?.server_address ?? 'local socket'}`,
     );
+    reviewItems.length = 0;
     const regexProbe = await client.query<{ sample: string; matches: boolean }>(
       'SELECT sample, sample ~ $1 AS matches FROM unnest($2::text[]) AS samples(sample)',
-      [INDICATOR, ['Ãa', 'Ã©', 'ðŸ', 'ordinary text']],
+      [SQL_INDICATOR, ['Ã¢â‚¬â„¢', 'Â°', 'ï¿½', 'ðŸ', 'ordinary text']],
     );
     console.log(`[regex] PostgreSQL pattern probe: ${JSON.stringify(regexProbe.rows)}`);
     if (mode === 'apply') {
@@ -360,7 +370,7 @@ async function main(): Promise<void> {
       matchedRows.set(key, new Set([...(matchedRows.get(key) ?? []), item.column]));
     }
     console.log(
-      `[summary] matched rows=${matchedRows.size}; matched fields=${candidates.length}; skipped fields=${skippedFields.size}; failures=0; mode=${mode}`,
+      `[summary] matched rows=${matchedRows.size}; matched fields=${candidates.length}; review fields=${reviewItems.length}; skipped fields=${skippedFields.size}; failures=0; mode=${mode}`,
     );
     const reportCandidates = mode === 'apply' ? candidates : candidates.slice(0, SAMPLE_LIMIT);
     for (const item of reportCandidates) {
@@ -377,6 +387,21 @@ async function main(): Promise<void> {
     }
     if (mode === 'dry-run' && candidates.length > SAMPLE_LIMIT)
       console.log(`[report] showing first ${SAMPLE_LIMIT} of ${candidates.length} field samples`);
+    const reportReviews = mode === 'apply' ? reviewItems : reviewItems.slice(0, SAMPLE_LIMIT);
+    for (const item of reportReviews) {
+      console.log(
+        JSON.stringify({
+          action: 'review',
+          table: `public.${item.table}`,
+          column: item.column,
+          primaryKey: redactPk(item.pk),
+          unresolved: item.unresolved,
+          preview: item.preview,
+        }),
+      );
+    }
+    if (mode === 'dry-run' && reviewItems.length > SAMPLE_LIMIT)
+      console.log(`[report] showing first ${SAMPLE_LIMIT} of ${reviewItems.length} review samples`);
 
     if (mode === 'apply') {
       let updated = 0;
@@ -405,6 +430,7 @@ async function main(): Promise<void> {
           }),
         );
       }
+      reviewItems.length = 0;
       const remainingTargetCandidates: Candidate[] = [];
       for (const spec of TABLE_SPECS)
         remainingTargetCandidates.push(...(await scanTable(client, spec, schema)));
@@ -413,7 +439,7 @@ async function main(): Promise<void> {
       await client.query('COMMIT');
       inTransaction = false;
       console.log(
-        `[summary] updated fields=${updated}; post-update eligible matches=0; skipped fields=${skippedFields.size}; failures=0; transaction committed.`,
+        `[summary] updated fields=${updated}; post-update repairable matches=0; review fields=${reviewItems.length}; skipped fields=${skippedFields.size}; failures=0; transaction committed.`,
       );
     } else {
       await client.query('ROLLBACK');
