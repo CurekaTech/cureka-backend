@@ -23,6 +23,7 @@ import { UsersRepository } from '@modules/users/repositories/users.repository';
 import {
   CreateProductReviewDto,
   ProductReviewQueryDto,
+  PublicProductReviewQueryDto,
   UpdateProductReviewStatusDto,
 } from '../dto/product-review.dto';
 import { ProductReviewStatus } from '../enums/product-review-status.enum';
@@ -30,19 +31,24 @@ import {
   IProductReview,
   IPublicProductReviewsResponse,
   IPublicProductReviewSummary,
+  PublicProductReviewScope,
 } from '../interfaces/product-review.interface';
 import {
   mapProductReviewEntityToAdmin,
   mapProductReviewEntityToPublic,
 } from '../mappers/product-review.mapper';
 import { ProductReviewsRepository } from '../repositories/product-reviews.repository';
+import { ProductVariantsRepository } from '../repositories/product-variants.repository';
 import { ProductReviewEntity } from '../entities/product-review.entity';
+import { ProductEntity } from '../entities/product.entity';
+import { ProductVariantEntity } from '../entities/product-variant.entity';
 
 @Injectable()
 export class ProductReviewsService {
   constructor(
     private readonly reviewsRepository: ProductReviewsRepository,
     private readonly productsRepository: ProductsRepository,
+    private readonly variantsRepository: ProductVariantsRepository,
     private readonly usersRepository: UsersRepository,
     private readonly storageUrlEnricher: StorageUrlEnricher,
     @Inject(forwardRef(() => OrdersService))
@@ -72,13 +78,18 @@ export class ProductReviewsService {
     return buildPaginatedResult(mapped, total, pagination);
   }
 
-  async findApprovedByProductSlug(slug: string): Promise<IPublicProductReviewsResponse> {
-    const product = await this.resolvePublishedProduct(slug);
-    const reviews = await this.reviewsRepository.findApprovedByProductId(product.id);
+  async findApprovedByProductSlug(
+    slug: string,
+    query?: PublicProductReviewQueryDto,
+  ): Promise<IPublicProductReviewsResponse> {
+    const { product, variant } = await this.resolvePublishedProductContext(slug, query);
+    const selected = await this.selectApprovedReviewSet(product.id, variant);
 
     return {
-      summary: this.buildSummary(reviews),
-      reviews: reviews.map(mapProductReviewEntityToPublic),
+      summary: this.buildSummary(selected.reviews),
+      reviews: selected.reviews.map(mapProductReviewEntityToPublic),
+      scope: selected.scope,
+      variantId: selected.scope === 'variant' ? (variant?.id ?? null) : null,
     };
   }
 
@@ -104,7 +115,7 @@ export class ProductReviewsService {
       throw new ForbiddenException('Please sign in to submit a product review');
     }
 
-    const product = await this.resolvePublishedProduct(slug);
+    const { product, variant } = await this.resolvePublishedProductContext(slug, dto);
 
     const hasOrdered = await this.ordersService.userHasOrderedProduct(user.sub, product.id);
     if (!hasOrdered) {
@@ -132,17 +143,23 @@ export class ProductReviewsService {
       this.reviewsRepository.existsByRefId(id),
     );
 
+    const actor = user.profile?.email ?? customer?.email ?? user.sub;
     const entity = await this.reviewsRepository.create({
       refId,
       productId: product.id,
       productRefId: product.refId,
+      variantId: variant?.id ?? null,
+      variantSku: variant?.sku ?? null,
       userId: user.sub,
       customerName,
       rating,
       review: reviewText,
+      reviewDescription: blankToNull(dto.reviewDescription),
+      customerAge: blankToNull(dto.customerAge),
+      customerLocation: blankToNull(dto.customerLocation),
       status: ProductReviewStatus.PENDING,
-      createdBy: user.profile?.email ?? customer?.email ?? user.sub,
-      updatedBy: user.profile?.email ?? customer?.email ?? user.sub,
+      createdBy: actor,
+      updatedBy: actor,
     });
 
     return mapProductReviewEntityToAdmin(entity, {
@@ -206,16 +223,111 @@ export class ProductReviewsService {
     );
   }
 
-  private async resolvePublishedProduct(slug: string) {
-    const product =
-      (await this.productsRepository.findPublishedBySlug(slug)) ??
-      (await this.productsRepository.findPublishedByVariantSlug(slug));
+  private async resolvePublishedProduct(slug: string): Promise<ProductEntity> {
+    const { product } = await this.resolvePublishedProductContext(slug);
+    return product;
+  }
+
+  private async resolvePublishedProductContext(
+    slug: string,
+    query?: { variantId?: string; variantSlug?: string },
+  ): Promise<{ product: ProductEntity; variant: ProductVariantEntity | null }> {
+    const productBySlug = await this.productsRepository.findPublishedBySlug(slug);
+    let product = productBySlug;
+    let slugVariant: ProductVariantEntity | null = null;
+
+    if (!product) {
+      product = await this.productsRepository.findPublishedByVariantSlug(slug);
+      if (product) {
+        slugVariant = await this.variantsRepository.findActiveBySlug(slug);
+        if (slugVariant && slugVariant.productId !== product.id) {
+          slugVariant = null;
+        }
+      }
+    }
 
     if (!product) {
       throw new NotFoundException(`Product with slug ${slug} not found`);
     }
 
-    return product;
+    const variant = await this.resolveRequestedVariant(product.id, {
+      variantId: query?.variantId,
+      variantSlug: query?.variantSlug,
+      fallback: slugVariant,
+    });
+
+    if (slugVariant && variant && slugVariant.id !== variant.id) {
+      throw new BadRequestException('variantId and variantSlug identify different variants');
+    }
+
+    return { product, variant };
+  }
+
+  private async resolveRequestedVariant(
+    productId: string,
+    input: {
+      variantId?: string;
+      variantSlug?: string;
+      fallback: ProductVariantEntity | null;
+    },
+  ): Promise<ProductVariantEntity | null> {
+    const byId = input.variantId
+      ? await this.requireVariantForProduct(await this.variantsRepository.findById(input.variantId), productId, input.variantId)
+      : null;
+    const bySlug = input.variantSlug
+      ? await this.requireVariantForProduct(
+          await this.variantsRepository.findActiveBySlug(input.variantSlug),
+          productId,
+          input.variantSlug,
+        )
+      : null;
+
+    if (byId && bySlug && byId.id !== bySlug.id) {
+      throw new BadRequestException('variantId and variantSlug identify different variants');
+    }
+
+    return byId ?? bySlug ?? input.fallback;
+  }
+
+  private async requireVariantForProduct(
+    variant: ProductVariantEntity | null,
+    productId: string,
+    requested: string,
+  ): Promise<ProductVariantEntity> {
+    if (!variant) {
+      throw new NotFoundException(`Variant ${requested} not found`);
+    }
+    if (variant.productId !== productId) {
+      throw new BadRequestException('Variant does not belong to this product');
+    }
+    return variant;
+  }
+
+  /**
+   * Variant reviews and the product aggregate are never mixed.
+   * Zero approved rows for the selected variant replaces the whole set.
+   */
+  private async selectApprovedReviewSet(
+    productId: string,
+    variant: ProductVariantEntity | null,
+  ): Promise<{ reviews: ProductReviewEntity[]; scope: PublicProductReviewScope }> {
+    if (variant) {
+      const variantReviews = this.onlyApproved(
+        await this.reviewsRepository.findApprovedByVariantId(variant.id),
+      );
+      if (variantReviews.length > 0) {
+        return { reviews: variantReviews, scope: 'variant' };
+      }
+    }
+
+    return {
+      reviews: this.onlyApproved(await this.reviewsRepository.findApprovedByProductId(productId)),
+      scope: 'product',
+    };
+  }
+
+  private onlyApproved(reviews: ProductReviewEntity[]): ProductReviewEntity[] {
+    return reviews.filter((review) => review.status === ProductReviewStatus.APPROVED);
   }
 
   private resolvePrimaryMedia(
@@ -262,4 +374,9 @@ export class ProductReviewsService {
       breakdown,
     };
   }
+}
+
+function blankToNull(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
 }

@@ -843,6 +843,12 @@ export class ProductVariantsRepository {
     return rows;
   }
 
+  async findActiveBySlug(slug: string): Promise<ProductVariantEntity | null> {
+    return this.repo.findOne({
+      where: { slug, status: VariantStatus.ACTIVE },
+    });
+  }
+
   async findById(variantId: string): Promise<ProductVariantEntity | null> {
     return this.repo.findOne({
       where: { id: variantId },
