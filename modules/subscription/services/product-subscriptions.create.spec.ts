@@ -45,6 +45,11 @@ describe('Product subscription create eligibility and pricing', () => {
     nestConfig as never,
     {} as never,
     {} as never,
+    {
+      findSent: jest.fn(async () => null),
+      tryRecordSend: jest.fn(async () => true),
+      findBySubscriptionId: jest.fn(async () => []),
+    } as never,
   );
 
   const parentConfig = {

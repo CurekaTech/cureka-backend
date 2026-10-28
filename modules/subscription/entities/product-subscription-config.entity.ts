@@ -78,7 +78,7 @@ export class ProductSubscriptionConfigEntity extends BaseEntity {
   @Column({
     name: 'reminder_offsets_json',
     type: 'jsonb',
-    default: () => "'[7,2,0]'::jsonb",
+    default: () => "'[7,5,2,0]'::jsonb",
   })
   reminderOffsetsJson!: number[];
 
