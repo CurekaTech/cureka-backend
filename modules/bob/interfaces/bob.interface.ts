@@ -46,6 +46,18 @@ export type BobProductDetail = {
   variants: BobVariant[];
 };
 
+/** GET /bob/products. Product objects stay the same; paging fields sit beside them. */
+export type BobProductList = {
+  products: BobProductDetail[];
+  page: number;
+  limit: number;
+  /** Matching products for the same search/filter, before this page is sliced. */
+  total: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+};
+
 export type BobVariantDetail = {
   id: string;
   title: string;
@@ -63,7 +75,8 @@ export type BobVariantDetail = {
 
 export type BobLineItem = {
   image: { originalSrc: string };
-  product: { id: string; title: string };
+  /** Catalogue / WooCommerce product id, same as GET /bob/products. UUID only if the catalogue id is missing. */
+  product: { id: string | number; title: string };
   variant: {
     id: string;
     title: string;
@@ -163,7 +176,7 @@ export type BobAbandonedCartPayload = {
   checkout_id: string;
   cart_recovery_url: string;
   line_items: Array<{
-    /** Prefer product slug — BOB builds storefront product URLs from this id. */
+    /** Variant SKU or variant UUID of the exact size/pack in the cart. */
     id: string;
     name: string;
     image: { originalSrc: string };
@@ -205,4 +218,38 @@ export type BobAbandonedCartPayload = {
   };
   phone: string;
   created_at: string;
+};
+
+/** GoKwik Live Mode body for POST /abancart-external. */
+export type BobGokwikAbandonedCartPayload = {
+  c_id: string;
+  request_id: string;
+  abc_url: string;
+  customer: {
+    email: string;
+    firstname: string;
+    lastname: string;
+    phone: string;
+  };
+  address: {
+    address1: string;
+    city: string;
+    province: string;
+    zip: string;
+    country: string;
+    country_code: string;
+    firstname: string;
+    lastname: string;
+    phone: string;
+  };
+  items: Array<{
+    id: string;
+    product_id: string | number;
+    variant_id: string | number;
+    title: string;
+    quantity: number;
+    price: number;
+    image_url?: string;
+  }>;
+  total_price: number;
 };

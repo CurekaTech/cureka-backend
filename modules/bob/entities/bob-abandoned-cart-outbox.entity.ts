@@ -15,6 +15,14 @@ export class BobAbandonedCartOutboxEntity extends BaseEntity {
   @Column({ name: 'cart_ref_id', type: 'varchar', length: 30 })
   cartRefId!: string;
 
+  /** Unique per abandoned session (e.g. CAR2026217409-S1). This is what BoB messages on. */
+  @Column({ name: 'checkout_id', type: 'varchar', length: 80, nullable: true })
+  checkoutId!: string | null;
+
+  /** Cart lastCustomerActivityAt at reservation time — one send per idle session. */
+  @Column({ name: 'activity_at', type: 'timestamptz', nullable: true })
+  activityAt!: Date | null;
+
   /** Canonical 10-digit Indian mobile used for 24h phone-level dedupe. */
   @Index()
   @Column({ name: 'destination_phone_normalized', type: 'varchar', length: 20 })

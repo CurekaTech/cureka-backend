@@ -1,7 +1,10 @@
 export const BOB_ABANDONED_CART_NOTIFY_KIND = 'abandoned-cart';
 
-/** BOB abandoned-cart endpoint. */
+/** Cureka storefront drop-offs. Never post Cureka-format bodies to the GoKwik URL. */
 export const BOB_ABANDONED_CART_PATH = '/abancart';
+
+/** GoKwik checkout drop-offs. GoKwik JSON only. */
+export const BOB_GOKWIK_ABANDONED_CART_PATH = '/abancart-external';
 
 export const BOB_ABANDONED_CART_JOB = {
   SCAN: 'scan',

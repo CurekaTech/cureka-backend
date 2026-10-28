@@ -16,8 +16,8 @@ import {
   bobTrackerStepLabel,
   collectImageRefs,
   isBobDispatchedOrLater,
-  mapBobAbandonedCart,
   mapBobEventStatus,
+  mapGokwikAbandonedCartToBobExternal,
   mapBobFulfillment,
   mapBobOrder,
 } from '../mappers/bob.mapper';
@@ -358,39 +358,47 @@ export class BobNotifyListener {
     }
   }
 
-  /** Notifications API: POST /abancart. */
+  /** GoKwik checkout drop-off: POST /abancart-external (GoKwik JSON only). */
   @OnEvent(EVENTS.CHECKOUT_CART_ABANDONED)
   async onCartAbandoned(event: CheckoutCartAbandonedEvent): Promise<void> {
     this.logger.log(
       {
         whatsappKind: 'abandoned_cart',
         decision: 'call',
-        api: '/abancart',
+        api: '/abancart-external',
         checkoutId: event.checkoutId,
       },
-      '[BOB notify] CHECKOUT_CART_ABANDONED — preparing /abancart',
+      '[BOB notify] CHECKOUT_CART_ABANDONED — preparing /abancart-external',
     );
     try {
       const storefront =
-        this.configService.get<string>('STOREFRONT_URL')?.replace(/\/+$/, '') ?? '';
-      const recoveryUrl = storefront ? `${storefront}/cart` : '';
-      await this.bobNotifyService.post(
-        '/abancart',
-        mapBobAbandonedCart({
-          checkoutId: event.checkoutId,
-          recoveryUrl,
-          payload: event.payload,
-        }),
-      );
+        this.configService.get<string>('STOREFRONT_URL')?.replace(/\/+$/, '') ??
+        'https://www.cureka.com';
+      const payload = mapGokwikAbandonedCartToBobExternal({
+        checkoutId: event.checkoutId,
+        merchantCartId: event.merchantCartId,
+        payload: event.payload,
+        storefrontUrl: storefront,
+      });
+      if (!payload) {
+        this.logger.warn(
+          { checkoutId: event.checkoutId },
+          '[BOB notify] skip /abancart-external — missing phone, items, or cart id',
+        );
+        return;
+      }
+      await this.bobNotifyService.post('/abancart-external', payload, {
+        idempotencyKey: `gokwik-abancart:${payload.c_id}`,
+      });
     } catch (error) {
       this.logger.warn(
         {
           decision: 'error',
-          api: '/abancart',
+          api: '/abancart-external',
           checkoutId: event.checkoutId,
           error: error instanceof Error ? error.message : String(error),
         },
-        '[BOB notify] /abancart crashed (non-blocking)',
+        '[BOB notify] /abancart-external crashed (non-blocking)',
       );
     }
   }

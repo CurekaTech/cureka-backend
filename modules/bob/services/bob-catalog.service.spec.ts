@@ -169,7 +169,17 @@ describe('GET /api/v1/bob/categories/:categoryId/products', () => {
     const allProducts = await service.listProducts();
 
     expect(categoryProducts.map((item) => item.id)).toEqual([16833, 17189, 17193]);
-    expect(allProducts.map((item) => item.id)).toEqual(categoryProducts.map((item) => item.id));
+    expect(allProducts.products.map((item) => item.id)).toEqual(categoryProducts.map((item) => item.id));
+    expect(allProducts).toEqual(
+      expect.objectContaining({
+        page: 1,
+        limit: 3,
+        total: 3,
+        totalPages: 1,
+        hasNextPage: false,
+        hasPreviousPage: false,
+      }),
+    );
   });
 
   it('loads product detail by UUID, refId, and catalogue id', async () => {
@@ -201,7 +211,17 @@ describe('GET /api/v1/bob/categories/:categoryId/products', () => {
       limit: undefined,
     });
     expect(productsRepository.findPublishedByIds).not.toHaveBeenCalled();
-    expect(result.map((item) => item.id)).toEqual([217301]);
+    expect(result.products.map((item) => item.id)).toEqual([217301]);
+    expect(result).toEqual(
+      expect.objectContaining({
+        page: 1,
+        limit: 1,
+        total: 1,
+        totalPages: 1,
+        hasNextPage: false,
+        hasPreviousPage: false,
+      }),
+    );
   });
 
   it('passes search text and paging to the catalogue query and does not load the full list', async () => {
@@ -219,7 +239,17 @@ describe('GET /api/v1/bob/categories/:categoryId/products', () => {
       limit: 20,
     });
     expect(productsRepository.findPublishedByRefIds).toHaveBeenCalledWith([REF_ID]);
-    expect(result.map((item) => item.id)).toEqual([217301]);
+    expect(result.products.map((item) => item.id)).toEqual([217301]);
+    expect(result).toEqual(
+      expect.objectContaining({
+        page: 2,
+        limit: 20,
+        total: 48,
+        totalPages: 3,
+        hasNextPage: true,
+        hasPreviousPage: true,
+      }),
+    );
   });
 
   it('pages a search that has no explicit page size', async () => {
@@ -228,13 +258,24 @@ describe('GET /api/v1/bob/categories/:categoryId/products', () => {
       total: 0,
     });
 
-    await service.listProducts({ q: 'shampoo' });
+    const result = await service.listProducts({ q: 'shampoo' });
 
     expect(productsRepository.findPublishedRefIdsForBobCatalog).toHaveBeenCalledWith({
       search: 'shampoo',
       page: 1,
       limit: 20,
     });
+    expect(result).toEqual(
+      expect.objectContaining({
+        products: [],
+        page: 1,
+        limit: 20,
+        total: 0,
+        totalPages: 0,
+        hasNextPage: false,
+        hasPreviousPage: false,
+      }),
+    );
   });
 
   it('lists products by mixed catalogue ids without exposing internal UUIDs', async () => {
@@ -250,7 +291,17 @@ describe('GET /api/v1/bob/categories/:categoryId/products', () => {
     const result = await service.listProducts({ ids: `${CATALOGUE_ID},217482` });
 
     expect(resolver.findPublishedByBobIds).toHaveBeenCalledWith([CATALOGUE_ID, '217482']);
-    expect(result.map((item) => item.id)).toEqual([217301, 217482]);
+    expect(result.products.map((item) => item.id)).toEqual([217301, 217482]);
+    expect(result).toEqual(
+      expect.objectContaining({
+        page: 1,
+        limit: 2,
+        total: 2,
+        totalPages: 1,
+        hasNextPage: false,
+        hasPreviousPage: false,
+      }),
+    );
   });
 
   it('returns consistent inventory across full list, ids list, product detail, and variant detail', async () => {
@@ -280,7 +331,7 @@ describe('GET /api/v1/bob/categories/:categoryId/products', () => {
 
     expect(categoryItems.map((item) => item.id)).toEqual([217301]);
     expect(categoryItems[0]).not.toHaveProperty('variants');
-    for (const detail of [fullList[0], idsList[0], productDetail]) {
+    for (const detail of [fullList.products[0], idsList.products[0], productDetail]) {
       expect(detail?.variants[0]).toEqual(expect.objectContaining(inventory));
     }
     expect(variantDetail).toEqual(expect.objectContaining(inventory));

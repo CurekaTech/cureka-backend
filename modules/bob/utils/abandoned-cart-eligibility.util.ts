@@ -3,6 +3,8 @@ export type AbandonedCartSkipReason =
   | 'empty_cart'
   | 'invalid_phone'
   | 'recent_activity'
+  | 'stale_cart'
+  | 'already_sent_for_session'
   | 'cooldown_24h'
   | 'in_flight'
   | 'inactive_cart'
@@ -16,6 +18,9 @@ export type AbandonedCartEligibilityInput = {
   lastActivityAt: Date;
   now: Date;
   inactivityMs: number;
+  maxAgeMs: number;
+  /** Activity timestamp we already POSTed (or reserved) for this cart. */
+  lastSentActivityAt: Date | null;
   /** Latest provider-accepted or uncertain (timeout) attempt. */
   lastAcceptedOrUncertainAt: Date | null;
   cooldownMs: number;
@@ -41,6 +46,17 @@ export function evaluateAbandonedCartEligibility(
   const inactiveBefore = input.now.getTime() - input.inactivityMs;
   if (input.lastActivityAt.getTime() > inactiveBefore) {
     return { eligible: false, reason: 'recent_activity' };
+  }
+
+  if (input.now.getTime() - input.lastActivityAt.getTime() > input.maxAgeMs) {
+    return { eligible: false, reason: 'stale_cart' };
+  }
+
+  if (
+    input.lastSentActivityAt &&
+    input.lastSentActivityAt.getTime() === input.lastActivityAt.getTime()
+  ) {
+    return { eligible: false, reason: 'already_sent_for_session' };
   }
 
   if (input.hasInFlightReservation) {

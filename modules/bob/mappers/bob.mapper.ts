@@ -24,6 +24,7 @@ import { IUserAddress } from '@modules/users/interfaces/user-address.interface';
 import { IStorageFileReference } from '@packages/storage';
 import {
   BobAbandonedCartPayload,
+  BobGokwikAbandonedCartPayload,
   BobCategory,
   BobFulfillmentEventPayload,
   BobFulfillmentEventStatus,
@@ -38,6 +39,7 @@ import {
   BobVariantDetail,
 } from '../interfaces/bob.interface';
 import {
+  optionalBobCatalogueProductId,
   requireBobCatalogueCategoryId,
   requireBobCatalogueProductId,
 } from '../utils/bob-product-id.util';
@@ -308,6 +310,7 @@ export function mapCurekaAbandonedCartToBob(params: {
   detail: IAbandonedCartDetail;
   recoveryUrl: string;
   storefrontUrl?: string;
+  checkoutId?: string;
 }): BobAbandonedCartPayload {
   const { detail, recoveryUrl } = params;
   const customer = detail.customer;
@@ -327,13 +330,17 @@ export function mapCurekaAbandonedCartToBob(params: {
     : { address: '', city: '', province: '', country: 'India', zip: '' };
 
   return {
-    checkout_id: detail.refId,
+    checkout_id: params.checkoutId?.trim() || detail.refId,
     cart_recovery_url: recoveryUrl,
     line_items: (cart.items ?? []).map((item) => {
       const slug = item.productSlug?.trim() || '';
-      // BOB historically used line_items.id as Shopify handle under /products/{id}.
-      // Cureka PDPs are /shop/.../{slug}; never pass variant UUID here.
-      const id = slug || item.productId || item.variantId || item.id;
+      // BoB needs the exact size/pack. Prefer SKU, then variant UUID — never a product slug.
+      const id = item.sku?.trim() || item.variantId || item.id;
+      const name = item.variantLabel
+        ? item.productName.includes(item.variantLabel)
+          ? item.productName
+          : `${item.productName} ${item.variantLabel}`
+        : item.productName;
       // Prefer configured PDP path; fall back to /shop/{slug} (storefront 308s to canonical).
       // Do not invent category-tree URLs from DB relations — those can be stale and confuse BOB.
       const pagePath = item.productPagePath?.trim() || (slug ? `/shop/${slug}` : '');
@@ -346,7 +353,7 @@ export function mapCurekaAbandonedCartToBob(params: {
         : undefined;
       return {
         id,
-        name: item.productName,
+        name,
         image: {
           originalSrc: item.primaryImageUrl?.url ?? '',
         },
@@ -373,6 +380,103 @@ export function mapCurekaAbandonedCartToBob(params: {
     },
     phone,
     created_at: detail.lastActivityAt.toISOString(),
+  };
+}
+
+function pickString(row: Record<string, unknown> | null | undefined, ...keys: string[]): string {
+  if (!row) return '';
+  for (const key of keys) {
+    const value = row[key];
+    if (value != null && String(value).trim()) return String(value).trim();
+  }
+  return '';
+}
+
+/**
+ * Map a GoKwik abandoned-cart webhook (or a native GoKwik body) to BoB /abancart-external.
+ * Returns null when phone or line items are missing — posting that would crash or spam.
+ */
+export function mapGokwikAbandonedCartToBobExternal(params: {
+  checkoutId: string;
+  merchantCartId: string | null;
+  payload: Record<string, unknown>;
+  storefrontUrl: string;
+}): BobGokwikAbandonedCartPayload | null {
+  const root = params.payload;
+  const nested = asRecord(root['data']) ?? asRecord(root['cart']) ?? {};
+  const merged: Record<string, unknown> = { ...nested, ...root };
+  const customer = asRecord(merged['customer']) ?? {};
+  const address =
+    asRecord(merged['address']) ??
+    asRecord(merged['shipping_address']) ??
+    asRecord(merged['shippingAddress']) ??
+    {};
+  const cId =
+    pickString(merged, 'c_id', 'cart_id', 'cartId') || params.checkoutId.trim();
+  const phone = pickString(customer, 'phone') || pickString(merged, 'phone') || pickString(address, 'phone');
+  if (!cId || !phone) return null;
+
+  const storefront = params.storefrontUrl.replace(/\/+$/, '') || 'https://www.cureka.com';
+  const rawAbc =
+    pickString(merged, 'abc_url', 'cart_url', 'recovery_url', 'cart_recovery_url') ||
+    `${storefront}?grid=${encodeURIComponent(cId)}`;
+  const abcUrl = rawAbc.replace(/https?:\/\/beta\.cureka\.com/i, storefront);
+
+  const itemsRaw = asArray(merged['items']) ?? asArray(merged['line_items']) ?? [];
+  const items = itemsRaw.map((item, index) => {
+    const row = asRecord(item) ?? {};
+    const title = pickString(row, 'title', 'name', 'product_name') || 'Item';
+    const quantity = Number(row['quantity'] ?? 1) || 1;
+    const price = Number(row['price'] ?? row['selling_price'] ?? 0);
+    return {
+      id: pickString(row, 'id', 'variant_id', 'sku') || `item-${index}`,
+      product_id: (row['product_id'] as string | number | undefined) ?? (pickString(row, 'productId') || ''),
+      variant_id: (row['variant_id'] as string | number | undefined) ?? (pickString(row, 'variantId') || ''),
+      title,
+      quantity,
+      price,
+      ...(pickString(row, 'image_url', 'imageUrl') || asRecord(row['image'])
+        ? {
+            image_url:
+              pickString(row, 'image_url', 'imageUrl') ||
+              pickString(asRecord(row['image']), 'originalSrc', 'url'),
+          }
+        : {}),
+    };
+  });
+  if (!items.length) return null;
+
+  const firstname =
+    pickString(customer, 'firstname', 'first_name', 'firstName') ||
+    pickString(address, 'firstname', 'first_name', 'firstName');
+  const lastname =
+    pickString(customer, 'lastname', 'last_name', 'lastName') ||
+    pickString(address, 'lastname', 'last_name', 'lastName');
+  const email = pickString(customer, 'email') || pickString(merged, 'email');
+
+  return {
+    c_id: cId,
+    request_id: pickString(merged, 'request_id', 'requestId') || params.merchantCartId || cId,
+    abc_url: abcUrl,
+    customer: {
+      email,
+      firstname,
+      lastname,
+      phone,
+    },
+    address: {
+      address1: pickString(address, 'address1', 'address', 'address_line1'),
+      city: pickString(address, 'city'),
+      province: pickString(address, 'province', 'state'),
+      zip: pickString(address, 'zip', 'pincode'),
+      country: pickString(address, 'country') || 'India',
+      country_code: pickString(address, 'country_code', 'countryCode') || 'IN',
+      firstname,
+      lastname,
+      phone,
+    },
+    items,
+    total_price: Number(merged['total_price'] ?? merged['total'] ?? 0),
   };
 }
 
@@ -468,7 +572,10 @@ function mapBobLineItem(item: OrderItemEntity, imageByKey?: Map<string, string>)
     media && typeof media === 'object' && 'url' in media ? String(media.url ?? '') : '';
   return {
     image: { originalSrc: signed || alreadyUrl || '' },
-    product: { id: item.productId, title: item.productName },
+    product: {
+      id: optionalBobCatalogueProductId(item.product) ?? item.productId,
+      title: item.productName,
+    },
     variant: {
       id: item.variantId,
       title: item.variantName || 'Default Title',

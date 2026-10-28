@@ -30,9 +30,11 @@ export const bobConfig = registerAs('bob', () => ({
      * Still requires BOB_NOTIFY_URL.
      */
     enabled: parseBoolean(process.env['BOB_ABANDONED_CART_ENABLED'], true),
-    scanIntervalMinutes: parsePositiveInt(process.env['BOB_ABANDONED_CART_SCAN_INTERVAL_MINUTES'], 30),
+    scanIntervalMinutes: parsePositiveInt(process.env['BOB_ABANDONED_CART_SCAN_INTERVAL_MINUTES'], 5),
     inactivityMinutes: parsePositiveInt(process.env['BOB_ABANDONED_CART_INACTIVITY_MINUTES'], 30),
     cooldownHours: parsePositiveInt(process.env['BOB_ABANDONED_CART_COOLDOWN_HOURS'], 24),
+    /** Never send carts older than this. Stops the daily replay of weeks-old carts. */
+    maxAgeHours: parsePositiveInt(process.env['BOB_ABANDONED_CART_MAX_AGE_HOURS'], 24),
     batchSize: parsePositiveInt(process.env['BOB_ABANDONED_CART_BATCH_SIZE'], 50),
     maxBatchesPerScan: parsePositiveInt(process.env['BOB_ABANDONED_CART_MAX_BATCHES_PER_SCAN'], 40),
     concurrency: parsePositiveInt(process.env['BOB_ABANDONED_CART_CONCURRENCY'], 2),

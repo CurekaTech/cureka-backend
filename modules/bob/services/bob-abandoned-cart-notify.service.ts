@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash, randomUUID } from 'crypto';
 import { generateUniqueRefId } from '@packages/common';
@@ -20,7 +20,7 @@ import {
 import { BobAbandonedCartOutboxEntity } from '../entities/bob-abandoned-cart-outbox.entity';
 import { mapCurekaAbandonedCartToBob } from '../mappers/bob.mapper';
 import { BobAbandonedCartOutboxRepository } from '../repositories/bob-abandoned-cart-outbox.repository';
-import { toBobE164Phone } from '../utils/bob.util';
+import { BOB_DEFAULT_STOREFRONT_URL, toBobCartRecoveryUrl, toBobE164Phone } from '../utils/bob.util';
 import {
   evaluateAbandonedCartEligibility,
   isRetryableBobHttpStatus,
@@ -83,21 +83,24 @@ export class BobAbandonedCartNotifyService {
     batchSize: number;
     maxBatchesPerScan: number;
     maxAttempts: number;
+    maxAgeMs: number;
   } {
     const cfg = this.configService.get<{
       enabled?: boolean;
       scanIntervalMinutes?: number;
       inactivityMinutes?: number;
       cooldownHours?: number;
+      maxAgeHours?: number;
       batchSize?: number;
       maxBatchesPerScan?: number;
       maxAttempts?: number;
     }>('bob.abandonedCart');
     return {
       enabled: cfg?.enabled ?? true,
-      scanIntervalMs: (cfg?.scanIntervalMinutes ?? 30) * 60_000,
+      scanIntervalMs: (cfg?.scanIntervalMinutes ?? 5) * 60_000,
       inactivityMs: (cfg?.inactivityMinutes ?? 30) * 60_000,
       cooldownMs: (cfg?.cooldownHours ?? 24) * 60 * 60_000,
+      maxAgeMs: (cfg?.maxAgeHours ?? 24) * 60 * 60_000,
       batchSize: cfg?.batchSize ?? 50,
       maxBatchesPerScan: cfg?.maxBatchesPerScan ?? 40,
       maxAttempts: cfg?.maxAttempts ?? 3,
@@ -253,14 +256,16 @@ export class BobAbandonedCartNotifyService {
   }
 
   private async runScan(summary: AbandonedCartScanSummary): Promise<AbandonedCartScanSummary> {
-    const { inactivityMs, batchSize, maxBatchesPerScan } = this.settings();
+    const { inactivityMs, maxAgeMs, batchSize, maxBatchesPerScan } = this.settings();
     const inactiveBefore = new Date(Date.now() - inactivityMs);
+    const inactiveAfter = new Date(Date.now() - maxAgeMs);
     let afterActivityAt: Date | null = null;
     let afterCartId: string | null = null;
 
     for (let batch = 0; batch < maxBatchesPerScan; batch++) {
       const candidates = await this.cartsRepository.findAbandonedCartNotifyCandidates({
         inactiveBefore,
+        inactiveAfter,
         afterActivityAt,
         afterCartId,
         limit: batchSize,
@@ -283,7 +288,7 @@ export class BobAbandonedCartNotifyService {
     candidates: AbandonedCartNotifyCandidate[],
     summary: AbandonedCartScanSummary,
   ): Promise<void> {
-    const { cooldownMs, inactivityMs, maxAttempts } = this.settings();
+    const { cooldownMs, inactivityMs, maxAgeMs, maxAttempts } = this.settings();
     const now = new Date();
     const since = new Date(now.getTime() - cooldownMs);
 
@@ -319,6 +324,16 @@ export class BobAbandonedCartNotifyService {
       const failedRow = related
         .filter((row) => row.status === 'failed' && row.userId === candidate.userId)
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+      const sentForActivity = related.find(
+        (row) =>
+          row.cartId === candidate.cartId &&
+          row.activityAt != null &&
+          row.activityAt.getTime() === candidate.lastActivityAt.getTime() &&
+          (row.status === 'pending' ||
+            row.status === 'sending' ||
+            row.status === 'accepted' ||
+            row.status === 'ambiguous'),
+      );
 
       const decision = evaluateAbandonedCartEligibility({
         isGuest: false,
@@ -328,6 +343,8 @@ export class BobAbandonedCartNotifyService {
         lastActivityAt: candidate.lastActivityAt,
         now,
         inactivityMs,
+        maxAgeMs,
+        lastSentActivityAt: sentForActivity?.activityAt ?? null,
         lastAcceptedOrUncertainAt: cooldownRow ? cooldownRow.acceptedAt ?? cooldownRow.createdAt : null,
         cooldownMs,
         hasInFlightReservation: Boolean(inFlight),
@@ -379,7 +396,9 @@ export class BobAbandonedCartNotifyService {
     candidate: AbandonedCartNotifyCandidate,
     phoneNormalized: string,
   ): Promise<boolean> {
-    const idempotencyKey = `${BOB_ABANDONED_CART_NOTIFY_KIND}:${candidate.userId}:${candidate.cartId}:${Date.now()}`;
+    const sessionNo = (await this.outboxRepository.countSessionsForCart(candidate.cartId)) + 1;
+    const checkoutId = `${candidate.cartRefId}-S${sessionNo}`;
+    const idempotencyKey = `${BOB_ABANDONED_CART_NOTIFY_KIND}:${candidate.cartId}:${candidate.lastActivityAt.toISOString()}`;
     try {
       const refId = await generateUniqueRefId('bac', (value) =>
         this.outboxRepository.existsByRefId(value),
@@ -389,6 +408,8 @@ export class BobAbandonedCartNotifyService {
         userId: candidate.userId,
         cartId: candidate.cartId,
         cartRefId: candidate.cartRefId,
+        checkoutId,
+        activityAt: candidate.lastActivityAt,
         destinationPhoneNormalized: phoneNormalized,
         notificationKind: BOB_ABANDONED_CART_NOTIFY_KIND,
         idempotencyKey,
@@ -397,6 +418,8 @@ export class BobAbandonedCartNotifyService {
         attempts: 0,
         payloadSnapshot: {
           cartRefId: candidate.cartRefId,
+          checkoutId,
+          activityAt: candidate.lastActivityAt.toISOString(),
           phoneMasked: maskPhoneForLog(phoneNormalized),
         },
         createdBy: 'bob-abandoned-cart',
@@ -430,7 +453,7 @@ export class BobAbandonedCartNotifyService {
     | { ok: true; payload: ReturnType<typeof mapCurekaAbandonedCartToBob> }
     | { ok: false; reason: string }
   > {
-    const { inactivityMs, cooldownMs } = this.settings();
+    const { inactivityMs, cooldownMs, maxAgeMs } = this.settings();
     const now = new Date();
     const cart = await this.cartsRepository.findActiveById(outbox.cartId);
     const items = (cart?.items ?? []).filter((item) => item.quantity > 0);
@@ -447,6 +470,9 @@ export class BobAbandonedCartNotifyService {
 
     const phone = canonicalizeIndianMobileNumber(mobileNumber ?? '');
     const lastActivityAt = cart ? resolveCartCustomerActivityAt(cart) : now;
+    if (outbox.activityAt && lastActivityAt.getTime() !== outbox.activityAt.getTime()) {
+      return { ok: false, reason: 'recent_activity' };
+    }
     const cooldown = await this.outboxRepository.findCooldownAnchor({
       userId: outbox.userId,
       phoneNormalized: phone ?? outbox.destinationPhoneNormalized,
@@ -462,6 +488,8 @@ export class BobAbandonedCartNotifyService {
       lastActivityAt,
       now,
       inactivityMs,
+      maxAgeMs,
+      lastSentActivityAt: null,
       lastAcceptedOrUncertainAt:
         cooldown && !cooldownIsSelf ? cooldown.acceptedAt ?? cooldown.createdAt : null,
       cooldownMs,
@@ -475,12 +503,14 @@ export class BobAbandonedCartNotifyService {
     try {
       const detail = await this.abandonedCartsService.findOne(outbox.cartRefId);
       const storefront =
-        this.configService.get<string>('STOREFRONT_URL')?.replace(/\/+$/, '') ??
-        'https://www.cureka.com';
+        this.configService.get<string>('STOREFRONT_URL')?.replace(/\/+$/, '') ||
+        BOB_DEFAULT_STOREFRONT_URL;
+      const checkoutId = outbox.checkoutId?.trim() || `${detail.refId}-S1`;
       let payload = mapCurekaAbandonedCartToBob({
         detail,
-        recoveryUrl: `${storefront}/cart`,
+        recoveryUrl: toBobCartRecoveryUrl(storefront),
         storefrontUrl: storefront,
+        checkoutId,
       });
       const e164 = toBobE164Phone(payload.phone || mobileNumber);
       payload = {
@@ -493,7 +523,7 @@ export class BobAbandonedCartNotifyService {
       }
       return { ok: true, payload };
     } catch (error) {
-      if (error instanceof NotFoundException) {
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
         return { ok: false, reason: 'purchased_or_emptied' };
       }
       throw error;
