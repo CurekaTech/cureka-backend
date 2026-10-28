@@ -487,4 +487,13 @@ npm run product:legacy-image-sheet-matches
 
 // wallet
 npm run wallet:credit -- --phone=8888888888 --amount=2000
-npm run wallet:credit -- --phone=8888888888 --amount=2000 --apply
+npm run wallet:credit -- --phone=9974440132 --amount=3000 --apply
+
+
+npm run review:import:test
+npm run review:import:test -- --apply
+
+
+$env:REVIEW_IMPORT_LIVE_DATABASE = "your_live_database_name"
+npm run review:import:live
+npm run review:import:live -- --apply --confirm-live
