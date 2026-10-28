@@ -48,7 +48,7 @@ export class BobCommerceController {
 
   @ApiOperation({
     summary:
-      'BOB: products and variants. Optional ?search= (or ?q=), ?page=&limit= (max 100). ?ids= still selects specific products. No query returns the full catalogue.',
+      'BOB: products and variants. Optional ?search= (or ?q=), ?page=&limit= (max 100). ?ids= still selects specific products. No query returns the full catalogue. Body includes products plus page, limit, total, totalPages, hasNextPage, and hasPreviousPage.',
   })
   @Get('products')
   listProducts(@Query() query: BobListProductsQueryDto) {

@@ -18,6 +18,16 @@ export class BobAbandonedCartOutboxRepository {
     return this.repo.exists({ where: { refId } });
   }
 
+  countSessionsForCart(cartId: string): Promise<number> {
+    return this.repo.count({
+      where: {
+        cartId,
+        notificationKind: BOB_ABANDONED_CART_NOTIFY_KIND,
+        status: In(['pending', 'sending', 'accepted', 'ambiguous']),
+      },
+    });
+  }
+
   findById(id: string): Promise<BobAbandonedCartOutboxEntity | null> {
     return this.repo.findOne({ where: { id } });
   }

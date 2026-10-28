@@ -15,6 +15,8 @@ import {
   mapBobProductDetail,
   mapBobProductSummary,
   mapBobVariantDetail,
+  mapCurekaAbandonedCartToBob,
+  mapGokwikAbandonedCartToBobExternal,
 } from './bob.mapper';
 
 const PRODUCT_UUID = 'c4e9b094-30f1-4ca5-aaec-0e0b60631ab6';
@@ -312,5 +314,103 @@ describe('non-BOB product response', () => {
     expect(response.id).toBe(PRODUCT_UUID);
     expect(response.externalProductId).toBe(CATALOGUE_ID);
     expect(response.refId).toBe('LAC2026514080');
+  });
+});
+
+describe('mapCurekaAbandonedCartToBob', () => {
+  it('sends a session checkout_id, recover URL, and variant SKU as line id', () => {
+    const payload = mapCurekaAbandonedCartToBob({
+      detail: {
+        id: 'cart-1',
+        refId: 'CAR2026217409',
+        lastActivityAt: new Date('2026-10-26T08:00:00.000Z'),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        customer: {
+          email: 'a@test.com',
+          firstName: 'Ada',
+          lastName: 'Lovelace',
+          mobileNumber: '9876543210',
+        },
+        addresses: [],
+        defaultAddress: null,
+        cart: {
+          items: [
+            {
+              id: 'line-1',
+              productId: 'p1',
+              variantId: 'v1',
+              sku: 'CERAVE-454G',
+              productSlug: 'cerave-moisturizing-cream-50ml',
+              productName: 'CeraVe Moisturizing Cream',
+              variantLabel: '454g',
+              quantity: 1,
+              unitPrice: 1679,
+              productPagePath: '/shop/cerave-moisturizing-cream-454g',
+              primaryImageUrl: { url: 'https://cdn.example/img.jpg' },
+            },
+          ],
+          grandTotal: 1679,
+          discountAmount: 0,
+        },
+      } as never,
+      recoveryUrl: 'https://www.cureka.com/cart',
+      storefrontUrl: 'https://www.cureka.com',
+      checkoutId: 'CAR2026217409-S1',
+    });
+
+    expect(payload.checkout_id).toBe('CAR2026217409-S1');
+    expect(payload.cart_recovery_url).toBe('https://www.cureka.com/cart');
+    expect(payload.line_items[0]?.id).toBe('CERAVE-454G');
+    expect(payload.line_items[0]?.name).toBe('CeraVe Moisturizing Cream 454g');
+  });
+});
+
+describe('mapGokwikAbandonedCartToBobExternal', () => {
+  it('maps GoKwik webhook data onto /abancart-external and rewrites beta restore links', () => {
+    const payload = mapGokwikAbandonedCartToBobExternal({
+      checkoutId: 'gk-cart-1',
+      merchantCartId: 'CAR20260001',
+      storefrontUrl: 'https://www.cureka.com',
+      payload: {
+        cart_id: 'gk-cart-1',
+        data: {
+          abc_url: 'https://beta.cureka.com?grid=gk-cart-1',
+          customer: { phone: '+919876543210', firstname: 'Ada', email: 'a@test.com' },
+          items: [
+            {
+              id: 'sku-1',
+              product_id: 1001,
+              variant_id: 2001,
+              title: 'Serum 30ml',
+              quantity: 2,
+              price: 75000,
+            },
+          ],
+          total_price: 1500,
+        },
+      },
+    });
+
+    expect(payload).toEqual(
+      expect.objectContaining({
+        c_id: 'gk-cart-1',
+        abc_url: 'https://www.cureka.com?grid=gk-cart-1',
+        total_price: 1500,
+        customer: expect.objectContaining({ phone: '+919876543210', firstname: 'Ada' }),
+      }),
+    );
+    expect(payload?.items).toHaveLength(1);
+  });
+
+  it('returns null when phone or items are missing', () => {
+    expect(
+      mapGokwikAbandonedCartToBobExternal({
+        checkoutId: 'gk-cart-1',
+        merchantCartId: null,
+        storefrontUrl: 'https://www.cureka.com',
+        payload: { cart_id: 'gk-cart-1' },
+      }),
+    ).toBeNull();
   });
 });
