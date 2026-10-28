@@ -3,7 +3,8 @@
  *
  * Known unambiguous sequences are mapped back to the original Unicode
  * character. Mixed valid Unicode is preserved. Ambiguous leftovers are
- * reported and left unchanged — never deleted.
+ * reported and left unchanged — never deleted, except confirmed C0/BOM/bidi
+ * controls that are not catalog text.
  */
 
 export type UnresolvedFragment = {
@@ -52,6 +53,12 @@ const UNICODE_TO_WIN1252 = new Map<number, number>(
 );
 
 const UNDEFINED_WIN1252_BYTES = new Set([0x81, 0x8d, 0x8f, 0x90, 0x9d]);
+const DEFINED_C1_TO_UNICODE = new Map<number, string>(
+  [...WIN1252_BYTE_TO_UNICODE.entries()].map(([byte, codePoint]) => [
+    byte,
+    String.fromCodePoint(codePoint),
+  ]),
+);
 
 const LIGATURE_ASCII: Array<[string, string]> = [
   ['\uFB00', 'ff'],
@@ -192,7 +199,6 @@ function buildExactMaps(): Array<[string, string]> {
     remember(`\u00C3${char}`, char);
   }
 
-  // Collapsed double-encoded apostrophe / trademark forms seen in CSV exports.
   remember('Ã¢â‚¬â„¢', '\u2019');
   remember('Ã¢â‚¬Å“', '\u201C');
   remember('Ã¢â‚¬Â\u009d', '\u201D');
@@ -206,18 +212,41 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function regexCharClass(chars: string): string {
+  const escaped = chars.replace(/[\\\]^-]/g, '\\$&');
+  return `[${escaped}]`;
+}
+
+const C0_EXCEPT_WHITESPACE = Array.from({ length: 32 }, (_, code) =>
+  code === 0x09 || code === 0x0a || code === 0x0d ? '' : String.fromCharCode(code),
+).join('');
+const C1_CHARS = Array.from({ length: 32 }, (_, index) => String.fromCharCode(0x80 + index)).join('');
+const INVISIBLE_FORMAT = '\u200B\u200E\u200F\u202A\u202B\u202C\u202D\u202E\u2060\uFEFF';
+const CONTROL_CLASS = regexCharClass(`${C0_EXCEPT_WHITESPACE}\u007F${C1_CHARS}`);
+const STRAY_LEAD_FOLLOWER = ' \t,.;:!?)]}\'"';
+const STRAY_LEAD_PATTERNS = ['Â', 'Ã'].flatMap((lead) =>
+  [...STRAY_LEAD_FOLLOWER, ''].map((follower) => `${lead}${follower}`).filter((item) => item.length === 2),
+);
+
 const DETECTOR_SOURCES = [
   ...new Set([
     ...EXACT_MAPS.map(([from]) => from).filter((from) => from.length >= 2),
+    ...STRAY_LEAD_PATTERNS,
     'â€',
     'ðŸ',
     'ï¿½',
     'ï¬',
     '\uFFFD',
+    '\u02DA',
   ]),
 ].sort((left, right) => right.length - left.length);
 
-const DETECTOR_BODY = `${DETECTOR_SOURCES.map(escapeRegex).join('|')}|[\\u0080-\\u009F]`;
+const DETECTOR_BODY = [
+  ...DETECTOR_SOURCES.map(escapeRegex),
+  CONTROL_CLASS,
+  '[ÂÃ]$',
+  'º\\s*[CFcf]',
+].join('|');
 
 export const SQL_INDICATOR = `(${DETECTOR_BODY})`;
 export const JS_INDICATOR = new RegExp(DETECTOR_BODY, 'u');
@@ -232,7 +261,58 @@ function applyExactMaps(value: string): string {
 }
 
 function applyContextualDegree(value: string): string {
-  return value.replace(/(\d(?:[.,]\d+)?)\s*\u02DA\s*(?=[CFcf])/g, '$1\u00B0');
+  return value
+    .replace(/\u02DA\s*(?=[CFcf])/g, '\u00B0')
+    .replace(/\u00BA\s*(?=[CFcf])/g, '\u00B0');
+}
+
+function mapDefinedC1Controls(value: string): string {
+  let output = '';
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0;
+    output += DEFINED_C1_TO_UNICODE.get(code) ?? char;
+  }
+  return output;
+}
+
+function isStrayLeadFollower(nextCode: number | undefined): boolean {
+  if (nextCode === undefined) return true;
+  if (nextCode <= 0x20) return true;
+  if (nextCode >= 0x21 && nextCode <= 0x2f) return true;
+  if (nextCode >= 0x3a && nextCode <= 0x40) return true;
+  if (nextCode >= 0x5b && nextCode <= 0x60) return true;
+  if (nextCode >= 0x7b && nextCode <= 0x7e) return true;
+  return false;
+}
+
+function stripStrayUtf8LeadBytes(value: string): string {
+  const chars = [...value];
+  let output = '';
+  for (let index = 0; index < chars.length; index += 1) {
+    const char = chars[index];
+    const code = char.codePointAt(0) ?? 0;
+    if (code === 0xc2 || code === 0xc3) {
+      const nextCode = chars[index + 1]?.codePointAt(0);
+      if (isStrayLeadFollower(nextCode)) continue;
+    }
+    output += char;
+  }
+  return output;
+}
+
+function stripForbiddenControls(value: string): string {
+  let output = '';
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0;
+    if (code === 0x09 || code === 0x0a || code === 0x0d) {
+      output += char;
+      continue;
+    }
+    if (code < 0x20 || code === 0x7f) continue;
+    if (INVISIBLE_FORMAT.includes(char)) continue;
+    output += char;
+  }
+  return output;
 }
 
 function decodeMappedChars(chars: string[]): string | null {
@@ -288,9 +368,12 @@ function repairMixed(value: string): string {
   return output;
 }
 
-function reasonFor(fragment: string): string {
+export function reasonFor(fragment: string): string {
   if (fragment === '\uFFFD' || fragment === 'ï¿½') return 'unrecoverable_replacement_character';
+  if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(fragment)) return 'c0_control_character';
   if (/[\u0080-\u009F]/.test(fragment)) return 'c1_control_character';
+  if (fragment === '\u00C2' || fragment === '\u00C3') return 'stray_utf8_lead_byte';
+  if (fragment === '\u02DA') return 'ring_above_not_temperature';
   if (fragment.startsWith('â€') && fragment.length < 3) return 'incomplete_punctuation_mojibake';
   if (fragment.startsWith('ðŸ') && fragment.length < 4) return 'incomplete_emoji_mojibake';
   if (fragment.startsWith('ï¬') && fragment.length < 3) return 'incomplete_ligature_mojibake';
@@ -308,11 +391,36 @@ export function findUnresolved(value: string): UnresolvedFragment[] {
   return unresolved;
 }
 
+export function findReviewOnlyFragments(value: string): UnresolvedFragment[] {
+  const extra: UnresolvedFragment[] = [];
+  const patterns: Array<[RegExp, string]> = [
+    [/\u00AD/gu, 'soft_hyphen'],
+    [/\u00A2/gu, 'suspicious_cent_sign'],
+    [/\u02DC/gu, 'suspicious_small_tilde'],
+    [/\d[\u2018\u2019\u201C\u201D]\d/gu, 'curly_quote_between_numbers'],
+    [/\s[\u2018\u2019\u201C\u201D]\s/gu, 'spaced_curly_quote'],
+    [/\d+\.\d+\.\d+\s*[°\u00B0]?\s*[CFcf]/gu, 'malformed_numeric_expression'],
+  ];
+  for (const [pattern, reason] of patterns) {
+    pattern.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(value))) {
+      extra.push({ fragment: match[0], reason });
+      if (match[0].length === 0) pattern.lastIndex += 1;
+    }
+  }
+  return extra;
+}
+
 export function repairText(value: string): RepairResult {
   if (!value) return { value, changed: false, unresolved: [] };
   let current = value;
   for (let pass = 0; pass < 4; pass += 1) {
-    const next = applyContextualDegree(repairMixed(applyExactMaps(current)));
+    const next = stripForbiddenControls(
+      applyContextualDegree(
+        stripStrayUtf8LeadBytes(mapDefinedC1Controls(repairMixed(applyExactMaps(current)))),
+      ),
+    );
     if (next === current) break;
     current = next;
   }

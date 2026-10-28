@@ -33,6 +33,7 @@
     "db:text-corruption": "ts-node -r tsconfig-paths/register apps/api/database/scripts/cleanup-text-corruption.runner.ts",
     "db:text-corruption:dry-run": "npm run db:text-corruption -- --dry-run",
     "db:text-corruption:apply": "npm run db:text-corruption -- --apply",
+    "db:text-corruption:csv-audit": "ts-node -r tsconfig-paths/register apps/api/database/scripts/audit-text-corruption-csv.runner.ts",
     "seed:run": "ts-node -r tsconfig-paths/register apps/api/database/seeds/seed.runner.ts",
     "admin:reset-superadmin-password": "ts-node -r tsconfig-paths/register apps/api/database/scripts/reset-superadmin-password.runner.ts",
     "admin:revoke-superadmin-sessions": "ts-node -r tsconfig-paths/register apps/api/database/scripts/revoke-superadmin-sessions.runner.ts",

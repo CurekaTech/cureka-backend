@@ -2,7 +2,9 @@
 
 The runner inspects `public.product_faqs`, `public.product_variants`, `public.products`, and `public.blog_posts`. Known UTF-8 / Windows-1252 mojibake is restored to the original Unicode character. Ambiguous leftovers are reported and left unchanged — never deleted. JSON/JSONB fields are traversed recursively through string values; object keys and non-string values are preserved. Updates are keyed by each table's primary key and guarded by the original field value inside a transaction.
 
-The SQL scan and JavaScript repair share the detector from `text-corruption-repair.ts`. Apply explicitly serializes JSON and JSONB `before`/`after` values as JSON text before binding them, including root-level JSON strings; this avoids passing unquoted string contents to PostgreSQL's JSON parser. Updates and post-update verification remain in one transaction, and the committed success summary is printed only after `COMMIT` succeeds.
+The SQL scan and JavaScript repair share the detector from `text-corruption-repair.ts`. Apply explicitly serializes JSON and JSONB `before`/`after` values as JSON text before binding them, including root-level JSON strings, and compares/assigns JSONB with `::jsonb`. Updates and in-transaction verification remain in one transaction. The runner logs `[commit] transaction committed` only after `COMMIT` succeeds, then re-scans on a new snapshot and fails if any repairable fields remain.
+
+Known restorations include Windows-1252 mojibake, defined C1 bytes mapped to punctuation, stray `Â`/`Ã` before whitespace or punctuation (not before letters, so `SÃO` is preserved), `˚C`/`ºC` to `°C`, and stripping of C0/BOM/bidi format marks. Replacement characters, incomplete `â€`, undefined C1 (`U+009D`), and damaged measurements are reported, never guessed.
 
 The runner requires an explicit `--dry-run` or `--apply` mode. It never creates, overwrites, restores, truncates, or deletes a backup or database.
 
@@ -43,7 +45,15 @@ The `pg` dependency remains at the repository's installed version (`^8.12.0`); t
 4. Verify the backup path, size, timestamp, and successful `pg_restore --list` result. A restore rehearsal in a separately approved scratch database is recommended when full restorability must be established; this runner never performs that restore.
 5. Obtain human approval for the exact host/database, preview counts, preview ID, and backup artifact.
 6. For apply, set `TEXT_CORRUPTION_CLEANUP_CONFIRM_TARGET` to `<host>/<database>` and `TEXT_CORRUPTION_CLEANUP_CONFIRM_PREVIEW` to the preview ID. Apply performs a fresh scan and refuses to write if the scan's fingerprint differs. Review that fresh preview before accepting the command's guarded apply.
-7. Save the logs and verify the transaction summary. On any failed row-level comparison or post-update scan, the transaction rolls back.
+7. Save the logs and verify `[commit] transaction committed` plus `post-commit repairable matches=0`. On any failed row-level comparison or in-transaction post-update scan, the transaction rolls back. A missing commit line means writes did not persist.
+
+Independent CSV audit (no database):
+
+```bash
+npm run db:text-corruption:csv-audit -- --csv='/absolute/path/bulk-export-products.csv' --out=docs/text-corruption/reports
+```
+
+After the 29 October 2026 apply of 2,768 restorations, take a **new** custom-format dump before any further apply. The 23 October and 28 October dumps predate that apply; using them as the restore point would rewind those restorations.
 
 Dry-run command template:
 

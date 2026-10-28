@@ -44,6 +44,8 @@ import {
   formatRelatedGroupFailureReason,
   humanizeBulkUploadColumn,
 } from '../utils/bulk-upload-error-message.util';
+import { hasForbiddenCorruption } from '@database/scripts/text-corruption-policy';
+import { findUnresolved, repairText } from '@database/scripts/text-corruption-repair';
 
 type CachedCategoryFilter = {
   refId: string;
@@ -553,6 +555,7 @@ export class BulkUploadValidatorService {
     for (const group of batch) {
       const groupErrors: IValidationError[] = [];
       const productSku = group.variants[0]?.sku ?? 'PARENT';
+      this.validateTextCorruption(group, groupErrors, productSku);
       let resolvedExistingProductRefId = this.resolveExistingProductRefIdForGroup(group);
       const relatedProductRefIds = new Set<string>();
 
@@ -1545,6 +1548,90 @@ export class BulkUploadValidatorService {
         suggestedFix: 'Lower the selling price or adjust the MRP.',
       });
     }
+  }
+
+  private validateTextCorruption(
+    group: IParsedProductGroup,
+    groupErrors: IValidationError[],
+    productSku: string,
+  ): void {
+    const fields: Array<[string, string | undefined]> = [
+      ['Product Name', group.name],
+      ['Meta Title', group.metaTitle],
+      ['Meta Description', group.metaDescription],
+      ['Components', group.components],
+      ['Return Policy', group.returnPolicy],
+    ];
+    for (const [column, value] of fields) {
+      this.rejectForbiddenText(group.rowNumber, productSku, column, value, groupErrors);
+    }
+    for (const tag of group.productTags ?? []) {
+      this.rejectForbiddenText(group.rowNumber, productSku, 'Product Tags', tag, groupErrors);
+    }
+    for (const keyword of group.metaKeywords ?? []) {
+      this.rejectForbiddenText(group.rowNumber, productSku, 'Meta Keywords', keyword, groupErrors);
+    }
+    for (const item of group.productInformation ?? []) {
+      this.rejectForbiddenText(
+        group.rowNumber,
+        productSku,
+        item.label || 'Product Information',
+        item.description,
+        groupErrors,
+      );
+    }
+    for (const faq of group.faqs ?? []) {
+      this.rejectForbiddenText(group.rowNumber, productSku, 'FAQ Question', faq.question, groupErrors);
+      this.rejectForbiddenText(group.rowNumber, productSku, 'FAQ Answer', faq.answer, groupErrors);
+    }
+    for (const variant of group.variants ?? []) {
+      const sku = variant.sku || productSku;
+      this.rejectForbiddenText(group.rowNumber, sku, 'Variant Display Name', variant.displayName, groupErrors);
+      this.rejectForbiddenText(group.rowNumber, sku, 'Variant Meta Title', variant.metaTitle, groupErrors);
+      this.rejectForbiddenText(
+        group.rowNumber,
+        sku,
+        'Variant Meta Description',
+        variant.metaDescription,
+        groupErrors,
+      );
+      for (const tag of variant.searchTags ?? []) {
+        this.rejectForbiddenText(group.rowNumber, sku, 'Search Tags', tag, groupErrors);
+      }
+      for (const faq of variant.faqs ?? []) {
+        this.rejectForbiddenText(group.rowNumber, sku, 'FAQ Question', faq.question, groupErrors);
+        this.rejectForbiddenText(group.rowNumber, sku, 'FAQ Answer', faq.answer, groupErrors);
+      }
+    }
+  }
+
+  private rejectForbiddenText(
+    rowNumber: number,
+    sku: string,
+    column: string,
+    value: string | undefined,
+    groupErrors: IValidationError[],
+  ): void {
+    if (!value) return;
+    const unresolved = [...repairText(value).unresolved, ...findUnresolved(value)];
+    if (!hasForbiddenCorruption(unresolved)) return;
+    const fragment = unresolved.find((item) =>
+      [
+        'unrecoverable_replacement_character',
+        'c1_control_character',
+        'c0_control_character',
+        'incomplete_punctuation_mojibake',
+      ].includes(item.reason),
+    );
+    groupErrors.push({
+      rowNumber,
+      sku,
+      column,
+      invalidValue: value.slice(0, 120),
+      reason: `Unresolved text corruption (${fragment?.reason ?? 'forbidden_character'}) remains after encoding repair.`,
+      suggestedFix:
+        'Restore the original wording from the supplier catalog. Do not guess replacement characters or missing operators.',
+    });
   }
 
   private validateSubCategories(group: IParsedProductGroup, groupErrors: IValidationError[]): void {
