@@ -132,6 +132,11 @@ describe('Product subscription Razorpay UPI renewal', () => {
     nestConfig as never,
     {} as never,
     ordersService as never,
+    {
+      findSent: jest.fn(async () => null),
+      tryRecordSend: jest.fn(async () => true),
+      findBySubscriptionId: jest.fn(async () => []),
+    } as never,
   );
 
   function settle(subscriptionId?: string) {
@@ -973,15 +978,25 @@ describe('Product subscription Razorpay UPI renewal', () => {
       maxAmount: '2500.00',
       consentEvidence: { method: 'card' },
     });
-    paymentsService.findById.mockResolvedValue({
-      id: 'pay-row-1',
-      status: SubscriptionPaymentStatus.RECONCILING,
-      amount: '2.00',
-      currency: 'INR',
-      gatewayOrderId: null,
-      gatewayPaymentId: null,
-      subscriptionId: 'sub-1',
-    });
+    paymentsService.findById
+      .mockResolvedValueOnce({
+        id: 'pay-row-1',
+        status: SubscriptionPaymentStatus.PENDING,
+        amount: '2.00',
+        currency: 'INR',
+        gatewayOrderId: null,
+        gatewayPaymentId: null,
+        subscriptionId: 'sub-1',
+      })
+      .mockResolvedValue({
+        id: 'pay-row-1',
+        status: SubscriptionPaymentStatus.RECONCILING,
+        amount: '2.00',
+        currency: 'INR',
+        gatewayOrderId: null,
+        gatewayPaymentId: null,
+        subscriptionId: 'sub-1',
+      });
     fetchChargeStatus.mockResolvedValue({ state: 'unknown' });
 
     await renew('sub-1');

@@ -32,6 +32,7 @@ import {
 } from '../dto/product-subscription.dto';
 import { ProductSubscriptionStatus } from '../enums/product-subscription-status.enum';
 import { ProductSubscriptionFrequency } from '../enums/product-subscription-frequency.enum';
+import { SubscriptionBillingCycleEntity } from '../entities/subscription-billing-cycle.entity';
 import { SubscriptionMandateEntity } from '../entities/subscription-mandate.entity';
 import { UserProductSubscriptionEntity } from '../entities/user-product-subscription.entity';
 import { SubscriptionBillingCycleStatus } from '../enums/subscription-billing-cycle-status.enum';
@@ -56,7 +57,12 @@ import {
 } from '../utils/cashfree-schedule-date.util';
 import { isCashfreeAdvanceChargeEnabled } from '../utils/subscriptions-module.util';
 import { UserProductSubscriptionsRepository } from '../repositories/user-product-subscriptions.repository';
+import { SubscriptionReminderLogsRepository } from '../repositories/subscription-reminder-logs.repository';
 import { SubscriptionStatusHistoryRepository } from '../repositories/subscription-status-history.repository';
+import {
+  calendarDaysUntil,
+  resolveReminderOffsets,
+} from '../utils/subscription-calendar-days.util';
 import { buildBillingCycleRef } from '../utils/billing-cycle-ref.util';
 import { buildSubscriptionGatewayNotes } from '../utils/subscription-gateway-notes.util';
 import { isAmountWithinMandateLimit, resolveMandateMaxAmount } from '../utils/mandate-amount.util';
@@ -111,6 +117,7 @@ export class ProductSubscriptionsService {
     private readonly auditService: AuditService,
     @Inject(forwardRef(() => OrdersService))
     private readonly ordersService: OrdersService,
+    private readonly reminderLogsRepository: SubscriptionReminderLogsRepository,
   ) {}
 
   async getConfig(query: ProductSubscriptionConfigQueryDto) {
@@ -1055,23 +1062,50 @@ export class ProductSubscriptionsService {
   async listCycles(userId: string, subscriptionId: string) {
     const sub = await this.subscriptionsRepository.findByIdAndUserId(subscriptionId, userId);
     if (!sub) throw new NotFoundException('Subscription not found');
-    const cycles = await this.billingCycleService.findBySubscriptionId(subscriptionId);
-    return cycles.map((cycle) => ({
-      id: cycle.id,
-      refId: cycle.refId,
-      billingCycleRef: cycle.billingCycleRef,
-      sequence: cycle.sequence,
-      status: cycle.status,
-      chargeDate: cycle.chargeDate.toISOString(),
-      estimatedDeliveryDate: cycle.estimatedDeliveryDate?.toISOString() ?? null,
-      amount: cycle.amount,
-      currency: cycle.currency,
-      orderId: cycle.orderId,
-      paymentId: cycle.paymentId,
-      skipReason: cycle.skipReason,
-      failureReason: cycle.failureReason,
-      retryCount: cycle.retryCount,
-    }));
+    await this.ensureUpcomingBillingCycle(sub, userId);
+    const [cycles, payments, reminders] = await Promise.all([
+      this.billingCycleService.findBySubscriptionId(subscriptionId),
+      this.paymentsService.findBySubscriptionId(subscriptionId),
+      this.reminderLogsRepository.findBySubscriptionId(subscriptionId),
+    ]);
+    const paymentById = new Map(payments.map((payment) => [payment.id, payment]));
+    const paymentByCycleRef = new Map(payments.map((payment) => [payment.billingCycleRef, payment]));
+    return cycles.map((cycle) => {
+      const payment =
+        (cycle.paymentId ? paymentById.get(cycle.paymentId) : undefined) ??
+        paymentByCycleRef.get(cycle.billingCycleRef);
+      const earlyPaymentEligible = this.isEarlyPaymentEligible(cycle, payment);
+      const reminderLogs = reminders
+        .filter((row) => row.billingCycleRef === cycle.billingCycleRef)
+        .map((row) => ({
+          daysBefore: row.daysBefore,
+          channel: row.channel,
+          sentAt: row.sentAt.toISOString(),
+        }));
+      return {
+        id: cycle.id,
+        refId: cycle.refId,
+        billingCycleRef: cycle.billingCycleRef,
+        sequence: cycle.sequence,
+        status: cycle.status,
+        chargeDate: cycle.chargeDate.toISOString(),
+        estimatedDeliveryDate: cycle.estimatedDeliveryDate?.toISOString() ?? null,
+        amount: cycle.amount,
+        currency: cycle.currency,
+        orderId: cycle.orderId,
+        paymentId: cycle.paymentId,
+        skipReason: cycle.skipReason,
+        failureReason: cycle.failureReason,
+        retryCount: cycle.retryCount,
+        paymentLink: payment?.paymentLink ?? null,
+        paymentStatus: payment?.status ?? null,
+        attemptKind: payment?.attemptKind ?? null,
+        paymentGateway: payment?.paymentGateway ?? sub.paymentGateway ?? null,
+        gatewayOrderId: payment?.gatewayOrderId ?? null,
+        earlyPaymentEligible,
+        reminderLogs,
+      };
+    });
   }
 
   async listHistory(userId: string | null, subscriptionId: string) {
@@ -1204,7 +1238,32 @@ export class ProductSubscriptionsService {
         message: 'An AutoPay debit is already in progress for this cycle',
       });
     }
-    return this.retryPayment(userId, subscriptionId);
+    const paymentForCycle = cycle.paymentId
+      ? await this.paymentsService.findById(cycle.paymentId)
+      : (await this.paymentsService.findBySubscriptionId(subscriptionId)).find(
+          (row) => row.billingCycleRef === cycle.billingCycleRef,
+        );
+    if (this.isAutopayCollectionInFlight(cycle, paymentForCycle)) {
+      throw new BadRequestException({
+        code: SUBSCRIPTION_ERROR.CYCLE_IN_FLIGHT,
+        message:
+          'An AutoPay charge is pending or reconciling for this cycle. Early payment is blocked until that charge settles.',
+      });
+    }
+    if (paymentForCycle?.status === SubscriptionPaymentStatus.FAILED) {
+      return this.retryPayment(userId, subscriptionId);
+    }
+    const link = await this.lockService.withDbLock(`early-pay:${cycle.id}`, () =>
+      this.ensureEarlyPaymentLink(sub, cycle, userId),
+    );
+    if (!link) {
+      throw new BadRequestException({
+        code: SUBSCRIPTION_ERROR.CYCLE_IN_FLIGHT,
+        message: 'Early payment is not available for this cycle right now',
+      });
+    }
+    const refreshed = await this.subscriptionsRepository.findById(subscriptionId);
+    return this.mapOwned(refreshed ?? sub, checkoutExtrasFromLink(link));
   }
 
   async adminPause(idOrRefId: string, actor: string, reason?: string) {
@@ -2390,7 +2449,8 @@ export class ProductSubscriptionsService {
     if (
       existing &&
       existing.status !== SubscriptionBillingCycleStatus.SCHEDULED &&
-      existing.status !== SubscriptionBillingCycleStatus.FAILED
+      existing.status !== SubscriptionBillingCycleStatus.FAILED &&
+      existing.status !== SubscriptionBillingCycleStatus.LINK_GENERATED
     ) {
       return;
     }
@@ -2434,8 +2494,7 @@ export class ProductSubscriptionsService {
       cycle.status === SubscriptionBillingCycleStatus.PAID_ORDER_PENDING ||
       cycle.status === SubscriptionBillingCycleStatus.SKIPPED ||
       cycle.status === SubscriptionBillingCycleStatus.DEBIT_PENDING ||
-      cycle.status === SubscriptionBillingCycleStatus.NOTIFICATION_SENT ||
-      cycle.status === SubscriptionBillingCycleStatus.LINK_GENERATED
+      cycle.status === SubscriptionBillingCycleStatus.NOTIFICATION_SENT
     ) {
       return;
     }
@@ -2455,7 +2514,15 @@ export class ProductSubscriptionsService {
 
     if (cycle.paymentId) {
       const existingPayment = await this.paymentsService.findById(cycle.paymentId);
-      if (existingPayment?.gatewayOrderId || existingPayment?.gatewayPaymentId) return;
+      if (existingPayment?.status === SubscriptionPaymentStatus.PAID) return;
+      if (existingPayment?.status === SubscriptionPaymentStatus.RECONCILING) return;
+      // Unpaid MANUAL_LINK early-pay sessions may be superseded by AutoPay CHARGE.
+      if (
+        existingPayment?.attemptKind === SubscriptionPaymentAttemptKind.AUTOPAY &&
+        (existingPayment.gatewayOrderId || existingPayment.gatewayPaymentId)
+      ) {
+        return;
+      }
     }
 
     await this.attemptAutopay(sub, cycle, mandate.id, amount, billingCycleRef, sub.nextBillingDate);
@@ -2529,23 +2596,92 @@ export class ProductSubscriptionsService {
     let sent = 0;
     for (const sub of active) {
       if (!sub.nextBillingDate) continue;
-      const offsets = sub.config?.reminderOffsetsJson ?? [7, 2, 0];
-      const daysUntil = Math.round(
-        (sub.nextBillingDate.getTime() - asOfDate.getTime()) / (24 * 60 * 60 * 1000),
-      );
+      if (
+        sub.status === ProductSubscriptionStatus.PAUSED ||
+        sub.status === ProductSubscriptionStatus.CANCELLED ||
+        sub.status === ProductSubscriptionStatus.EXPIRED
+      ) {
+        continue;
+      }
+      const timezone = sub.timezone || sub.config?.timezone || 'Asia/Kolkata';
+      const daysUntil = calendarDaysUntil(asOfDate, sub.nextBillingDate, timezone);
+      const offsets = resolveReminderOffsets(sub.config?.reminderOffsetsJson);
       if (!offsets.includes(daysUntil)) continue;
-      const cycleRef = buildBillingCycleRef(sub.nextBillingDate, sub.frequency);
-      const payment = await this.paymentsService
-        .findBySubscriptionId(sub.id)
-        .then((rows) => rows.find((p) => p.billingCycleRef === cycleRef));
-      this.notificationsService.notifyReminder({
-        userId: sub.userId,
-        kind: 'product_subscription',
-        paymentLink: payment?.paymentLink,
-        daysBefore: daysUntil,
-        refId: sub.refId,
+
+      const owned = await this.lockService.withDbLock(`reminder:${sub.id}:${daysUntil}`, async () => {
+        const cycle = await this.ensureUpcomingBillingCycle(sub, 'scheduler');
+        if (!cycle) return false;
+        if (
+          cycle.status === SubscriptionBillingCycleStatus.PAID ||
+          cycle.status === SubscriptionBillingCycleStatus.PAID_ORDER_PENDING ||
+          cycle.status === SubscriptionBillingCycleStatus.SKIPPED
+        ) {
+          return false;
+        }
+        const existingPayment = cycle.paymentId
+          ? await this.paymentsService.findById(cycle.paymentId)
+          : (await this.paymentsService.findBySubscriptionId(sub.id)).find(
+              (row) => row.billingCycleRef === cycle.billingCycleRef,
+            );
+        if (existingPayment?.status === SubscriptionPaymentStatus.PAID) return false;
+        if (this.isAutopayCollectionInFlight(cycle, existingPayment)) return false;
+
+        const already = await this.reminderLogsRepository.findSent({
+          subscriptionId: sub.id,
+          billingCycleRef: cycle.billingCycleRef,
+          daysBefore: daysUntil,
+          channel: 'email',
+        });
+        if (already) return false;
+
+        const link = await this.ensureEarlyPaymentLink(sub, cycle, 'scheduler');
+        if (!link?.paymentLink) {
+          this.logger.warn(
+            { subscriptionId: sub.id, billingCycleRef: cycle.billingCycleRef, daysUntil },
+            'Reminder skipped — early payment link could not be generated',
+          );
+          return false;
+        }
+
+        const claimed = await this.reminderLogsRepository.tryRecordSend({
+          subscriptionId: sub.id,
+          billingCycleRef: cycle.billingCycleRef,
+          daysBefore: daysUntil,
+          channel: 'email',
+          paymentId: cycle.paymentId,
+          actor: 'scheduler',
+        });
+        if (!claimed) return false;
+
+        const [productMap, variantMap] = await Promise.all([
+          this.relationLoader.loadProductEntitiesByIds([sub.productId]),
+          this.relationLoader.loadVariantsByIds([sub.productVariantId]),
+        ]);
+        const product = productMap.get(sub.productId);
+        const variant = variantMap.get(sub.productVariantId);
+        const emailed = await this.notificationsService.sendRenewalReminderEmail({
+          userId: sub.userId,
+          kind: 'product_subscription',
+          paymentLink: link.paymentLink,
+          amount: cycle.amount,
+          currency: cycle.currency,
+          daysBefore: daysUntil,
+          scheduledRenewalDate: sub.nextBillingDate!.toISOString(),
+          productName: product?.name ?? null,
+          variantName: variant?.displayName ?? null,
+          sku: variant?.sku ?? null,
+          refId: sub.refId,
+          autopayEnabled: sub.autopayReady,
+        });
+        if (!emailed) {
+          this.logger.warn(
+            { subscriptionId: sub.id, billingCycleRef: cycle.billingCycleRef, daysUntil },
+            'Reminder log claimed but email was not delivered — will not retry the same offset',
+          );
+        }
+        return emailed;
       });
-      sent += 1;
+      if (owned) sent += 1;
     }
     return sent;
   }
@@ -2963,6 +3099,21 @@ export class ProductSubscriptionsService {
     ) {
       return;
     }
+    {
+      const existingPayment = cycle.paymentId
+        ? await this.paymentsService.findById(cycle.paymentId)
+        : await this.paymentsService
+            .findBySubscriptionId(sub.id)
+            .then((rows) => rows.find((row) => row.billingCycleRef === billingCycleRef));
+      if (existingPayment?.status === SubscriptionPaymentStatus.PAID) return;
+      if (existingPayment?.status === SubscriptionPaymentStatus.RECONCILING) {
+        this.logger.log(
+          { subscriptionId: sub.id, billingCycleRef, paymentId: existingPayment.id },
+          'Skipping AutoPay — cycle payment is already reconciling (early pay or prior charge)',
+        );
+        return;
+      }
+    }
     if (cycle.status === SubscriptionBillingCycleStatus.FAILED) {
       const existingPayment = cycle.paymentId
         ? await this.paymentsService.findById(cycle.paymentId)
@@ -3339,19 +3490,30 @@ export class ProductSubscriptionsService {
       billingDate: scheduledDebitAt ?? new Date(),
       actor: 'scheduler',
     });
+    if (payment.status === SubscriptionPaymentStatus.PAID) return true;
+    if (payment.status === SubscriptionPaymentStatus.RECONCILING) {
+      this.logger.warn(
+        { subscriptionId: sub.id, billingCycleRef, paymentId: payment.id },
+        'Cycle payment is reconciling — AutoPay CHARGE was not sent again',
+      );
+      return true;
+    }
+    const priorAutopayCharge =
+      payment.attemptKind === SubscriptionPaymentAttemptKind.AUTOPAY &&
+      Boolean(payment.gatewayOrderId || payment.gatewayPaymentId);
+    if (priorAutopayCharge) {
+      this.logger.warn(
+        { subscriptionId: sub.id, billingCycleRef, paymentId: payment.id },
+        'Cycle already has an AutoPay gateway payment id, so CHARGE was not sent again',
+      );
+      return true;
+    }
     await this.paymentsService.attachCycleMetadata(payment.id, {
       billingCycleId: cycle.id,
       attemptKind: SubscriptionPaymentAttemptKind.AUTOPAY,
       idempotencyKey,
       actor: 'scheduler',
     });
-    if (payment.gatewayOrderId || payment.gatewayPaymentId) {
-      this.logger.warn(
-        { subscriptionId: sub.id, billingCycleRef, paymentId: payment.id },
-        'Cycle already has a gateway payment id, so CHARGE was not sent again',
-      );
-      return true;
-    }
     const mandateMethod = String(mandate.consentEvidence?.method ?? '');
     const cashfreeCard =
       provider === SubscriptionMandateProvider.CASHFREE &&
@@ -3538,6 +3700,205 @@ export class ProductSubscriptionsService {
     const sub = await this.subscriptionsRepository.findByIdOrRefId(idOrRefId);
     if (!sub) throw new NotFoundException('Subscription not found');
     return sub;
+  }
+
+  private isAutopayCollectionInFlight(
+    cycle: { status: string },
+    payment?: {
+      status: string;
+      attemptKind?: string | null;
+      gatewayOrderId?: string | null;
+      gatewayPaymentId?: string | null;
+    } | null,
+  ): boolean {
+    if (
+      cycle.status === SubscriptionBillingCycleStatus.DEBIT_PENDING ||
+      cycle.status === SubscriptionBillingCycleStatus.NOTIFICATION_SENT
+    ) {
+      return true;
+    }
+    if (!payment) return false;
+    if (payment.status === SubscriptionPaymentStatus.RECONCILING) return true;
+    return (
+      payment.attemptKind === SubscriptionPaymentAttemptKind.AUTOPAY &&
+      payment.status !== SubscriptionPaymentStatus.FAILED &&
+      Boolean(payment.gatewayOrderId || payment.gatewayPaymentId)
+    );
+  }
+
+  private isEarlyPaymentEligible(
+    cycle: { status: string },
+    payment?: {
+      status: string;
+      attemptKind?: string | null;
+      gatewayOrderId?: string | null;
+      gatewayPaymentId?: string | null;
+      paymentLink?: string | null;
+    } | null,
+  ): boolean {
+    if (
+      cycle.status === SubscriptionBillingCycleStatus.PAID ||
+      cycle.status === SubscriptionBillingCycleStatus.PAID_ORDER_PENDING ||
+      cycle.status === SubscriptionBillingCycleStatus.SKIPPED ||
+      cycle.status === SubscriptionBillingCycleStatus.DEBIT_PENDING
+    ) {
+      return false;
+    }
+    if (payment?.status === SubscriptionPaymentStatus.PAID) return false;
+    if (this.isAutopayCollectionInFlight(cycle, payment)) return false;
+    return true;
+  }
+
+  private async ensureUpcomingBillingCycle(
+    sub: UserProductSubscriptionEntity,
+    actor: string,
+  ): Promise<SubscriptionBillingCycleEntity | null> {
+    if (!sub.nextBillingDate) return null;
+    if (
+      ![
+        ProductSubscriptionStatus.ACTIVE,
+        ProductSubscriptionStatus.RENEWAL_PAYMENT_PENDING,
+        ProductSubscriptionStatus.PAST_DUE,
+      ].includes(sub.status)
+    ) {
+      return null;
+    }
+    let amount: string;
+    try {
+      amount = await this.recalculateAmount(sub);
+    } catch {
+      return null;
+    }
+    const deliveryLead = sub.config?.deliveryLeadDays ?? 2;
+    const billingCycleRef = buildBillingCycleRef(sub.nextBillingDate, sub.frequency);
+    return this.billingCycleService.getOrCreate({
+      subscriptionId: sub.id,
+      userId: sub.userId,
+      billingCycleRef,
+      sequence: (sub.billingCycleSequence ?? 0) + 1,
+      chargeDate: sub.nextBillingDate,
+      estimatedDeliveryDate: getEstimatedDeliveryDate(sub.nextBillingDate, deliveryLead),
+      amount,
+      pricingSnapshot: { amount, quantity: sub.quantity, frequency: sub.frequency },
+      actor,
+    });
+  }
+
+  /**
+   * Creates or reuses a MANUAL_LINK checkout for the upcoming cycle on the
+   * subscription's stored paymentGateway. Does not create a second mandate.
+   */
+  private async ensureEarlyPaymentLink(
+    sub: UserProductSubscriptionEntity,
+    cycle: SubscriptionBillingCycleEntity,
+    actor: string,
+  ): Promise<Awaited<ReturnType<SubscriptionPaymentLinkService['createPaymentLink']>> | null> {
+    const existingPayment = cycle.paymentId
+      ? await this.paymentsService.findById(cycle.paymentId)
+      : (await this.paymentsService.findBySubscriptionId(sub.id)).find(
+          (row) => row.billingCycleRef === cycle.billingCycleRef,
+        );
+    if (!this.isEarlyPaymentEligible(cycle, existingPayment)) return null;
+
+    if (
+      existingPayment &&
+      existingPayment.status === SubscriptionPaymentStatus.LINK_GENERATED &&
+      existingPayment.attemptKind !== SubscriptionPaymentAttemptKind.AUTOPAY &&
+      (existingPayment.paymentLink || existingPayment.gatewayOrderId)
+    ) {
+      return {
+        paymentLink: existingPayment.paymentLink,
+        gatewayOrderId: existingPayment.gatewayOrderId ?? existingPayment.refId,
+        paymentGateway: existingPayment.paymentGateway ?? sub.paymentGateway ?? 'CASHFREE',
+        currency: existingPayment.currency,
+        razorpayOrderId:
+          (existingPayment.paymentGateway ?? '').toUpperCase() === 'RAZORPAY'
+            ? existingPayment.gatewayOrderId
+            : null,
+        paymentSessionId: paymentSessionIdFromLink(existingPayment.paymentLink),
+        customer: { name: '', email: '', contact: '' },
+      };
+    }
+
+    const amount = cycle.amount || (await this.recalculateAmount(sub));
+    const payment = await this.paymentsService.upsertPendingCycle({
+      subscriptionId: sub.id,
+      userId: sub.userId,
+      billingCycleRef: cycle.billingCycleRef,
+      amount,
+      billingDate: cycle.chargeDate,
+      actor,
+    });
+    if (payment.status === SubscriptionPaymentStatus.PAID) return null;
+    if (payment.status === SubscriptionPaymentStatus.RECONCILING) return null;
+
+    await this.paymentsService.attachCycleMetadata(payment.id, {
+      billingCycleId: cycle.id,
+      attemptKind: SubscriptionPaymentAttemptKind.MANUAL_LINK,
+      idempotencyKey: `sub:${sub.id}:cycle:${cycle.billingCycleRef}:early`,
+      actor,
+    });
+
+    if (
+      payment.status === SubscriptionPaymentStatus.LINK_GENERATED &&
+      payment.attemptKind !== SubscriptionPaymentAttemptKind.AUTOPAY &&
+      (payment.paymentLink || payment.gatewayOrderId)
+    ) {
+      await this.billingCycleService.updateById(cycle.id, {
+        status: SubscriptionBillingCycleStatus.LINK_GENERATED,
+        paymentId: payment.id,
+        updatedBy: actor,
+      });
+      return {
+        paymentLink: payment.paymentLink,
+        gatewayOrderId: payment.gatewayOrderId ?? payment.refId,
+        paymentGateway: payment.paymentGateway ?? sub.paymentGateway ?? 'CASHFREE',
+        currency: payment.currency,
+        razorpayOrderId:
+          (payment.paymentGateway ?? '').toUpperCase() === 'RAZORPAY' ? payment.gatewayOrderId : null,
+        paymentSessionId: paymentSessionIdFromLink(payment.paymentLink),
+        customer: { name: '', email: '', contact: '' },
+      };
+    }
+
+    const user = await this.usersRepository.findById(sub.userId);
+    const persistedGateway = (sub.paymentGateway ?? '').toUpperCase();
+    const link = await this.paymentLinkService.createPaymentLink({
+      amount,
+      referenceId: payment.refId,
+      preferredGateway:
+        persistedGateway === 'RAZORPAY' || persistedGateway === 'CASHFREE'
+          ? persistedGateway
+          : null,
+      customer: {
+        id: sub.userId,
+        name: [user?.firstName, user?.lastName].filter(Boolean).join(' ') || undefined,
+        email: user?.email,
+        phone: user?.mobileNumber ?? '',
+      },
+      notes: buildSubscriptionGatewayNotes({
+        paymentPurpose: SUBSCRIPTION_PAYMENT_PURPOSE.PRODUCT_SUBSCRIPTION,
+        billingCycleRef: cycle.billingCycleRef,
+        subscriptionId: sub.id,
+        subscriptionPaymentId: payment.id,
+        userId: sub.userId,
+        productId: sub.productId,
+      }),
+      description: `Early renewal ${sub.refId}`,
+    });
+
+    await this.paymentsService.attachPaymentLink(payment.id, {
+      paymentLink: link.paymentLink ?? '',
+      gatewayOrderId: link.gatewayOrderId,
+      paymentGateway: link.paymentGateway,
+      actor,
+    });
+    await this.billingCycleService.updateById(cycle.id, {
+      status: SubscriptionBillingCycleStatus.LINK_GENERATED,
+      paymentId: payment.id,
+      updatedBy: actor,
+    });
+    return link;
   }
 
   private async assertEligibleProduct(

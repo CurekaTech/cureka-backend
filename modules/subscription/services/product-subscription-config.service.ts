@@ -44,7 +44,7 @@ export class ProductSubscriptionConfigService {
       gracePeriodDays: dto.gracePeriodDays ?? 7,
       missedPaymentAction: dto.missedPaymentAction ?? SubscriptionMissedPaymentAction.PAUSE,
       renewalMethod: dto.renewalMethod ?? SubscriptionRenewalMethod.PAYMENT_LINK,
-      reminderOffsetsJson: dto.reminderOffsetsJson ?? [7, 2, 0],
+      reminderOffsetsJson: dto.reminderOffsetsJson ?? [7, 5, 2, 0],
       quantityChangeAllowed: dto.quantityChangeAllowed ?? false,
       mandateMaxAmount:
         dto.mandateMaxAmount != null ? Number(dto.mandateMaxAmount).toFixed(2) : null,
