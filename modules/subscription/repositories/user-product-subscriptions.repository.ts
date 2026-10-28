@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { buildSkipTake } from '@packages/database';
-import { EntityManager, In, LessThanOrEqual, Repository } from 'typeorm';
+import { And, EntityManager, In, LessThanOrEqual, MoreThan, Repository } from 'typeorm';
 import { UserProductSubscriptionEntity } from '../entities/user-product-subscription.entity';
+import { ProductSubscriptionFrequency } from '../enums/product-subscription-frequency.enum';
 import { ProductSubscriptionStatus } from '../enums/product-subscription-status.enum';
 
 @Injectable()
@@ -23,6 +24,18 @@ export class UserProductSubscriptionsRepository {
   findById(id: string, manager?: EntityManager): Promise<UserProductSubscriptionEntity | null> {
     const repository = manager ? manager.getRepository(UserProductSubscriptionEntity) : this.repo;
     return repository.findOne({ where: { id }, relations: { config: true } });
+  }
+
+  findByIdIncludingDeleted(
+    id: string,
+    manager?: EntityManager,
+  ): Promise<UserProductSubscriptionEntity | null> {
+    const repository = manager ? manager.getRepository(UserProductSubscriptionEntity) : this.repo;
+    return repository.findOne({
+      where: { id },
+      relations: { config: true },
+      withDeleted: true,
+    });
   }
 
   findByRefId(refId: string, manager?: EntityManager): Promise<UserProductSubscriptionEntity | null> {
@@ -73,6 +86,43 @@ export class UserProductSubscriptionsRepository {
     });
   }
 
+  findUpcomingByFrequency(
+    frequency: ProductSubscriptionFrequency,
+    statuses: ProductSubscriptionStatus[],
+    asOfDate: Date,
+    manager?: EntityManager,
+  ): Promise<UserProductSubscriptionEntity[]> {
+    const repository = manager ? manager.getRepository(UserProductSubscriptionEntity) : this.repo;
+    return repository.find({
+      where: {
+        frequency,
+        status: In(statuses),
+        nextBillingDate: MoreThan(asOfDate),
+      },
+      relations: { config: true },
+      order: { nextBillingDate: 'ASC' },
+      take: 50,
+    });
+  }
+
+  findUpcomingWithinWindow(
+    statuses: ProductSubscriptionStatus[],
+    after: Date,
+    until: Date,
+    manager?: EntityManager,
+  ): Promise<UserProductSubscriptionEntity[]> {
+    const repository = manager ? manager.getRepository(UserProductSubscriptionEntity) : this.repo;
+    return repository.find({
+      where: {
+        status: In(statuses),
+        nextBillingDate: And(MoreThan(after), LessThanOrEqual(until)),
+      },
+      relations: { config: true },
+      order: { nextBillingDate: 'ASC' },
+      take: 200,
+    });
+  }
+
   async findPaginated(options: {
     page: number;
     limit: number;
@@ -118,7 +168,12 @@ export class UserProductSubscriptionsRepository {
     await repository.softDelete(id);
   }
 
+  async restoreById(id: string, manager?: EntityManager): Promise<void> {
+    const repository = manager ? manager.getRepository(UserProductSubscriptionEntity) : this.repo;
+    await repository.restore(id);
+  }
+
   existsByRefId(refId: string): Promise<boolean> {
-    return this.repo.exists({ where: { refId } });
+    return this.repo.exists({ where: { refId }, withDeleted: true });
   }
 }

@@ -74,6 +74,25 @@ export function gokwikWalletRemoveIdempotencyKey(cartId: string): string {
   return `wallet-gokwik-remove:${cartId.trim()}`;
 }
 
+/** Reads eligible total + credit from `wallet-gokwik-apply:{cart}:{cart}:{eligible}:{credit}`. */
+export function parseGokwikWalletApplyAllocation(
+  idempotencyKey: string,
+): { eligibleCartTotalPaise: number; walletCreditPaise: number } | null {
+  const parts = idempotencyKey.split(':');
+  if (parts.length < 2) return null;
+  const walletCreditPaise = Number(parts[parts.length - 1]);
+  const eligibleCartTotalPaise = Number(parts[parts.length - 2]);
+  if (
+    !Number.isSafeInteger(walletCreditPaise) ||
+    !Number.isSafeInteger(eligibleCartTotalPaise) ||
+    walletCreditPaise < 0 ||
+    eligibleCartTotalPaise < 0
+  ) {
+    return null;
+  }
+  return { eligibleCartTotalPaise, walletCreditPaise };
+}
+
 /**
  * Provisional cart-edit policy: any change to eligible total or credit is material.
  * GoKwik sequence (remove+apply vs re-apply) is still vendor-unconfirmed;

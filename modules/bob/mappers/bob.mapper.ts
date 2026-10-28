@@ -39,6 +39,7 @@ import {
   BobVariantDetail,
 } from '../interfaces/bob.interface';
 import {
+  optionalBobCatalogueProductId,
   requireBobCatalogueCategoryId,
   requireBobCatalogueProductId,
 } from '../utils/bob-product-id.util';
@@ -571,7 +572,10 @@ function mapBobLineItem(item: OrderItemEntity, imageByKey?: Map<string, string>)
     media && typeof media === 'object' && 'url' in media ? String(media.url ?? '') : '';
   return {
     image: { originalSrc: signed || alreadyUrl || '' },
-    product: { id: item.productId, title: item.productName },
+    product: {
+      id: optionalBobCatalogueProductId(item.product) ?? item.productId,
+      title: item.productName,
+    },
     variant: {
       id: item.variantId,
       title: item.variantName || 'Default Title',

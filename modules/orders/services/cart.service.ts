@@ -14,6 +14,7 @@ import { deriveBundleCodAvailable } from '@modules/product/utils/bundle-cod.util
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { ProductSubscriptionConfigService } from '@modules/subscription/services/product-subscription-config.service';
 import { isSubscriptionsModuleEnabled } from '@modules/subscription/utils/subscriptions-module.util';
+import { assertProductFrequenciesAllowed } from '@modules/subscription/utils/subscription-test-tenures.util';
 import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
 import { CheckoutResolverService } from '@modules/checkout/services/checkout-resolver.service';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
@@ -29,6 +30,7 @@ import { SavedForLaterItemsRepository } from '../repositories/saved-for-later-it
 import { CartCheckoutAdminSettingsService } from './cart-checkout-admin-settings.service';
 import { PromotionalOfferEvaluationService } from '@modules/promotional-offers/services/promotional-offer-evaluation.service';
 import { isPromotionalOffersEnabled } from '@modules/promotional-offers/utils/promotional-offers-enabled.util';
+import { lineMatchesOfferScope, readOfferScope } from '@modules/promotional-offers/utils/offer-scope.util';
 import { normalizeCheckoutCode } from '@modules/promotional-offers/utils/checkout-code-namespace.util';
 import { CouponsRepository } from '@modules/master/repositories/coupons.repository';
 import { CartPricingService } from './cart-pricing.service';
@@ -366,6 +368,11 @@ export class CartService {
             variantLabel: item.variantLabel,
             isSubscription: item.isSubscription,
             productType: null,
+            brandId: item.brandId,
+            categoryId: item.categoryId,
+            subCategoryId: item.subCategoryId,
+            subSubCategoryId: item.subSubCategoryId,
+            subSubSubCategoryId: item.subSubSubCategoryId,
           })),
         });
         const applied = preview.promotions.length > 0 || preview.rewardLines.length > 0 || preview.bmsmDiscount > 0;
@@ -471,6 +478,11 @@ export class CartService {
             variantLabel: item.variantLabel,
             isSubscription: item.isSubscription,
             productType: null,
+            brandId: item.brandId,
+            categoryId: item.categoryId,
+            subCategoryId: item.subCategoryId,
+            subSubCategoryId: item.subSubCategoryId,
+            subSubSubCategoryId: item.subSubSubCategoryId,
           })),
         });
         const benefit = preview.promotionDiscount || preview.bmsmDiscount || preview.promotions[0]?.discountAmount || 0;
@@ -478,13 +490,28 @@ export class CartService {
         const cartHasTarget = (offer.targets ?? []).some((target) =>
           lineItems.some((item) => item.variantId === target.variantId && !item.isSubscription),
         );
+        const scope = readOfferScope(offer.config);
+        const cartHasScope = lineItems.some(
+          (item) =>
+            !item.isSubscription &&
+            lineMatchesOfferScope(
+              {
+                brandId: item.brandId,
+                categoryId: item.categoryId,
+                subCategoryId: item.subCategoryId,
+                subSubCategoryId: item.subSubCategoryId,
+                subSubSubCategoryId: item.subSubSubCategoryId,
+              },
+              scope,
+            ),
+        );
         const selected =
           cart.promotionalOfferId === offer.id ||
           (!!cart.selectedCode &&
             !!offer.code &&
             normalizeCheckoutCode(cart.selectedCode) === normalizeCheckoutCode(offer.code));
         const warning = preview.warnings[0];
-        if (!applied && !cartHasTarget && !selected) continue;
+        if (!applied && !cartHasTarget && !cartHasScope && !selected) continue;
         rows.push({
           code: offer.code,
           sourceType: 'promotional_offer',
@@ -633,14 +660,16 @@ export class CartService {
 
         for (const item of guestCart.items) {
           const variant = await this.getValidVariant(item.productId, item.variantId, manager);
-          const existing = await this.cartItemsRepository.findByCartAndVariant(
+          const isSubscription = !!item.isSubscription;
+          const frequency = isSubscription ? item.frequency ?? null : null;
+          const existingLines = await this.cartItemsRepository.findAllByCartAndVariant(
             targetCart.id,
             item.variantId,
             manager,
-            {
-              isSubscription: item.isSubscription,
-              frequency: item.isSubscription ? item.frequency ?? null : null,
-            },
+          );
+          const existing = existingLines.find(
+            (line) =>
+              line.isSubscription === isSubscription && (line.frequency ?? null) === frequency,
           );
 
           if (existing) {
@@ -649,6 +678,22 @@ export class CartService {
             await this.cartItemsRepository.updateById(
               existing.id,
               { quantity: nextQty, updatedBy: toUserId },
+              manager,
+            );
+          } else if (existingLines[0]) {
+            // One row per variant. A one-time guest line must clear isSubscription
+            // or the later GoKwik checkout rejects the whole cart.
+            const opposite = existingLines[0];
+            const nextQty = opposite.quantity + item.quantity;
+            this.assertStockAvailable(nextQty, variant);
+            await this.cartItemsRepository.updateById(
+              opposite.id,
+              {
+                quantity: nextQty,
+                isSubscription,
+                frequency,
+                updatedBy: toUserId,
+              },
               manager,
             );
           } else {
@@ -662,8 +707,8 @@ export class CartService {
                 productId: item.productId,
                 variantId: item.variantId,
                 quantity: item.quantity,
-                isSubscription: !!item.isSubscription,
-                frequency: item.isSubscription ? item.frequency ?? null : null,
+                isSubscription,
+                frequency,
                 createdBy: toUserId,
                 updatedBy: toUserId,
               },
@@ -921,11 +966,14 @@ export class CartService {
       await this.assertSubscriptionAllowed(dto.productId, dto.variantId, frequency);
     }
 
-    const existing = await this.cartItemsRepository.findByCartAndVariant(
+    const existingLines = await this.cartItemsRepository.findAllByCartAndVariant(
       cartId,
       dto.variantId,
       manager,
-      { isSubscription, frequency },
+    );
+    const existing = existingLines.find(
+      (line) =>
+        line.isSubscription === isSubscription && (line.frequency ?? null) === frequency,
     );
 
     if (existing) {
@@ -934,6 +982,37 @@ export class CartService {
       await this.cartItemsRepository.updateById(
         existing.id,
         { quantity: nextQty, updatedBy: userId },
+        manager,
+      );
+      await this.cartsRepository.touchCustomerActivity(cartId, userId, manager);
+      return;
+    }
+
+    const sameType = existingLines.find((line) => line.isSubscription === isSubscription);
+    if (sameType) {
+      await this.cartItemsRepository.updateById(
+        sameType.id,
+        { frequency, updatedBy: userId },
+        manager,
+      );
+      await this.cartsRepository.touchCustomerActivity(cartId, userId, manager);
+      return;
+    }
+
+    // Unique (cart, variant) — a subscribe line and a one-time line cannot both exist.
+    // Switching to a normal purchase must clear isSubscription so GoKwik can take the cart.
+    const opposite = existingLines[0];
+    if (opposite) {
+      const nextQty = opposite.quantity + dto.quantity;
+      this.assertStockAvailable(nextQty, variant);
+      await this.cartItemsRepository.updateById(
+        opposite.id,
+        {
+          quantity: nextQty,
+          isSubscription,
+          frequency,
+          updatedBy: userId,
+        },
         manager,
       );
       await this.cartsRepository.touchCustomerActivity(cartId, userId, manager);
@@ -969,6 +1048,7 @@ export class CartService {
     if (!isSubscriptionsModuleEnabled(this.configService)) {
       throw new BadRequestException('Subscriptions are not available');
     }
+    assertProductFrequenciesAllowed(this.configService, [frequency]);
 
     const config = await this.productSubscriptionConfigService.findEntityForProductVariant(
       productId,

@@ -19,6 +19,20 @@ export type GokwikWalletApplyRequest = {
    * Docs: omit when the user is already attached to the cart.
    */
   user_id?: string;
+  /**
+   * GoKwik checkout quote. When present, wallet_credit_used is sized against
+   * these amounts instead of Cureka's stale cart shipping/discount.
+   */
+  subtotal?: number;
+  shipping_amount?: number;
+  shipping?: number;
+  shipping_total?: number;
+  discount_amount?: number;
+  discount?: number;
+  discount_total?: number;
+  final_cart_total?: number;
+  final_total?: number;
+  cart_total?: number;
 };
 
 export type GokwikWalletRemoveRequest = {

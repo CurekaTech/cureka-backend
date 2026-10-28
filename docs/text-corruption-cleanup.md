@@ -1,8 +1,8 @@
 # Text-corruption cleanup runner
 
-The runner inspects `public.product_faqs`, `public.product_variants`, `public.products`, and `public.blog_posts`. It keeps the configured mojibake indicator matching and removes only those matched fragments. JSON/JSONB fields are traversed recursively through string values; object keys and non-string values are preserved. Updates are keyed by each table's primary key and guarded by the original field value inside a transaction.
+The runner inspects `public.product_faqs`, `public.product_variants`, `public.products`, and `public.blog_posts`. Known UTF-8 / Windows-1252 mojibake is restored to the original Unicode character. Ambiguous leftovers are reported and left unchanged — never deleted. JSON/JSONB fields are traversed recursively through string values; object keys and non-string values are preserved. Updates are keyed by each table's primary key and guarded by the original field value inside a transaction.
 
-The SQL scan and JavaScript cleanup share one indicator pattern. The `Ã` marker recognizes ASCII and Latin-1 letters after it (including `Ãé`) rather than relying on the database locale's `[:alpha:]` class. Apply explicitly serializes JSON and JSONB `before`/`after` values as JSON text before binding them, including root-level JSON strings; this avoids passing unquoted string contents to PostgreSQL's JSON parser. Updates and post-update verification remain in one transaction, and the committed success summary is printed only after `COMMIT` succeeds.
+The SQL scan and JavaScript repair share the detector from `text-corruption-repair.ts`. Apply explicitly serializes JSON and JSONB `before`/`after` values as JSON text before binding them, including root-level JSON strings; this avoids passing unquoted string contents to PostgreSQL's JSON parser. Updates and post-update verification remain in one transaction, and the committed success summary is printed only after `COMMIT` succeeds.
 
 The runner requires an explicit `--dry-run` or `--apply` mode. It never creates, overwrites, restores, truncates, or deletes a backup or database.
 
@@ -39,7 +39,7 @@ The `pg` dependency remains at the repository's installed version (`^8.12.0`); t
 
 1. Confirm the intended host and exact database name independently. Do not assume that a remote endpoint is safe because it is reachable; do not run automatically against production or beta.
 2. Set the remote gate variables above and supply the database credential only through `DATABASE_URL` in the environment.
-3. Run the dry-run command below. Review candidate counts grouped by table and column and the limited primary-key references. The report intentionally omits text values. Save the printed preview ID.
+3. Run the dry-run command below. Review candidate counts grouped by table and column, the limited primary-key references, the before/after field samples, and any unresolved review items. Save the printed preview ID.
 4. Verify the backup path, size, timestamp, and successful `pg_restore --list` result. A restore rehearsal in a separately approved scratch database is recommended when full restorability must be established; this runner never performs that restore.
 5. Obtain human approval for the exact host/database, preview counts, preview ID, and backup artifact.
 6. For apply, set `TEXT_CORRUPTION_CLEANUP_CONFIRM_TARGET` to `<host>/<database>` and `TEXT_CORRUPTION_CLEANUP_CONFIRM_PREVIEW` to the preview ID. Apply performs a fresh scan and refuses to write if the scan's fingerprint differs. Review that fresh preview before accepting the command's guarded apply.

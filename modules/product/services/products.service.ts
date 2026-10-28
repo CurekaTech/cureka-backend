@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { DataSource } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 import {
   buildPaginatedResult,
   buildPaginationOptions,
@@ -29,6 +29,7 @@ import { ProductSubscriptionConfigService } from '@modules/subscription/services
 import { CreateProductDto, ProductQueryDto, UpdateProductDto, UpdateProductStatusDto, BulkMarkOutOfStockDto, BulkRestoreStockDto, BulkRestoreVariantStockDto, BulkUpdateVariantOosDto, BulkUpdateCurekaInventoryDto } from '../dto/product.dto';
 import { RejectProductDto } from '../dto/reject-product.dto';
 import { IProduct } from '../interfaces/product.interface';
+import { IResolvedCategoryHierarchy } from '../interfaces/product-creation-context.interface';
 import { IBulkMarkOutOfStockResult } from '../interfaces/bulk-mark-out-of-stock.interface';
 import { enrichProductInformation, ProductInformationLabelCatalog } from '../utils/product-information.util';
 import { applyProductImageAltText, mapSpecificationFields, pickSharedCommerceFields } from '../utils/product-payload.util';
@@ -61,6 +62,8 @@ import { generateProductSlug, assertProductUrlSlugLength } from '../utils/produc
 import { ProductStatus } from '../enums/product-status.enum';
 import { resolveProductAuditAction } from '../utils/product-audit-action.util';
 import { ProductEntity } from '../entities/product.entity';
+import { ProductCategoryHierarchyEntity } from '../entities/product-category-hierarchy.entity';
+import { GokwikQueueService } from '@modules/gokwik/services/gokwik-queue.service';
 import { ProductVariantEntity } from '../entities/product-variant.entity';
 import { VariantAttributeValueEntity } from '../entities/variant-attribute-value.entity';
 import { ProductType } from '../enums/product-type.enum';
@@ -70,7 +73,7 @@ import { ProductNaturesRepository } from '@modules/master/repositories/product-n
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { ProductMultipartService } from './product-multipart.service';
 import { parseCategoryFilterQueryBindings } from '../utils/category-filter-query.util';
-import { dtoHasCategoryHierarchyChanges } from '../utils/product-category-hierarchies.util';
+import { dtoHasCategoryHierarchyChanges, categoryIdsFromHierarchies, diffCategoryIds, unionCategoryIds } from '../utils/product-category-hierarchies.util';
 import { AuditService } from '@modules/master/services/audit.service';
 import { AuditEntityType } from '@modules/master/constants/audit-entity-type.constant';
 import { auditIdempotency } from '@modules/master/utils/audit-idempotency.util';
@@ -118,6 +121,8 @@ export class ProductsService {
     private readonly oosEmailQueueService: OosEmailQueueService,
     private readonly pincodesService: PincodesService,
     private readonly auditService: AuditService,
+    @Inject(forwardRef(() => GokwikQueueService))
+    private readonly gokwikQueueService: GokwikQueueService,
   ) { }
 
   async createFromRequest(req: FastifyRequest, createdBy: string): Promise<IProduct> {
@@ -578,6 +583,7 @@ export class ProductsService {
           subCategoryId: masters.subCategoryId,
           subSubCategoryId: masters.subSubCategoryId,
           subSubSubCategoryId: masters.subSubSubCategoryId,
+          gokwikPendingCollectionIds: categoryIdsFromHierarchies(masters.categoryHierarchies),
           brandId: masters.brandId,
           manufacturerId: masters.manufacturerId,
           packerId: masters.packerId,
@@ -1055,6 +1061,11 @@ export class ProductsService {
 
       if (resolved) {
         if (dtoHasCategoryHierarchyChanges(dto) && masters?.categoryHierarchies) {
+          await this.accumulateGokwikPendingCollectionIds(
+            manager,
+            existing.id,
+            masters.categoryHierarchies,
+          );
           await this.relationsRepository.syncCategoryHierarchies(
             manager,
             existing.id,
@@ -1370,6 +1381,7 @@ export class ProductsService {
     });
     await this.emitProductUpdated(refId, 'status_updated');
     await this.auditProductStatus(existing, ProductStatus.PUBLISHED, updatedBy);
+    await this.enqueueApprovedGokwikCollections(refId);
     return this.findOne(refId);
   }
 
@@ -2102,6 +2114,68 @@ export class ProductsService {
     }
 
     return { brandIds: brands.map((brand) => brand.id) };
+  }
+
+  private async accumulateGokwikPendingCollectionIds(
+    manager: EntityManager,
+    productId: string,
+    nextHierarchies: IResolvedCategoryHierarchy[],
+  ): Promise<void> {
+    const hierarchyRepo = manager.getRepository(ProductCategoryHierarchyEntity);
+    const productRepo = manager.getRepository(ProductEntity);
+    const [previousRows, locked] = await Promise.all([
+      hierarchyRepo.find({
+        where: { productId },
+        select: {
+          id: true,
+          categoryId: true,
+          subCategoryId: true,
+          subSubCategoryId: true,
+          subSubSubCategoryId: true,
+        },
+      }),
+      productRepo.findOne({
+        where: { id: productId },
+        select: { id: true, gokwikPendingCollectionIds: true },
+      }),
+    ]);
+    const delta = diffCategoryIds(previousRows, nextHierarchies);
+    const nextPending = unionCategoryIds(locked?.gokwikPendingCollectionIds, delta);
+    if (
+      nextPending.length === (locked?.gokwikPendingCollectionIds?.length ?? 0) &&
+      nextPending.every((id, index) => id === locked?.gokwikPendingCollectionIds?.[index])
+    ) {
+      return;
+    }
+    await productRepo.update({ id: productId }, { gokwikPendingCollectionIds: nextPending });
+  }
+
+  /**
+   * Publish is already committed. Clear only ids whose enqueue was accepted so a
+   * crash or a concurrent edit can retry the rest from the same column.
+   */
+  private async enqueueApprovedGokwikCollections(refId: string): Promise<void> {
+    if (this.configService.get<boolean>('gokwik.catalogSyncEnabled') !== true) return;
+
+    const ids = [...(await this.productsRepository.findGokwikPendingCollectionIds(refId))].sort();
+    if (!ids.length) return;
+
+    const accepted: string[] = [];
+    let failure: unknown;
+    for (const categoryId of ids) {
+      try {
+        await this.gokwikQueueService.enqueueCollectionSync(categoryId);
+        accepted.push(categoryId);
+      } catch (error) {
+        failure = error;
+        break;
+      }
+    }
+
+    if (accepted.length) {
+      await this.productsRepository.subtractGokwikPendingCollectionIds(refId, accepted);
+    }
+    if (failure) throw failure;
   }
 
   private async emitProductUpdated(

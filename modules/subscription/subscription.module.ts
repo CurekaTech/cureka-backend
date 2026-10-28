@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AdminUserEntity } from '@modules/admin-users/entities/admin-user.entity';
 import { MasterModule } from '@modules/master/master.module';
 import { NotificationsModule } from '@modules/notifications/notifications.module';
+import { OosEmailModule } from '@modules/oos-email/oos-email.module';
 import { OrdersModule } from '@modules/orders/orders.module';
 import { PaymentRequestsModule } from '@modules/payment-requests/payment-requests.module';
 import { ProductEntity } from '@modules/product/entities/product.entity';
@@ -25,6 +26,7 @@ import { SubscriptionBillingCycleEntity } from './entities/subscription-billing-
 import { SubscriptionMandateEntity } from './entities/subscription-mandate.entity';
 import { SubscriptionPaymentEntity } from './entities/subscription-payment.entity';
 import { SubscriptionStatusHistoryEntity } from './entities/subscription-status-history.entity';
+import { SubscriptionReminderLogEntity } from './entities/subscription-reminder-log.entity';
 import { SubscriptionWebhookEventEntity } from './entities/subscription-webhook-event.entity';
 import { UserMembershipEntity } from './entities/user-membership.entity';
 import { UserProductSubscriptionEntity } from './entities/user-product-subscription.entity';
@@ -40,6 +42,7 @@ import { SubscriptionBillingCyclesRepository } from './repositories/subscription
 import { SubscriptionMandatesRepository } from './repositories/subscription-mandates.repository';
 import { SubscriptionPaymentsRepository } from './repositories/subscription-payments.repository';
 import { SubscriptionStatusHistoryRepository } from './repositories/subscription-status-history.repository';
+import { SubscriptionReminderLogsRepository } from './repositories/subscription-reminder-logs.repository';
 import { SubscriptionWebhookEventsRepository } from './repositories/subscription-webhook-events.repository';
 import { UserMembershipsRepository } from './repositories/user-memberships.repository';
 import { UserProductSubscriptionsRepository } from './repositories/user-product-subscriptions.repository';
@@ -73,6 +76,7 @@ import { OrderConfirmedSubscriptionListener } from './listeners/order-confirmed.
       SubscriptionBillingCycleEntity,
       SubscriptionStatusHistoryEntity,
       SubscriptionWebhookEventEntity,
+      SubscriptionReminderLogEntity,
       MembershipPlanEntity,
       MembershipBenefitEntity,
       UserMembershipEntity,
@@ -84,6 +88,7 @@ import { OrderConfirmedSubscriptionListener } from './listeners/order-confirmed.
     UsersModule,
     UploadsModule,
     NotificationsModule,
+    OosEmailModule,
     MasterModule,
     forwardRef(() => ProductModule),
     forwardRef(() => OrdersModule),
@@ -110,6 +115,7 @@ import { OrderConfirmedSubscriptionListener } from './listeners/order-confirmed.
     SubscriptionBillingCyclesRepository,
     SubscriptionStatusHistoryRepository,
     SubscriptionWebhookEventsRepository,
+    SubscriptionReminderLogsRepository,
     MembershipPlansRepository,
     MembershipBenefitsRepository,
     UserMembershipsRepository,

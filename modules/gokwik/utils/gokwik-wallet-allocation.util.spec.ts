@@ -5,6 +5,7 @@ import {
   gokwikWalletApplyIdempotencyKeyWithFingerprint,
   gokwikWalletRemoveIdempotencyKey,
   isMaterialGokwikWalletCartChange,
+  parseGokwikWalletApplyAllocation,
 } from './gokwik-wallet-allocation.util';
 
 describe('gokwik-wallet-allocation.util', () => {
@@ -72,5 +73,18 @@ describe('gokwik-wallet-allocation.util', () => {
         nextWalletCreditPaise: 2000,
       }),
     ).toBe(true);
+  });
+
+  it('parses eligible payable out of a GoKwik apply idempotency key', () => {
+    const fingerprint = gokwikWalletAllocationFingerprint({
+      cartId: 'cart-1',
+      eligibleCartTotalPaise: 23300,
+      walletCreditPaise: 23300,
+    });
+    expect(
+      parseGokwikWalletApplyAllocation(
+        gokwikWalletApplyIdempotencyKeyWithFingerprint('cart-1', fingerprint),
+      ),
+    ).toEqual({ eligibleCartTotalPaise: 23300, walletCreditPaise: 23300 });
   });
 });

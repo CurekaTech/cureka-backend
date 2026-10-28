@@ -16,6 +16,11 @@ export type CreateSubscriptionPaymentLinkInput = {
   notes: Record<string, string>;
   referenceId: string;
   description?: string;
+  /**
+   * When set (e.g. renewing an existing product subscription), create the link
+   * on that gateway instead of the current admin active gateway.
+   */
+  preferredGateway?: 'CASHFREE' | 'RAZORPAY' | string | null;
 };
 
 export type CreateSubscriptionPaymentLinkResult = {
@@ -33,6 +38,10 @@ export type CreateSubscriptionPaymentLinkResult = {
     email: string;
     contact: string;
   };
+  recurring?: string | null;
+  gatewayCustomerId?: string | null;
+  subscriptionCheckout?: boolean;
+  autopayMethod?: 'upi' | 'card' | 'emandate' | null;
 };
 
 @Injectable()
@@ -50,6 +59,10 @@ export class SubscriptionPaymentLinkService {
     this.razorpayService.verifyPaymentSignature(orderId, paymentId, signature);
   }
 
+  async fetchRazorpayOrderPayments(orderId: string): Promise<Array<Record<string, unknown>>> {
+    return this.razorpayService.fetchOrderPayments(orderId);
+  }
+
   async createPaymentLink(
     input: CreateSubscriptionPaymentLinkInput,
   ): Promise<CreateSubscriptionPaymentLinkResult> {
@@ -61,7 +74,11 @@ export class SubscriptionPaymentLinkService {
       throw new BadRequestException('Customer phone is required for payment link');
     }
 
-    const gateway = await this.gatewayResolver.getActiveGateway();
+    const preferred = (input.preferredGateway ?? '').trim().toLowerCase();
+    const gateway =
+      preferred === 'cashfree' || preferred === 'razorpay'
+        ? preferred
+        : await this.gatewayResolver.getActiveGateway();
     const currency = input.currency ?? 'INR';
 
     if (gateway === 'cashfree') {

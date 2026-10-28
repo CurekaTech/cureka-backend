@@ -1,7 +1,4 @@
-import {
-  PRODUCT_FREQUENCY_LABELS,
-  PRODUCT_FREQUENCY_MONTHS,
-} from '../constants/subscription.constants';
+import { describeProductFrequency } from '../constants/subscription.constants';
 import { ProductSubscriptionConfigEntity } from '../entities/product-subscription-config.entity';
 import { SubscriptionPaymentEntity } from '../entities/subscription-payment.entity';
 import { UserProductSubscriptionEntity } from '../entities/user-product-subscription.entity';
@@ -72,6 +69,7 @@ export const mapUserProductSubscriptionToResponse = (
     ProductSubscriptionStatus.PAST_DUE,
   ].includes(entity.status);
   const cutoff = extras?.cycleInFlight === true;
+  const described = describeProductFrequency(entity.frequency);
 
   return {
     id: entity.id,
@@ -108,8 +106,10 @@ export const mapUserProductSubscriptionToResponse = (
     mandateId: entity.mandateId ?? null,
     mandateMaxAmount: entity.mandateMaxAmount ?? null,
     mandateStatus: extras?.mandateStatus ?? null,
-    intervalMonths: PRODUCT_FREQUENCY_MONTHS[entity.frequency],
-    intervalLabel: PRODUCT_FREQUENCY_LABELS[entity.frequency],
+    intervalMonths: described.intervalMonths,
+    intervalDays: described.intervalDays,
+    intervalMinutes: described.intervalMinutes,
+    intervalLabel: described.label,
     allowedActions: {
       pause: activeLike && (entity.config?.pauseAllowed ?? true) && !cutoff,
       resume: paused,
@@ -132,6 +132,10 @@ export const mapUserProductSubscriptionToResponse = (
     paymentSessionId: extras?.paymentSessionId ?? null,
     environment: extras?.environment ?? null,
     customer: extras?.customer ?? null,
+    recurring: extras?.recurring ?? null,
+    gatewayCustomerId: extras?.gatewayCustomerId ?? null,
+    subscriptionCheckout: extras?.subscriptionCheckout ?? null,
+    autopayMethod: extras?.autopayMethod ?? null,
     user: extras?.user ?? null,
     product: extras?.product ?? null,
     variant: extras?.variant ?? null,

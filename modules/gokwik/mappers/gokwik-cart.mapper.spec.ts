@@ -60,6 +60,10 @@ describe('mapCartToGokwikCart', () => {
       ],
     };
 
+    const withWallet = mapCartToGokwikCart(cart, { walletCreditUsed: 100 });
+    expect(withWallet.wallet_credit_used).toBe(100);
+    expect(withWallet.total).toBe(395);
+
     const result = mapCartToGokwikCart(cart, {
       availablePaymentMethods: [
         {
@@ -322,5 +326,38 @@ describe('mapCartToGokwikCart', () => {
       { label: 'Size', value: '30 Tabs' },
       { label: 'Pack Size', value: '2' },
     ]);
+  });
+
+  it('does not recap wallet credit to stale Cureka shipping when GoKwik payable is supplied', () => {
+    const cart: CartResponse = {
+      cartId: 'cart-1',
+      totalItems: 1,
+      subtotal: 158,
+      discountAmount: 0,
+      shippingAmount: 20,
+      handlingAmount: 0,
+      platformFee: 0,
+      codCharge: 0,
+      prepaidDiscount: 0,
+      grandTotal: 178,
+      checkoutRules: {
+        prepaidDiscountPercent: 0,
+        codMinOrderAmount: 0,
+        codMaxOrderAmount: 0,
+      },
+      coupon: null,
+      items: [],
+      cod: { available: false, minimumOrderAmount: 0, message: '' },
+    };
+    const withoutQuote = mapCartToGokwikCart(cart, { walletCreditUsed: 233 });
+    expect(withoutQuote.wallet_credit_used).toBe(178);
+    expect(withoutQuote.total).toBe(0);
+
+    const withQuote = mapCartToGokwikCart(cart, {
+      walletCreditUsed: 233,
+      payableTotalOverride: 233,
+    });
+    expect(withQuote.wallet_credit_used).toBe(233);
+    expect(withQuote.total).toBe(0);
   });
 });

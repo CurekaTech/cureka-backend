@@ -35,6 +35,23 @@ export class SubscriptionBillingCyclesRepository {
     return this.use(manager).findOne({ where: { subscriptionId, billingCycleRef } });
   }
 
+  async findLatestOrderIdsBySubscriptionIds(subscriptionIds: string[]): Promise<Map<string, string>> {
+    const ids = [...new Set(subscriptionIds.filter(Boolean))];
+    if (!ids.length) return new Map();
+    const rows = await this.repo
+      .createQueryBuilder('cycle')
+      .select(['cycle.subscriptionId', 'cycle.orderId', 'cycle.sequence'])
+      .where('cycle.subscriptionId IN (:...ids)', { ids })
+      .andWhere('cycle.orderId IS NOT NULL')
+      .orderBy('cycle.sequence', 'DESC')
+      .getMany();
+    const orders = new Map<string, string>();
+    for (const row of rows) {
+      if (row.orderId && !orders.has(row.subscriptionId)) orders.set(row.subscriptionId, row.orderId);
+    }
+    return orders;
+  }
+
   findBySubscriptionId(
     subscriptionId: string,
     manager?: EntityManager,
@@ -87,6 +104,43 @@ export class SubscriptionBillingCyclesRepository {
           SubscriptionBillingCycleStatus.LINK_GENERATED,
         ],
       })
+      .execute();
+    return (result.affected ?? 0) > 0;
+  }
+
+  async claimStatus(
+    id: string,
+    from: SubscriptionBillingCycleStatus[],
+    to: SubscriptionBillingCycleStatus,
+    actor: string,
+  ): Promise<boolean> {
+    if (!from.length) return false;
+    const result = await this.repo
+      .createQueryBuilder()
+      .update(SubscriptionBillingCycleEntity)
+      .set(
+        to === SubscriptionBillingCycleStatus.DEBIT_PENDING
+          ? { status: to, updatedBy: actor, processingStartedAt: new Date() }
+          : { status: to, updatedBy: actor },
+      )
+      .where('id = :id', { id })
+      .andWhere('status IN (:...from)', { from })
+      .execute();
+    return (result.affected ?? 0) > 0;
+  }
+
+  /**
+   * One worker may retry a debit only after the previous attempt is old enough
+   * that a missing Razorpay payment is no longer an in-flight request.
+   */
+  async claimDebitRetry(id: string, staleBefore: Date, actor: string): Promise<boolean> {
+    const result = await this.repo
+      .createQueryBuilder()
+      .update(SubscriptionBillingCycleEntity)
+      .set({ processingStartedAt: new Date(), updatedBy: actor })
+      .where('id = :id', { id })
+      .andWhere('status = :status', { status: SubscriptionBillingCycleStatus.DEBIT_PENDING })
+      .andWhere('(processing_started_at IS NULL OR processing_started_at <= :staleBefore)', { staleBefore })
       .execute();
     return (result.affected ?? 0) > 0;
   }

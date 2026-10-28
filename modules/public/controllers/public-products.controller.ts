@@ -157,9 +157,20 @@ export class PublicProductsController {
   private async withOffers<T extends { selectedVariantId?: string | null; variants?: Array<{ id: string }> }>(
     product: T,
   ): Promise<T & { offers: Array<{ id: string; offerType: string; customerMessage: string }> }> {
-    const variantId = product.selectedVariantId || product.variants?.[0]?.id || '';
-    const offers = await this.promotionalOfferEvaluationService.publicMessagesForVariant(variantId);
-    return { ...product, offers };
+    const variantIds = (product.variants ?? []).map((variant) => variant.id).filter(Boolean);
+    const selectedVariantId = product.selectedVariantId || variantIds[0] || '';
+    const messages = await this.promotionalOfferEvaluationService.publicMessagesByVariantIds(
+      variantIds.length ? variantIds : selectedVariantId ? [selectedVariantId] : [],
+    );
+    const variants = (product.variants ?? []).map((variant) => ({
+      ...variant,
+      offers: messages.get(variant.id) ?? [],
+    }));
+    return {
+      ...product,
+      variants,
+      offers: messages.get(selectedVariantId) ?? [],
+    };
   }
 
   private extractShopRelativePath(req: FastifyRequest): string {

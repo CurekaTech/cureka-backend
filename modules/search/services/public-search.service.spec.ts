@@ -106,6 +106,35 @@ describe('PublicSearchService native fallback', () => {
     ]);
   });
 
+  it('puts a back acne title ahead of back pain titles', async () => {
+    productsRepository.findPublishedDropdownSuggestions.mockResolvedValue([
+      {
+        displayName: 'Back Pain Relief Gel',
+        slug: 'back-pain-relief-gel',
+        product: { refId: 'PAIN', name: 'Back Pain Relief Gel', slug: 'back-pain-relief-gel' },
+      },
+      {
+        displayName: 'Back Pain Support Belt',
+        slug: 'back-pain-support-belt',
+        product: { refId: 'BELT', name: 'Back Pain Support Belt', slug: 'back-pain-support-belt' },
+      },
+      {
+        displayName: 'Back Acne Cream',
+        slug: 'back-acne-cream',
+        product: { refId: 'ACNE', name: 'Back Acne Cream', slug: 'back-acne-cream' },
+      },
+      {
+        displayName: 'Acne Body Spray',
+        slug: 'acne-body-spray',
+        product: { refId: 'SPRAY', name: 'Acne Body Spray', slug: 'acne-body-spray' },
+      },
+    ]);
+
+    const results = await service.search('back acne');
+
+    expect(results.map((result) => result.refId)).toEqual(['ACNE', 'SPRAY', 'PAIN', 'BELT']);
+  });
+
   it('returns native product matches for either normalized word in a multiword query', async () => {
     productsRepository.findPublishedDropdownSuggestions.mockResolvedValue([
       {

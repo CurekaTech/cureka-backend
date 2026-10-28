@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, In } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { isPromotionalOffersEnabled } from '../utils/promotional-offers-enabled.util';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
@@ -19,12 +19,34 @@ import {
   PromotionEvaluation,
   PromotionOfferInput,
 } from '../utils/promotional-offer-pricing.util';
+import { lineMatchesOfferScope, readOfferScope } from '../utils/offer-scope.util';
 
 export type PublicOfferHighlight = {
   id: string;
   offerType: string;
   customerMessage: string;
 };
+
+function catalogTarget(variant: ProductVariantEntity, role: PromotionalOfferTargetRole, quantity: number | null) {
+  return {
+    role,
+    variantId: variant.id,
+    productId: variant.productId,
+    quantity,
+    sku: variant.sku,
+    productName: rewardVariantName(variant),
+    variantLabel: null as string | null,
+    sellingPrice: Number(variant.sellingPrice),
+    stock: variant.stock ?? 0,
+    outOfStock: variant.outOfStock === true,
+    purchasable:
+      variant.status === VariantStatus.ACTIVE &&
+      variant.product?.status === ProductStatus.PUBLISHED &&
+      variant.deletedAt == null,
+    stockValidation: isStockValidationEnabled(variant),
+    productType: variant.product?.productType ?? null,
+  };
+}
 
 /** Same title the cart uses, so a BOGO reward is not labeled as a sibling variant. */
 function rewardVariantName(variant: ProductVariantEntity): string {
@@ -97,32 +119,16 @@ export class PromotionalOfferEvaluationService {
     const inputs: PromotionOfferInput[] = [];
     for (const offer of live) {
       if (offer.status !== MasterStatus.ACTIVE || excluded.has(offer.id) || !offer.code) continue;
-      const targets = [];
+      const targets: Array<ReturnType<typeof catalogTarget>> = [];
       for (const target of offer.targets ?? []) {
         const variant = await this.dataSource.getRepository(ProductVariantEntity).findOne({
           where: { id: target.variantId },
           relations: { product: true },
         });
         if (!variant) continue;
-        targets.push({
-          role: target.role,
-          variantId: variant.id,
-          productId: variant.productId,
-          quantity: target.quantity,
-          sku: variant.sku,
-          productName: rewardVariantName(variant),
-          variantLabel: null,
-          sellingPrice: Number(variant.sellingPrice),
-          stock: variant.stock ?? 0,
-          outOfStock: variant.outOfStock === true,
-          purchasable:
-            variant.status === VariantStatus.ACTIVE &&
-            variant.product?.status === ProductStatus.PUBLISHED &&
-            variant.deletedAt == null,
-          stockValidation: isStockValidationEnabled(variant),
-          productType: variant.product?.productType ?? null,
-        });
+        targets.push(catalogTarget(variant, target.role, target.quantity));
       }
+      await this.appendScopeTargets(offer, targets, params.lines);
       const [globalCount, userCount] = await Promise.all([
         this.reservationsRepository.countActive(offer.id),
         this.reservationsRepository.countActive(offer.id, params.userId),
@@ -156,6 +162,11 @@ export class PromotionalOfferEvaluationService {
     if (!isPromotionalOffersEnabled(this.configService) || wanted.size === 0) return result;
 
     const live = await this.offersRepository.findLive();
+    const variants = await this.dataSource.getRepository(ProductVariantEntity).find({
+      where: { id: In([...wanted]) },
+      relations: { product: true },
+    });
+    const productByVariant = new Map(variants.map((variant) => [variant.id, variant.product]));
     for (const offer of live) {
       if (!offer.code) continue;
       const customerMessage = offer.customerMessage?.trim();
@@ -165,22 +176,69 @@ export class PromotionalOfferEvaluationService {
         offerType: offer.offerType,
         customerMessage,
       };
+      const scope = readOfferScope(offer.config);
       const seenOnOffer = new Set<string>();
+      const attach = (variantId: string) => {
+        if (!wanted.has(variantId) || seenOnOffer.has(variantId)) return;
+        seenOnOffer.add(variantId);
+        const list = result.get(variantId) ?? [];
+        list.push(highlight);
+        result.set(variantId, list);
+      };
       for (const target of offer.targets ?? []) {
-        if (!wanted.has(target.variantId) || seenOnOffer.has(target.variantId)) continue;
         if (
           target.role !== PromotionalOfferTargetRole.QUALIFYING &&
           target.role !== PromotionalOfferTargetRole.TIER_GROUP
         ) {
           continue;
         }
-        seenOnOffer.add(target.variantId);
-        const list = result.get(target.variantId) ?? [];
-        list.push(highlight);
-        result.set(target.variantId, list);
+        attach(target.variantId);
+      }
+      if (!scope.brandIds.length && !scope.categoryIds.length) continue;
+      for (const variantId of wanted) {
+        const product = productByVariant.get(variantId);
+        if (!product || !lineMatchesOfferScope(product, scope)) continue;
+        attach(variantId);
       }
     }
     return result;
+  }
+
+  /** Adds each in-scope cart variant once as a BOGO qualifier or BMSM tier member. */
+  private async appendScopeTargets(
+    offer: PromotionalOfferEntity,
+    targets: Array<ReturnType<typeof catalogTarget>>,
+    lines: PromotionCustomerLine[],
+  ): Promise<void> {
+    const scope = readOfferScope(offer.config);
+    if (!scope.brandIds.length && !scope.categoryIds.length) return;
+    const role =
+      offer.offerType === PromotionalOfferType.BOGO
+        ? PromotionalOfferTargetRole.QUALIFYING
+        : offer.offerType === PromotionalOfferType.BUY_MORE_SAVE_MORE
+          ? PromotionalOfferTargetRole.TIER_GROUP
+          : null;
+    if (!role) return;
+    const present = new Set(targets.filter((target) => target.role === role).map((target) => target.variantId));
+    const ids = [
+      ...new Set(
+        lines
+          .filter((line) => !line.isSubscription && line.productType !== 'bundle' && !present.has(line.variantId))
+          .map((line) => line.variantId),
+      ),
+    ];
+    if (!ids.length) return;
+    const variants = await this.dataSource.getRepository(ProductVariantEntity).find({
+      where: { id: In(ids) },
+      relations: { product: true },
+    });
+    for (const variant of variants) {
+      if (present.has(variant.id) || !lineMatchesOfferScope(variant.product ?? {}, scope)) continue;
+      const row = catalogTarget(variant, role, null);
+      if (!row.purchasable) continue;
+      targets.push(row);
+      present.add(variant.id);
+    }
   }
 
   /** Cart-value gifts have no product card. The cart shows their customer message. */

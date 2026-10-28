@@ -40,7 +40,7 @@ import {
   searchTypoBudget,
   significantSearchTokens,
 } from '../utils/search-tolerance.util';
-import { normalizeSearchQuery, searchQueryTerms } from '../utils/search-query.util';
+import { normalizeSearchQuery, searchQueryTerms, sortBySearchRelevance } from '../utils/search-query.util';
 import { TypesenseClientService } from './typesense-client.service';
 import { TypesenseCollectionService } from './typesense-collection.service';
 
@@ -463,7 +463,7 @@ export class PublicSearchService {
       entities[SEARCH_ENTITY_TYPES.CATEGORY] ?? [],
       entities[SEARCH_ENTITY_TYPES.BRAND] ?? [],
       entities[SEARCH_ENTITY_TYPES.HEALTH_CONCERN] ?? [],
-      productHits,
+      sortBySearchRelevance(productHits, trimmed),
       perPage,
     );
   }
@@ -767,10 +767,13 @@ export class PublicSearchService {
       this.productsRepository.findPublishedDropdownSuggestions(trimmed, productLimit, pincodeId),
     ]);
 
-    const products = filterDistinctMatchingProductVariants(
-      variants
-        .map((variant) => mapVariantToSearchResult(variant))
-        .filter((result): result is IPublicSearchResult => Boolean(result)),
+    const products = sortBySearchRelevance(
+      filterDistinctMatchingProductVariants(
+        variants
+          .map((variant) => mapVariantToSearchResult(variant))
+          .filter((result): result is IPublicSearchResult => Boolean(result)),
+      ),
+      trimmed,
     );
 
     return this.mergeSearchResults(

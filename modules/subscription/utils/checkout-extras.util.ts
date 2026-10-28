@@ -13,6 +13,10 @@ export type SubscriptionCheckoutExtras = {
     email?: string;
     contact?: string;
   } | null;
+  recurring?: string | null;
+  gatewayCustomerId?: string | null;
+  subscriptionCheckout?: boolean | null;
+  autopayMethod?: 'upi' | 'card' | 'emandate' | null;
 };
 
 export function checkoutExtrasFromLink(
@@ -27,6 +31,9 @@ export function checkoutExtrasFromLink(
     paymentSessionId: link.paymentSessionId ?? null,
     environment: link.environment ?? null,
     customer: link.customer,
+    recurring: link.recurring ?? null,
+    gatewayCustomerId: link.gatewayCustomerId ?? null,
+    subscriptionCheckout: link.subscriptionCheckout ?? null,
   };
 }
 
@@ -35,7 +42,9 @@ export function paymentSessionIdFromLink(paymentLink: string | null): string | n
   try {
     const url = new URL(paymentLink);
     const fromQuery =
-      url.searchParams.get('payment_session_id') || url.searchParams.get('session_id');
+      url.searchParams.get('subscription_session_id') ||
+      url.searchParams.get('payment_session_id') ||
+      url.searchParams.get('session_id');
     if (fromQuery) return fromQuery;
     const parts = url.pathname.split('/').filter(Boolean);
     const orderIndex = parts.indexOf('order');

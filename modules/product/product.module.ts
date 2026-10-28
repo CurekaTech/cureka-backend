@@ -12,6 +12,7 @@ import { GalleryModule } from '../gallery/gallery.module';
 import { OosEmailModule } from '@modules/oos-email/oos-email.module';
 import { PromotionalOffersModule } from '@modules/promotional-offers/promotional-offers.module';
 import { PincodesModule } from '@modules/pincodes/pincodes.module';
+import { GokwikModule } from '@modules/gokwik/gokwik.module';
 
 // ── Product entities ─────────────────────────────────────────────────────────
 import { ProductEntity } from './entities/product.entity';
@@ -145,6 +146,7 @@ const BULK_RETURN_UPDATE_PROCESSOR_ENABLED =
     UsersModule,
     forwardRef(() => SubscriptionModule),
     forwardRef(() => SitemapModule),
+    forwardRef(() => GokwikModule),
     OosEmailModule,
     PromotionalOffersModule,
     PincodesModule,

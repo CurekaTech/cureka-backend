@@ -36,7 +36,6 @@ describe('GokwikWalletRedemptionService', () => {
 
     await expect(service.readWalletBalancesForGetUser('user-1')).resolves.toEqual({
       wallet_balance: 125,
-      usable_wallet_balance: 100,
     });
   });
 
@@ -64,17 +63,216 @@ describe('GokwikWalletRedemptionService', () => {
     );
   });
 
-  it('refuses live mutation when the flag is true but contract blockers remain', async () => {
+  it('reserves wallet credit and returns the cart when the flag is true', async () => {
+    configService.get.mockImplementation((key: string) => {
+      if (key === 'wallet.gokwikRedemptionEnabled') return true;
+      if (key === 'wallet.reservationTtlMinutes') return 60;
+      return undefined;
+    });
+    const walletService = {
+      getOverview: jest.fn(async () => ({
+        balance: '125.50',
+        reserved: '0.00',
+        available: '125.50',
+        currency: 'INR',
+        status: 'ACTIVE',
+      })),
+      listPendingByIdempotencyPrefix: jest.fn(async () => []),
+      releaseReservation: jest.fn(),
+      reserve: jest.fn(async () => ({ id: 'res-1' })),
+    };
+    const ordersCartService = {
+      findActiveCartById: jest.fn(async () => ({ id: 'cart-1', userId: 'user-1' })),
+      getCartById: jest.fn(async () => ({
+        cartId: 'cart-1',
+        totalItems: 1,
+        subtotal: 200,
+        discountAmount: 0,
+        shippingAmount: 0,
+        handlingAmount: 0,
+        platformFee: 0,
+        codCharge: 0,
+        prepaidDiscount: 0,
+        grandTotal: 200,
+        coupon: null,
+        items: [
+          {
+            id: 'line-1',
+            productId: 'product-1',
+            variantId: 'variant-1',
+            productName: 'Serum',
+            sku: 'SKU-1',
+            quantity: 1,
+            unitPrice: 200,
+            totalPrice: 200,
+            stock: 2,
+            isAvailable: true,
+            categoryId: 'category-1',
+          },
+        ],
+        checkoutRules: {},
+        cod: { available: false },
+      })),
+    };
+    const gokwikCartService = {
+      getCart: jest.fn(async () => ({
+        data: { cart: { total: 75, wallet_credit_used: 125 } },
+      })),
+    };
+    const dataSource = { transaction: jest.fn(async (work: (manager: object) => Promise<void>) => work({})) };
+    const service = new GokwikWalletRedemptionService(
+      configService as never,
+      walletService as never,
+      gokwikCartService as never,
+      dataSource as never,
+      ordersCartService as never,
+    );
+
+    await expect(service.applyWalletCredit({ cart_id: 'cart-1' })).resolves.toEqual({
+      data: { cart: { total: 75, wallet_credit_used: 125 } },
+    });
+    expect(walletService.releaseReservation).not.toHaveBeenCalled();
+    expect(walletService.reserve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customerId: 'user-1',
+        amountPaise: 12500,
+        paymentRequestId: null,
+      }),
+      expect.anything(),
+    );
+    expect(service.canEnableLiveSettlement()).toBe(false);
+  });
+
+  it('sizes wallet credit from GoKwik shipping and final total, not Cureka ₹20 shipping', async () => {
+    configService.get.mockImplementation((key: string) => {
+      if (key === 'wallet.gokwikRedemptionEnabled') return true;
+      if (key === 'wallet.reservationTtlMinutes') return 60;
+      return undefined;
+    });
+    const walletService = {
+      getOverview: jest.fn(async () => ({
+        balance: '300.00',
+        reserved: '0.00',
+        available: '300.00',
+        currency: 'INR',
+        status: 'ACTIVE',
+      })),
+      listPendingByIdempotencyPrefix: jest.fn(async () => []),
+      releaseReservation: jest.fn(),
+      reserve: jest.fn(async () => ({ id: 'res-1' })),
+    };
+    const ordersCartService = {
+      findActiveCartById: jest.fn(async () => ({ id: 'cart-1', userId: 'user-1' })),
+      getCartById: jest.fn(async () => ({
+        cartId: 'cart-1',
+        totalItems: 1,
+        subtotal: 158,
+        discountAmount: 0,
+        shippingAmount: 20,
+        handlingAmount: 0,
+        platformFee: 0,
+        codCharge: 0,
+        prepaidDiscount: 0,
+        grandTotal: 178,
+        coupon: null,
+        items: [
+          {
+            id: 'line-1',
+            productId: 'product-1',
+            variantId: 'variant-1',
+            productName: 'Serum',
+            sku: 'SKU-1',
+            quantity: 1,
+            unitPrice: 158,
+            totalPrice: 158,
+            stock: 2,
+            isAvailable: true,
+            categoryId: 'category-1',
+          },
+        ],
+        checkoutRules: {},
+        cod: { available: false },
+      })),
+    };
+    const gokwikCartService = {
+      getCart: jest.fn(async () => ({
+        data: { cart: { total: 0, wallet_credit_used: 233, shipping_total: 20, subtotal: 158 } },
+      })),
+    };
+    const dataSource = { transaction: jest.fn(async (work: (manager: object) => Promise<void>) => work({})) };
+    const service = new GokwikWalletRedemptionService(
+      configService as never,
+      walletService as never,
+      gokwikCartService as never,
+      dataSource as never,
+      ordersCartService as never,
+    );
+
+    await expect(
+      service.applyWalletCredit({
+        cart_id: 'cart-1',
+        subtotal: 158,
+        shipping_amount: 75,
+        discount_amount: 0,
+        final_cart_total: 233,
+      }),
+    ).resolves.toEqual({
+      data: {
+        cart: {
+          total: 0,
+          wallet_credit_used: 233,
+          shipping_total: 75,
+          subtotal: 158,
+          discount_total: 0,
+        },
+      },
+    });
+    expect(walletService.reserve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customerId: 'user-1',
+        amountPaise: 23300,
+      }),
+      expect.anything(),
+    );
+  });
+
+  it('releases the cart hold when remove runs with the flag true', async () => {
+    configService.get.mockImplementation((key: string) => key === 'wallet.gokwikRedemptionEnabled');
+    const walletService = {
+      listPendingByIdempotencyPrefix: jest.fn(async () => [
+        { id: 'res-1', customerId: 'user-1', amountPaise: '12500' },
+      ]),
+      releaseReservation: jest.fn(async () => ({ id: 'res-1' })),
+    };
+    const gokwikCartService = {
+      getCart: jest.fn(async () => ({
+        data: { cart: { total: 200, wallet_credit_used: 0 } },
+      })),
+    };
+    const dataSource = { transaction: jest.fn(async (work: (manager: object) => Promise<void>) => work({})) };
+    const ordersCartService = { findActiveCartById: jest.fn(), getCartById: jest.fn() };
+    const service = new GokwikWalletRedemptionService(
+      configService as never,
+      walletService as never,
+      gokwikCartService as never,
+      dataSource as never,
+      ordersCartService as never,
+    );
+
+    await expect(service.removeWalletCredit({ cart_id: 'cart-1' })).resolves.toEqual({
+      data: { cart: { total: 200, wallet_credit_used: 0 } },
+    });
+    expect(walletService.releaseReservation).toHaveBeenCalledWith('res-1', 'user-1', expect.anything());
+  });
+
+  it('does not debit while settlement blockers remain', () => {
     configService.get.mockReturnValue(true);
     const service = new GokwikWalletRedemptionService(configService as never);
     expect(service.canEnableLiveRedemption()).toBe(false);
     expect(service.canEnableLiveSettlement()).toBe(false);
-    await expect(service.applyWalletCredit({ cart_id: 'cart-1', user_id: 'u1' })).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'GOKWIK_WALLET_CONTRACT_INCOMPLETE' }),
-    });
-    await expect(service.removeWalletCredit({ cart_id: 'cart-1' })).rejects.toBeInstanceOf(
-      ServiceUnavailableException,
-    );
+    expect(() =>
+      service.assertLiveSettlementAllowed({ operation: 'consume', cartId: 'cart-1' }),
+    ).toThrow(ServiceUnavailableException);
   });
 
   it('exposes the eight-question contract register with provisional assumptions', () => {

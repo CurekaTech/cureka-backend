@@ -6,3 +6,10 @@ export function isSubscriptionsModuleEnabled(
 ): boolean {
   return configService.get<boolean>('subscriptions.moduleEnabled') === true;
 }
+
+/** Default on. Set SUBSCRIPTION_CASHFREE_ADVANCE_CHARGE=false to roll back. */
+export function isCashfreeAdvanceChargeEnabled(
+  configService: Pick<ConfigService, 'get'>,
+): boolean {
+  return configService.get<boolean>('subscriptions.cashfreeAdvanceCharge') !== false;
+}

@@ -75,7 +75,8 @@ export type BobVariantDetail = {
 
 export type BobLineItem = {
   image: { originalSrc: string };
-  product: { id: string; title: string };
+  /** Catalogue / WooCommerce product id, same as GET /bob/products. UUID only if the catalogue id is missing. */
+  product: { id: string | number; title: string };
   variant: {
     id: string;
     title: string;

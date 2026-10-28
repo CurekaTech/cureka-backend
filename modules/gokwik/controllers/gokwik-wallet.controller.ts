@@ -8,9 +8,10 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { IsOptional, IsString, MinLength } from 'class-validator';
+import { IsOptional, IsString } from 'class-validator';
 import { VerifiedUserGuard } from '@modules/auth/guards/verified-user.guard';
 import { RawResponse } from '@packages/common';
+import { GokwikApplyWalletCreditDto, GokwikRemoveWalletCreditDto } from '../dto/gokwik-wallet.dto';
 import { GokwikAuthedRequest, GokwikCheckoutAuthGuard } from '../guards/gokwik-checkout-auth.guard';
 import { GokwikCartOwnerGuard } from '../guards/gokwik-cart-owner.guard';
 import { GokwikWalletRedemptionService } from '../services/gokwik-wallet-redemption.service';
@@ -35,26 +36,6 @@ class GokwikGetUserDto {
 
 function lastTenDigits(value: string | undefined): string {
   return (value ?? '').replace(/\D/g, '').slice(-10);
-}
-
-class GokwikApplyWalletCreditDto {
-  @IsString()
-  @MinLength(1)
-  cart_id!: string;
-
-  @IsOptional()
-  @IsString()
-  user_id?: string;
-}
-
-class GokwikRemoveWalletCreditDto {
-  @IsString()
-  @MinLength(1)
-  cart_id!: string;
-
-  @IsOptional()
-  @IsString()
-  user_id?: string;
 }
 
 /**

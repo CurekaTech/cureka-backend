@@ -163,7 +163,8 @@ export class PublicProductsService {
       sortOrder: paginationOptions.sortOrder,
       productType,
       prioritizeInStock: true,
-      inStockOnly: false,
+      inStockOnly: true,
+      searchRelevance: 2,
       pincode: query.pincode ?? null,
     });
 
@@ -193,6 +194,7 @@ export class PublicProductsService {
           minPrice: priceRange?.minPrice,
           maxPrice: priceRange?.maxPrice,
           pincodeId: filters.pincodeId,
+          inStockOnly: true,
         });
         this.logger.log(`[PERF] findAll | DB query: ${Date.now() - tDb}ms`);
         return buildPaginatedResult(
@@ -351,6 +353,7 @@ export class PublicProductsService {
       productType,
       prioritizeInStock: true,
       inStockOnly: false,
+      searchRelevance: 2,
       pincode: query.pincode ?? null,
     });
 
@@ -1056,17 +1059,30 @@ export class PublicProductsService {
       await this.resolveCheckoutBadgeHints(merged);
     const banners = await this.resolvePdpBanners(product);
     const subscriptionsModuleEnabled = isSubscriptionsModuleEnabled(this.configService);
-    const subscriptionConfig = subscriptionsModuleEnabled
-      ? await this.productSubscriptionConfigService.findForProductVariant(
-          merged.id,
-          merged.selectedVariantId ?? null,
-        )
-      : null;
-    const sharedSubscriptionConfig =
-      subscriptionConfig?.enabled === true ? subscriptionConfig : null;
-    const subscriptionEnabled =
-      subscriptionsModuleEnabled &&
-      (merged.subscriptionEnabled || Boolean(sharedSubscriptionConfig));
+    const subscriptionConfigs = subscriptionsModuleEnabled
+      ? await this.productSubscriptionConfigService.getByProductId(merged.id)
+      : [];
+    const resolveSubscriptionConfig = (variantId: string | null | undefined) => {
+      if (!subscriptionsModuleEnabled) return null;
+      if (variantId) {
+        const forVariant = subscriptionConfigs.find(
+          (config) => config.enabled && config.productVariantId === variantId,
+        );
+        if (forVariant) return forVariant;
+      }
+      return (
+        subscriptionConfigs.find((config) => config.enabled && !config.productVariantId) ?? null
+      );
+    };
+    const selectedSubscriptionConfig = resolveSubscriptionConfig(merged.selectedVariantId);
+    const variantsWithSubscription = merged.variants.map((variant) => {
+      const config = resolveSubscriptionConfig(variant.id);
+      return {
+        ...variant,
+        subscriptionEnabled: Boolean(config),
+        subscriptionConfig: config,
+      };
+    });
 
     // Re-apply live master order after variant merge (variant payload may replace product info).
     return toPublicStorefrontProductDetail({
@@ -1074,13 +1090,9 @@ export class PublicProductsService {
       isFreeDelivery,
       codMinOrderAmount,
       banners,
-      subscriptionEnabled,
-      subscriptionConfig: sharedSubscriptionConfig,
-      variants: merged.variants.map((variant) => ({
-        ...variant,
-        subscriptionEnabled,
-        subscriptionConfig: sharedSubscriptionConfig,
-      })),
+      subscriptionEnabled: Boolean(selectedSubscriptionConfig),
+      subscriptionConfig: selectedSubscriptionConfig,
+      variants: variantsWithSubscription,
       productInformation: enrichPublicProductInformation(
         merged.productInformation,
         labelCatalog,

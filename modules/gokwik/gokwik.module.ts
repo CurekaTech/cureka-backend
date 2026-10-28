@@ -40,6 +40,7 @@ import { GokwikOrderService } from './services/gokwik-order.service';
 import { GokwikQueueService } from './services/gokwik-queue.service';
 import { GokwikWebhookService } from './services/gokwik-webhook.service';
 import { GokwikCatalogSyncService } from './services/gokwik-catalog-sync.service';
+import { GokwikCollectionLockService } from './services/gokwik-collection-lock.service';
 import { GokwikFulfillmentService } from './services/gokwik-fulfillment.service';
 import { GokwikComplimentaryOrderItemsService } from './services/gokwik-complimentary-order-items.service';
 import { GokwikWalletRedemptionService } from './services/gokwik-wallet-redemption.service';
@@ -92,6 +93,7 @@ import { GokwikWalletRedemptionService } from './services/gokwik-wallet-redempti
     GokwikQueueService,
     GokwikWebhookService,
     GokwikCatalogSyncService,
+    GokwikCollectionLockService,
     GokwikCatalogListener,
     GokwikFulfillmentService,
     GokwikFulfillmentListener,

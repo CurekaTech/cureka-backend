@@ -124,6 +124,76 @@ export class ProductSubscriptionPaymentsService {
     });
   }
 
+  async recordProviderCharge(
+    paymentId: string,
+    data: {
+      gatewayOrderId?: string | null;
+      gatewayPaymentId?: string | null;
+      paymentGateway: string;
+      pending: boolean;
+      actor: string;
+      metadata?: Record<string, unknown>;
+    },
+  ): Promise<void> {
+    const existing = await this.paymentsRepository.findById(paymentId);
+    if (!existing || existing.status === SubscriptionPaymentStatus.PAID) return;
+    const orderChanged = Boolean(
+      existing.gatewayOrderId && data.gatewayOrderId && existing.gatewayOrderId !== data.gatewayOrderId,
+    );
+    await this.paymentsRepository.updateById(paymentId, {
+      ...(data.gatewayOrderId
+        ? {
+            gatewayOrderId: data.gatewayOrderId,
+            gatewayPaymentId: data.gatewayPaymentId
+              ? data.gatewayPaymentId
+              : orderChanged
+                ? null
+                : existing.gatewayPaymentId,
+          }
+        : {}),
+      paymentGateway: data.paymentGateway,
+      status: data.pending ? SubscriptionPaymentStatus.RECONCILING : existing.status,
+      ...(data.metadata
+        ? { metadata: { ...(existing.metadata ?? {}), ...data.metadata } }
+        : {}),
+      updatedBy: data.actor,
+    });
+  }
+
+  claimChargeInitiation(paymentId: string, actor: string): Promise<boolean> {
+    return this.paymentsRepository.claimStatus(
+      paymentId,
+      [SubscriptionPaymentStatus.PENDING, SubscriptionPaymentStatus.LINK_GENERATED],
+      SubscriptionPaymentStatus.RECONCILING,
+      actor,
+    );
+  }
+
+  claimRetry(paymentId: string, actor: string): Promise<boolean> {
+    return this.paymentsRepository.claimStatus(
+      paymentId,
+      [SubscriptionPaymentStatus.FAILED],
+      SubscriptionPaymentStatus.RECONCILING,
+      actor,
+    );
+  }
+
+  async attachOrderId(paymentId: string, orderId: string, actor: string): Promise<void> {
+    const existing = await this.paymentsRepository.findById(paymentId);
+    if (!existing || existing.orderId) return;
+    await this.paymentsRepository.updateById(paymentId, { orderId, updatedBy: actor });
+  }
+
+  /** Token was not ready, and Razorpay was not asked to charge. Another confirmation may try once. */
+  releaseChargeInitiation(paymentId: string, actor: string): Promise<boolean> {
+    return this.paymentsRepository.claimStatus(
+      paymentId,
+      [SubscriptionPaymentStatus.RECONCILING],
+      SubscriptionPaymentStatus.LINK_GENERATED,
+      actor,
+    );
+  }
+
   async markReconciling(paymentId: string, actor: string): Promise<void> {
     const existing = await this.paymentsRepository.findById(paymentId);
     if (!existing || existing.status === SubscriptionPaymentStatus.PAID) return;
@@ -163,6 +233,22 @@ export class ProductSubscriptionPaymentsService {
 
   findById(id: string) {
     return this.paymentsRepository.findById(id);
+  }
+
+  listReconciling(subscriptionId?: string) {
+    return this.paymentsRepository.findReconciling(subscriptionId);
+  }
+
+  listCashfreeAwaitingSettlement(subscriptionId?: string) {
+    return this.paymentsRepository.findCashfreeAwaitingSettlement(subscriptionId);
+  }
+
+  listReconcilingSubscriptionIds(subscriptionIds: string[]) {
+    return this.paymentsRepository.findReconcilingSubscriptionIds(subscriptionIds);
+  }
+
+  listStatusBySubscriptionIds(subscriptionIds: string[]) {
+    return this.paymentsRepository.findStatusBySubscriptionIds(subscriptionIds);
   }
 
   async findBySubscriptionId(subscriptionId: string): Promise<ISubscriptionPayment[]> {

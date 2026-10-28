@@ -1,5 +1,6 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { PaymentGatewayResolverService } from '@modules/payment-requests/services/payment-gateway-resolver.service';
 import { generateUniqueRefId } from '@packages/common';
 import { SUBSCRIPTION_ERROR } from '../constants/subscription.constants';
 import { SubscriptionMandateEntity } from '../entities/subscription-mandate.entity';
@@ -7,8 +8,9 @@ import { UserProductSubscriptionEntity } from '../entities/user-product-subscrip
 import { SubscriptionHistoryAction } from '../enums/subscription-history-action.enum';
 import { SubscriptionMandateProvider } from '../enums/subscription-mandate-provider.enum';
 import { SubscriptionMandateStatus } from '../enums/subscription-mandate-status.enum';
+import { ProductSubscriptionStatus } from '../enums/product-subscription-status.enum';
 import { SubscriptionRenewalMethod } from '../enums/subscription-renewal-method.enum';
-import { MandateAuthSession } from '../interfaces/subscription-mandate-provider.interface';
+import { MandateAuthSession, AutopayChargeResult, MandateCancelResult } from '../interfaces/subscription-mandate-provider.interface';
 import { SubscriptionMandatesRepository } from '../repositories/subscription-mandates.repository';
 import { UserProductSubscriptionsRepository } from '../repositories/user-product-subscriptions.repository';
 import { resolveMandateMaxAmount } from '../utils/mandate-amount.util';
@@ -19,6 +21,12 @@ import {
 import { CashfreeSubscriptionProvider } from './providers/cashfree-subscription.provider';
 import { RazorpayRecurringProvider } from './providers/razorpay-recurring.provider';
 import { SubscriptionStatusHistoryRepository } from '../repositories/subscription-status-history.repository';
+
+const CARD_RECURRING_API_RETRY_MS = 2 * 60 * 1000;
+
+function recurringApiUnavailable(message: string | null | undefined): boolean {
+  return /requested URL was not found/i.test(message ?? '');
+}
 
 @Injectable()
 export class SubscriptionMandateService {
@@ -31,6 +39,8 @@ export class SubscriptionMandateService {
     private readonly razorpay: RazorpayRecurringProvider,
     private readonly cashfree: CashfreeSubscriptionProvider,
     private readonly configService: ConfigService,
+    @Inject(forwardRef(() => PaymentGatewayResolverService))
+    private readonly gatewayResolver: PaymentGatewayResolverService,
   ) {}
 
   isAutopayFeatureEnabled(): boolean {
@@ -44,7 +54,6 @@ export class SubscriptionMandateService {
   canPresentAsAutopay(sub: UserProductSubscriptionEntity, mandate?: SubscriptionMandateEntity | null): boolean {
     if (!this.isAutopayFeatureEnabled()) return false;
     if (!sub.autopayReady) return false;
-    if (sub.renewalMethod !== SubscriptionRenewalMethod.AUTO_PAY) return false;
     if (!mandate) return false;
     return isMandateAutopayReady(mandate.status);
   }
@@ -54,6 +63,10 @@ export class SubscriptionMandateService {
     customer: { name?: string; email?: string | null; phone: string };
     actor: string;
     returnUrl?: string;
+    /** When set, this checkout charges that amount and registers the mandate together. */
+    authorizationAmount?: string;
+    notes?: Record<string, string>;
+    method?: 'upi' | 'card' | 'emandate';
   }): Promise<{ mandate: SubscriptionMandateEntity; session: MandateAuthSession }> {
     if (!this.isAutopayFeatureEnabled()) {
       throw new BadRequestException({
@@ -73,7 +86,7 @@ export class SubscriptionMandateService {
       });
     }
 
-    const provider = this.resolveNewMandateProvider();
+    const provider = await this.resolveNewMandateProvider();
     const adapter = this.adapter(provider);
     if (!adapter.isConfigured()) {
       throw new BadRequestException({
@@ -87,7 +100,9 @@ export class SubscriptionMandateService {
       userId: params.subscription.userId,
       customer: params.customer,
       maxAmount,
-      notes: {
+      authorizationAmount: params.authorizationAmount,
+      method: params.method,
+      notes: params.notes ?? {
         paymentPurpose: 'PRODUCT_SUBSCRIPTION_MANDATE',
         subscriptionId: params.subscription.id,
         userId: params.subscription.userId,
@@ -110,6 +125,13 @@ export class SubscriptionMandateService {
       consentEvidence: {
         startedAt: new Date().toISOString(),
         actor: params.actor,
+        firstCharge: Boolean(params.authorizationAmount),
+        subscriptionPaymentId: params.notes?.subscriptionPaymentId ?? null,
+        method:
+          params.method === 'card' ? 'card' : params.method === 'emandate' ? 'emandate' : 'upi',
+        cardAuthOnly:
+          provider === SubscriptionMandateProvider.RAZORPAY &&
+          (params.method === 'card' || params.method === 'emandate'),
       },
       createdBy: params.actor,
       updatedBy: params.actor,
@@ -146,6 +168,32 @@ export class SubscriptionMandateService {
     const mandate = await this.mandatesRepository.findById(params.mandateId);
     if (!mandate) return null;
 
+    const subscription = await this.subscriptionsRepository.findById(mandate.subscriptionId);
+    const subscriptionEnded =
+      subscription?.status === ProductSubscriptionStatus.CANCELLED ||
+      subscription?.status === ProductSubscriptionStatus.EXPIRED;
+    if (subscriptionEnded && !isMandateTerminal(params.status)) {
+      const result = await this.deleteGatewayMandate({
+        ...mandate,
+        gatewayMandateId: params.gatewayMandateId ?? mandate.gatewayMandateId,
+        gatewayCustomerId: mandate.gatewayCustomerId ?? subscription?.gatewayCustomerId ?? null,
+        gatewaySubscriptionId:
+          mandate.gatewaySubscriptionId ?? subscription?.gatewaySubscriptionId ?? mandate.authorizationOrderId,
+      });
+      if (!result.cancelled) {
+        this.logger.warn(
+          { mandateId: mandate.id, reason: result.failureReason },
+          'AutoPay mandate stayed at the provider after the subscription ended',
+        );
+        await this.subscriptionsRepository.updateById(mandate.subscriptionId, {
+          autopayReady: false,
+          updatedBy: params.actor,
+        });
+        return mandate;
+      }
+      params = { ...params, status: SubscriptionMandateStatus.CANCELLED };
+    }
+
     await this.mandatesRepository.updateById(mandate.id, {
       status: params.status,
       gatewayMandateId: params.gatewayMandateId ?? mandate.gatewayMandateId,
@@ -174,12 +222,57 @@ export class SubscriptionMandateService {
     return this.mandatesRepository.findById(mandate.id);
   }
 
+  /**
+   * Cancels the Razorpay token or Cashfree subscription before the plan is marked cancelled.
+   * A gateway failure leaves the subscription active so the customer can retry.
+   */
+  async revokeForSubscription(subscriptionId: string, actor: string): Promise<void> {
+    const mandate = await this.getForSubscription(subscriptionId);
+    if (!mandate || isMandateTerminal(mandate.status)) return;
+    const subscription = await this.subscriptionsRepository.findById(subscriptionId);
+    const result = await this.deleteGatewayMandate({
+      ...mandate,
+      gatewayCustomerId: mandate.gatewayCustomerId ?? subscription?.gatewayCustomerId ?? null,
+      gatewaySubscriptionId:
+        mandate.gatewaySubscriptionId ?? subscription?.gatewaySubscriptionId ?? mandate.authorizationOrderId,
+    });
+    if (!result.cancelled) {
+      throw new BadRequestException(
+        result.failureReason ?? 'AutoPay could not be cancelled, so the subscription is still active.',
+      );
+    }
+    await this.applyStatusSnapshot({
+      mandateId: mandate.id,
+      status: SubscriptionMandateStatus.CANCELLED,
+      gatewayMandateId: mandate.gatewayMandateId,
+      actor,
+    });
+  }
+
+  private async deleteGatewayMandate(
+    mandate: Pick<
+      SubscriptionMandateEntity,
+      'provider' | 'gatewayCustomerId' | 'gatewayMandateId' | 'gatewaySubscriptionId'
+    >,
+  ): Promise<MandateCancelResult> {
+    const adapter = this.adapter(mandate.provider);
+    if (!adapter.isConfigured()) {
+      return { cancelled: false, failureReason: 'AutoPay provider is not configured' };
+    }
+    return adapter.cancelMandate({
+      gatewayCustomerId: mandate.gatewayCustomerId,
+      gatewayMandateId: mandate.gatewayMandateId,
+      gatewaySubscriptionId: mandate.gatewaySubscriptionId,
+    });
+  }
+
   async handleProviderWebhook(params: {
     provider: SubscriptionMandateProvider;
     gatewayMandateId?: string | null;
     gatewaySubscriptionId?: string | null;
     authorizationOrderId?: string | null;
     gatewayPaymentId?: string | null;
+    gatewayCustomerId?: string | null;
     status: SubscriptionMandateStatus;
     actor: string;
     raw?: Record<string, unknown>;
@@ -193,8 +286,22 @@ export class SubscriptionMandateService {
         : null) ??
       (params.authorizationOrderId
         ? await this.mandatesRepository.findByAuthorizationOrderId(params.authorizationOrderId)
+        : null) ??
+      (params.gatewayCustomerId
+        ? await this.mandatesRepository.findLatestPendingByGatewayCustomerId(params.gatewayCustomerId)
         : null);
-    if (!mandate) return false;
+    if (!mandate) {
+      this.logger.warn(
+        {
+          provider: params.provider,
+          gatewaySubscriptionId: params.gatewaySubscriptionId ?? null,
+          authorizationOrderId: params.authorizationOrderId ?? null,
+          status: params.status,
+        },
+        'Mandate webhook did not match a subscription',
+      );
+      return false;
+    }
     if (mandate.provider !== params.provider) {
       this.logger.warn(
         { mandateId: mandate.id, stored: mandate.provider, incoming: params.provider },
@@ -224,15 +331,296 @@ export class SubscriptionMandateService {
     return provider === SubscriptionMandateProvider.CASHFREE ? this.cashfree : this.razorpay;
   }
 
-  private resolveNewMandateProvider(): SubscriptionMandateProvider {
-    const configured = this.configService.get<string>('subscriptions.autopayProvider');
-    if (configured === SubscriptionMandateProvider.CASHFREE) return SubscriptionMandateProvider.CASHFREE;
-    if (configured === SubscriptionMandateProvider.RAZORPAY) return SubscriptionMandateProvider.RAZORPAY;
-    if (this.razorpay.isConfigured()) return SubscriptionMandateProvider.RAZORPAY;
+  willRegisterMandateOnFirstCharge(params: {
+    amount: string | number;
+    productMandateMaxAmount?: string | null;
+  }): boolean {
+    if (!this.isAutopayFeatureEnabled() || !this.configuredMandateProvider()) return false;
+    const maxAmount = resolveMandateMaxAmount({
+      productMandateMaxAmount: params.productMandateMaxAmount,
+      globalMandateMaxAmount: this.configService.get<string>('subscriptions.mandateMaxAmount'),
+    });
+    const amount = Number(params.amount);
+    return Boolean(maxAmount) && Number.isFinite(amount) && amount > 0 && amount <= Number(maxAmount);
+  }
+
+  /**
+   * First Subscribe checkout charges the product and registers UPI AutoPay together.
+   * Returns null when AutoPay cannot be registered, so the caller keeps the normal payment.
+   */
+  async tryStartFirstChargeAuthorization(params: {
+    subscription: UserProductSubscriptionEntity;
+    customer: { name?: string; email?: string | null; phone: string };
+    actor: string;
+    amount: string;
+    productMandateMaxAmount?: string | null;
+    notes: Record<string, string>;
+    method?: 'upi' | 'card' | 'emandate';
+    returnUrl?: string;
+  }): Promise<{ mandate: SubscriptionMandateEntity; session: MandateAuthSession } | null> {
+    if (
+      !params.customer.phone ||
+      !this.willRegisterMandateOnFirstCharge({
+        amount: params.amount,
+        productMandateMaxAmount: params.productMandateMaxAmount,
+      })
+    ) {
+      return null;
+    }
+    try {
+      return await this.startAuthorization({
+        subscription: params.subscription,
+        customer: params.customer,
+        actor: params.actor,
+        authorizationAmount: params.amount,
+        method: params.method,
+        notes: params.notes,
+        returnUrl: params.returnUrl,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        { subscriptionId: params.subscription.id, error: message },
+        'First payment could not register AutoPay',
+      );
+      if (error instanceof BadRequestException) throw error;
+      throw new BadRequestException({
+        code: SUBSCRIPTION_ERROR.AUTOPAY_UNAVAILABLE,
+        message:
+          'AutoPay could not be started, so this subscription was not charged. Check the selected payment gateway and try again.',
+      });
+    }
+  }
+
+  findByGatewayMandateId(gatewayMandateId: string) {
+    return this.mandatesRepository.findByGatewayMandateId(gatewayMandateId);
+  }
+
+  async confirmFromAuthorizationPayment(params: {
+    gatewayOrderId?: string | null;
+    gatewayPaymentId?: string | null;
+    actor: string;
+  }): Promise<void> {
+    if (!params.gatewayOrderId) return;
+    const mandate = await this.mandatesRepository.findByAuthorizationOrderId(params.gatewayOrderId);
+    if (!mandate) return;
+    const adapter = this.adapter(mandate.provider);
+    if (!adapter.isConfigured()) return;
+    const snapshot = await adapter.fetchMandateStatus({
+      gatewayPaymentId: params.gatewayPaymentId,
+      gatewayCustomerId: mandate.gatewayCustomerId,
+      gatewayMandateId: mandate.gatewayMandateId,
+      gatewaySubscriptionId: mandate.gatewaySubscriptionId ?? mandate.authorizationOrderId,
+    });
+    await this.applyStatusSnapshot({
+      mandateId: mandate.id,
+      status: snapshot.status,
+      gatewayMandateId: snapshot.gatewayMandateId,
+      gatewayPaymentId: params.gatewayPaymentId,
+      actor: params.actor,
+      raw: snapshot.raw,
+    });
+  }
+
+  async recordedFirstChargePaymentId(gatewaySubscriptionId: string): Promise<string | null> {
+    if (!gatewaySubscriptionId) return null;
+    const mandate =
+      (await this.mandatesRepository.findByGatewaySubscriptionId(gatewaySubscriptionId)) ??
+      (await this.mandatesRepository.findByAuthorizationOrderId(gatewaySubscriptionId));
+    if (!mandate || mandate.consentEvidence?.firstCharge !== true) return null;
+    const paymentId = mandate.consentEvidence.subscriptionPaymentId;
+    return typeof paymentId === 'string' && paymentId ? paymentId : null;
+  }
+
+  async firstChargePaymentIdIfReady(gatewaySubscriptionId: string): Promise<string | null> {
+    if (!gatewaySubscriptionId) return null;
+    const mandate =
+      (await this.mandatesRepository.findByGatewaySubscriptionId(gatewaySubscriptionId)) ??
+      (await this.mandatesRepository.findByAuthorizationOrderId(gatewaySubscriptionId));
+    if (!mandate || !isMandateAutopayReady(mandate.status)) return null;
+    return this.recordedFirstChargePaymentId(gatewaySubscriptionId);
+  }
+
+  /**
+   * Razorpay card mandates capture ₹1 first. Returns the mandate when this
+   * webhook is that authorisation and the product amount still has to be charged.
+   * A repeat of the ₹1 event, after the product charge has started, returns 'wait'
+   * so the ₹1 capture is not treated as the product payment.
+   */
+  async cardAuthorizationAction(
+    gatewayOrderId?: string | null,
+  ): Promise<{ action: 'charge'; mandate: SubscriptionMandateEntity } | { action: 'wait' } | { action: 'none' }> {
+    if (!gatewayOrderId) return { action: 'none' };
+    const mandate = await this.mandatesRepository.findByAuthorizationOrderId(gatewayOrderId);
+    if (!mandate || mandate.consentEvidence?.cardAuthOnly !== true) return { action: 'none' };
+    if (mandate.consentEvidence?.productChargeOrderId || mandate.consentEvidence?.productChargeStartedAt) {
+      return { action: 'wait' };
+    }
+    await this.mandatesRepository.updateById(mandate.id, {
+      consentEvidence: {
+        ...mandate.consentEvidence,
+        productChargeStartedAt: new Date().toISOString(),
+      },
+    });
+    return { action: 'charge', mandate };
+  }
+
+  async chargeCardProduct(params: {
+    mandateId: string;
+    amount: string;
+    customer: { email?: string | null; phone: string };
+    notes: Record<string, string>;
+    actor: string;
+    receipt: string;
+  }): Promise<AutopayChargeResult> {
+    const mandate = await this.mandatesRepository.findById(params.mandateId);
+    if (!mandate?.gatewayCustomerId || !mandate.gatewayMandateId) {
+      await this.releaseCardChargeClaim(mandate);
+      return { accepted: false, pending: true, failureReason: 'Card token is not confirmed yet' };
+    }
+    if (!params.customer.phone) {
+      await this.releaseCardChargeClaim(mandate);
+      return { accepted: false, pending: false, failureReason: 'Customer phone is required to charge the card' };
+    }
+    const result = await this.adapter(mandate.provider).charge({
+      gatewayCustomerId: mandate.gatewayCustomerId,
+      gatewayMandateId: mandate.gatewayMandateId,
+      gatewaySubscriptionId: mandate.gatewaySubscriptionId,
+      amount: params.amount,
+      receipt: params.receipt,
+      idempotencyKey: params.receipt,
+      customer: params.customer,
+      notes: params.notes,
+    }).catch(async (error: unknown): Promise<AutopayChargeResult> => {
+      await this.releaseCardChargeClaim(mandate);
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        accepted: false,
+        pending: false,
+        failureReason: message,
+      };
+    });
+    if (result.gatewayOrderId) {
+      await this.mandatesRepository.updateById(mandate.id, {
+        consentEvidence: {
+          ...(mandate.consentEvidence ?? {}),
+          productChargeStartedAt: new Date().toISOString(),
+          productChargeOrderId: result.gatewayOrderId,
+          ...(result.debitAttempted ? { productDebitSubmittedAt: new Date().toISOString() } : {}),
+          ...(recurringApiUnavailable(result.failureReason) && !result.gatewayPaymentId
+            ? { productRecurringApiUnavailableAt: new Date().toISOString() }
+            : {}),
+        },
+        updatedBy: params.actor,
+      });
+      return result;
+    }
+    if (result.accepted && result.pending) {
+      await this.mandatesRepository.updateById(mandate.id, {
+        consentEvidence: {
+          ...(mandate.consentEvidence ?? {}),
+          productChargeStartedAt: new Date().toISOString(),
+        },
+        updatedBy: params.actor,
+      });
+      return result;
+    }
+    await this.releaseCardChargeClaim(mandate);
+    return result;
+  }
+
+  /**
+   * Allows one create/recurring when the product order has no payment.
+   * A later pass sees the timestamp and does not send another debit.
+   * If Razorpay reports that the recurring URL is not enabled, another attempt
+   * is allowed after the cooldown. A submitted debit is not retried.
+   */
+  async claimCardEmptyListDebit(mandateId: string, actor: string): Promise<boolean> {
+    const mandate = await this.mandatesRepository.findById(mandateId);
+    if (!mandate) return false;
+    const evidence = mandate.consentEvidence ?? {};
+    const emptyAt = Date.parse(String(evidence.productEmptyListDebitAt ?? ''));
+    const unavailableAt = Date.parse(String(evidence.productRecurringApiUnavailableAt ?? ''));
+    const hasEmpty = Number.isFinite(emptyAt);
+    const hasUnavailable = Number.isFinite(unavailableAt);
+    if (hasEmpty && (!hasUnavailable || emptyAt >= unavailableAt)) return false;
+    if (hasUnavailable && Date.now() - unavailableAt < CARD_RECURRING_API_RETRY_MS) return false;
+    await this.mandatesRepository.updateById(mandate.id, {
+      consentEvidence: {
+        ...evidence,
+        productEmptyListDebitAt: new Date().toISOString(),
+      },
+      updatedBy: actor,
+    });
+    return true;
+  }
+
+  /** The recurring endpoint rejected the call and created no payment, so the order can be debited later. */
+  async releaseCardEmptyListDebitForUnavailable(mandateId: string, actor: string): Promise<void> {
+    const mandate = await this.mandatesRepository.findById(mandateId);
+    if (!mandate) return;
+    const evidence = { ...(mandate.consentEvidence ?? {}) };
+    delete evidence.productEmptyListDebitAt;
+    evidence.productRecurringApiUnavailableAt = new Date().toISOString();
+    await this.mandatesRepository.updateById(mandate.id, {
+      consentEvidence: evidence,
+      updatedBy: actor,
+    });
+  }
+
+  /** Records that create/recurring was already attempted for this card product order. */
+  async markCardDebitSubmitted(mandateId: string, actor: string): Promise<void> {
+    const mandate = await this.mandatesRepository.findById(mandateId);
+    if (!mandate || mandate.consentEvidence?.productDebitSubmittedAt) return;
+    await this.mandatesRepository.updateById(mandate.id, {
+      consentEvidence: {
+        ...(mandate.consentEvidence ?? {}),
+        productDebitSubmittedAt: new Date().toISOString(),
+      },
+      updatedBy: actor,
+    });
+  }
+
+  private async releaseCardChargeClaim(mandate: SubscriptionMandateEntity | null): Promise<void> {
+    if (!mandate?.consentEvidence) return;
+    const evidence = { ...mandate.consentEvidence };
+    delete evidence.productChargeStartedAt;
+    await this.mandatesRepository.updateById(mandate.id, { consentEvidence: evidence });
+  }
+
+  private configuredMandateProvider(): SubscriptionMandateProvider | null {
     if (this.cashfree.isConfigured()) return SubscriptionMandateProvider.CASHFREE;
+    if (this.razorpay.isConfigured()) return SubscriptionMandateProvider.RAZORPAY;
+    return null;
+  }
+
+  /**
+   * A new mandate uses the gateway enabled in admin. An existing mandate keeps
+   * the provider stored on that subscription.
+   */
+  private async resolveNewMandateProvider(): Promise<SubscriptionMandateProvider> {
+    const active = await this.gatewayResolver.getActiveGateway();
+    if (active === 'cashfree') {
+      if (!this.cashfree.isConfigured()) {
+        throw new BadRequestException({
+          code: SUBSCRIPTION_ERROR.AUTOPAY_UNAVAILABLE,
+          message: 'Cashfree is selected in admin, but Cashfree credentials are missing',
+        });
+      }
+      return SubscriptionMandateProvider.CASHFREE;
+    }
+    if (active === 'razorpay') {
+      if (!this.razorpay.isConfigured()) {
+        throw new BadRequestException({
+          code: SUBSCRIPTION_ERROR.AUTOPAY_UNAVAILABLE,
+          message: 'Razorpay is selected in admin, but Razorpay credentials are missing',
+        });
+      }
+      return SubscriptionMandateProvider.RAZORPAY;
+    }
     throw new BadRequestException({
       code: SUBSCRIPTION_ERROR.AUTOPAY_UNAVAILABLE,
-      message: 'No AutoPay provider is configured',
+      message: 'The payment method selected in admin does not support subscription AutoPay',
     });
   }
 }

@@ -4,11 +4,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, In } from 'typeorm';
 import { generateUniqueRefId } from '@packages/common';
 import { AuditService } from '@modules/master/services/audit.service';
 import { AuditEntityType } from '@modules/master/constants/audit-entity-type.constant';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
+import { BrandEntity } from '@modules/master/entities/brand.entity';
+import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
@@ -25,6 +27,7 @@ import {
   assertPromotionalCodeShape,
   normalizeCheckoutCode,
 } from '../utils/checkout-code-namespace.util';
+import { assertIdList, readOfferScope } from '../utils/offer-scope.util';
 
 @Injectable()
 export class PromotionalOffersService {
@@ -93,7 +96,7 @@ export class PromotionalOffersService {
       performedBy: actor,
       details: { offerType: dto.offerType },
     });
-    return this.toResponse(created!);
+    return this.withScopeLabels(this.toResponse(created!));
   }
 
   async findAll(query: PromotionalOfferListQueryDto) {
@@ -118,7 +121,7 @@ export class PromotionalOffersService {
   async findOne(refId: string) {
     const offer = await this.offersRepository.findByRefId(refId);
     if (!offer) throw new NotFoundException('Promotional offer not found');
-    return this.toResponse(offer);
+    return this.withScopeLabels(this.toResponse(offer));
   }
 
   async update(refId: string, dto: CreatePromotionalOfferDto, actor: string) {
@@ -181,7 +184,7 @@ export class PromotionalOffersService {
       performedBy: actor,
       details: { offerType: dto.offerType },
     });
-    return this.toResponse(updated!);
+    return this.withScopeLabels(this.toResponse(updated!));
   }
 
   async updateStatus(refId: string, dto: UpdatePromotionalOfferStatusDto, actor: string) {
@@ -217,9 +220,17 @@ export class PromotionalOffersService {
     if (new Date(dto.expiryDate) <= new Date(dto.startDate)) {
       throw new BadRequestException('Expiry must be after the start date');
     }
-    this.validateConfig(dto);
+    dto.config = dto.config ?? {};
+    const scope = await this.assertScope(dto.config);
+    this.validateConfig(dto, scope);
     const variants = [];
+    const seen = new Set<string>();
     for (const target of dto.targets) {
+      const key = `${target.role}:${target.variantId}`;
+      if (seen.has(key)) {
+        throw new BadRequestException('Each variant can only be selected once for the same role');
+      }
+      seen.add(key);
       const variant = await this.dataSource.getRepository(ProductVariantEntity).findOne({
         where: { id: target.variantId },
         relations: { product: true },
@@ -237,16 +248,15 @@ export class PromotionalOffersService {
     return variants;
   }
 
-  private validateConfig(dto: CreatePromotionalOfferDto): void {
+  private validateConfig(dto: CreatePromotionalOfferDto, scope: { brandIds: string[]; categoryIds: string[] }): void {
     const config = dto.config ?? {};
     if (dto.offerType === PromotionalOfferType.GIFT_ON_CART_VALUE) {
-      const gifts = dto.targets.filter((target) => target.role === PromotionalOfferTargetRole.GIFT);
-      if (gifts.length !== 1) throw new BadRequestException('A cart-value gift requires exactly one gift target');
-      if (Number(config['threshold']) <= 0) throw new BadRequestException('Gift threshold must be greater than zero');
+      this.assertGiftConfig(dto, config);
     }
     if (dto.offerType === PromotionalOfferType.BOGO) {
-      if (dto.targets.filter((target) => target.role === PromotionalOfferTargetRole.QUALIFYING).length !== 1) {
-        throw new BadRequestException('BOGO requires one qualifying variant');
+      const qualifying = dto.targets.filter((target) => target.role === PromotionalOfferTargetRole.QUALIFYING);
+      if (!qualifying.length && !scope.brandIds.length && !scope.categoryIds.length) {
+        throw new BadRequestException('BOGO requires at least one qualifying variant, brand, or category');
       }
       this.assertRewardPricing(config);
       if (Number(config['qualifyingQuantity']) < 1 || Number(config['rewardQuantity']) < 1) {
@@ -254,28 +264,113 @@ export class PromotionalOffersService {
       }
     }
     if (dto.offerType === PromotionalOfferType.BUY_X_GET_Y) {
-      const qualifying = dto.targets.filter((target) => target.role === PromotionalOfferTargetRole.QUALIFYING);
-      const rewards = dto.targets.filter((target) => target.role === PromotionalOfferTargetRole.REWARD);
-      if (!qualifying.length || rewards.length !== 1) {
-        throw new BadRequestException('Buy X Get Y requires qualifying targets and one reward target');
-      }
+      this.assertBuyXGetYConfig(dto, config, scope);
       this.assertRewardPricing(config);
     }
     if (dto.offerType === PromotionalOfferType.BUY_MORE_SAVE_MORE) {
       const tiers = Array.isArray(config['tiers']) ? config['tiers'] : [];
       if (!tiers.length) throw new BadRequestException('Buy More Save More requires at least one tier');
       const quantities = new Set<number>();
-      for (const tier of tiers as Array<{ minQuantity?: number; discountValue?: number }>) {
+      for (const tier of tiers as Array<{ minQuantity?: number; discountType?: string; discountValue?: number }>) {
         const minQuantity = Number(tier.minQuantity);
         if (quantities.has(minQuantity)) throw new BadRequestException('Tier quantities must be unique');
         quantities.add(minQuantity);
+        const discountType = String(tier.discountType ?? 'percentage');
+        if (discountType !== 'percentage' && discountType !== 'fixed') {
+          throw new BadRequestException('Tier discount type must be percentage or fixed');
+        }
         if (minQuantity < 1 || Number(tier.discountValue) <= 0) {
           throw new BadRequestException('Each tier needs a positive quantity and discount');
         }
+        if (discountType === 'percentage' && Number(tier.discountValue) > 100) {
+          throw new BadRequestException('Percentage tier discount cannot exceed 100');
+        }
       }
-      if (!dto.targets.some((target) => target.role === PromotionalOfferTargetRole.TIER_GROUP)) {
-        throw new BadRequestException('Buy More Save More requires a tier group');
+      if (
+        !dto.targets.some((target) => target.role === PromotionalOfferTargetRole.TIER_GROUP) &&
+        !scope.brandIds.length &&
+        !scope.categoryIds.length
+      ) {
+        throw new BadRequestException('Buy More Save More requires a tier group, brand, or category');
       }
+    }
+  }
+
+  private assertGiftConfig(dto: CreatePromotionalOfferDto, config: Record<string, unknown>): void {
+    const configured = Array.isArray(config['gifts']) ? config['gifts'] : null;
+    if (!configured) {
+      const gifts = dto.targets.filter((target) => target.role === PromotionalOfferTargetRole.GIFT);
+      if (gifts.length !== 1) throw new BadRequestException('A cart-value gift requires exactly one gift target');
+      if (Number(config['threshold']) <= 0) throw new BadRequestException('Gift threshold must be greater than zero');
+      return;
+    }
+    if (!configured.length) throw new BadRequestException('Add at least one cart-value gift');
+    const thresholds = new Set<number>();
+    const variants = new Set<string>();
+    for (const gift of configured as Array<{ threshold?: number; variantId?: string }>) {
+      const threshold = Number(gift.threshold);
+      const variantId = String(gift.variantId ?? '');
+      if (!(threshold > 0)) throw new BadRequestException('Each gift threshold must be greater than zero');
+      if (thresholds.has(threshold)) throw new BadRequestException('Gift thresholds must be unique');
+      thresholds.add(threshold);
+      if (!variantId || variants.has(variantId)) {
+        throw new BadRequestException('Each gift combination needs its own variant');
+      }
+      variants.add(variantId);
+      const listed = dto.targets.some(
+        (target) => target.role === PromotionalOfferTargetRole.GIFT && target.variantId === variantId,
+      );
+      if (!listed) throw new BadRequestException('Each gift combination must include its gift variant');
+    }
+  }
+
+  private assertBuyXGetYConfig(
+    dto: CreatePromotionalOfferDto,
+    config: Record<string, unknown>,
+    scope: { brandIds: string[]; categoryIds: string[] },
+  ): void {
+    const combinations = Array.isArray(config['combinations']) ? config['combinations'] : null;
+    if (!combinations) {
+      const qualifying = dto.targets.filter((target) => target.role === PromotionalOfferTargetRole.QUALIFYING);
+      const rewards = dto.targets.filter((target) => target.role === PromotionalOfferTargetRole.REWARD);
+      if (!qualifying.length || rewards.length !== 1) {
+        throw new BadRequestException('Buy X Get Y requires qualifying targets and one reward target');
+      }
+      return;
+    }
+    if (!combinations.length) throw new BadRequestException('Add at least one Buy X Get Y combination');
+    for (const combination of combinations as Array<{
+      qualifying?: Array<{ variantId?: string; quantity?: number }>;
+      qualifyingQuantity?: number;
+      rewardVariantId?: string;
+      rewardQuantity?: number;
+    }>) {
+      const qualifying = Array.isArray(combination.qualifying) ? combination.qualifying : [];
+      const scoped = scope.brandIds.length > 0 || scope.categoryIds.length > 0;
+      if (!qualifying.length && !(scoped && Number(combination.qualifyingQuantity) >= 1)) {
+        throw new BadRequestException('Each combination needs at least one buy variant, or a brand or category');
+      }
+      const seen = new Set<string>();
+      for (const row of qualifying) {
+        const variantId = String(row.variantId ?? '');
+        if (!variantId || seen.has(variantId)) {
+          throw new BadRequestException('Each combination needs unique buy variants');
+        }
+        seen.add(variantId);
+        if (Number(row.quantity) < 1) throw new BadRequestException('Buy quantity must be at least 1');
+        const listed = dto.targets.some(
+          (target) => target.role === PromotionalOfferTargetRole.QUALIFYING && target.variantId === variantId,
+        );
+        if (!listed) throw new BadRequestException('Each buy variant must be included on the offer');
+      }
+      const rewardVariantId = String(combination.rewardVariantId ?? '');
+      if (!rewardVariantId || Number(combination.rewardQuantity) < 1) {
+        throw new BadRequestException('Each combination needs a reward variant and quantity');
+      }
+      const rewardListed = dto.targets.some(
+        (target) => target.role === PromotionalOfferTargetRole.REWARD && target.variantId === rewardVariantId,
+      );
+      if (!rewardListed) throw new BadRequestException('Each reward variant must be included on the offer');
     }
   }
 
@@ -353,6 +448,58 @@ export class PromotionalOffersService {
       })),
       createdAt: offer.createdAt,
       updatedAt: offer.updatedAt,
+    };
+  }
+
+  private async assertScope(config: Record<string, unknown>) {
+    let brandIds: string[] = [];
+    let categoryIds: string[] = [];
+    try {
+      brandIds = assertIdList(config.brandIds, 'Brands');
+      categoryIds = assertIdList(config.categoryIds, 'Categories');
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : 'Invalid offer scope');
+    }
+    config.brandIds = brandIds;
+    config.categoryIds = categoryIds;
+    if (brandIds.length) {
+      const rows = await this.dataSource.getRepository(BrandEntity).find({ where: { id: In(brandIds) } });
+      const active = new Set(rows.filter((row) => row.status === MasterStatus.ACTIVE).map((row) => row.id));
+      if (brandIds.some((id) => !active.has(id))) {
+        throw new BadRequestException('One or more brands are missing or inactive');
+      }
+    }
+    if (categoryIds.length) {
+      const rows = await this.dataSource.getRepository(CategoryEntity).find({ where: { id: In(categoryIds) } });
+      const active = new Set(rows.filter((row) => row.status === MasterStatus.ACTIVE).map((row) => row.id));
+      if (categoryIds.some((id) => !active.has(id))) {
+        throw new BadRequestException('One or more categories are missing or inactive');
+      }
+    }
+    return { brandIds, categoryIds };
+  }
+
+  private async withScopeLabels<T extends { config: Record<string, unknown> }>(response: T) {
+    const { brandIds, categoryIds } = readOfferScope(response.config);
+    const [brandRows, categoryRows] = await Promise.all([
+      brandIds.length ? this.dataSource.getRepository(BrandEntity).find({ where: { id: In(brandIds) } }) : Promise.resolve([]),
+      categoryIds.length
+        ? this.dataSource.getRepository(CategoryEntity).find({ where: { id: In(categoryIds) } })
+        : Promise.resolve([]),
+    ]);
+    const brandNames = new Map(brandRows.map((row) => [row.id, row.name]));
+    const categoriesById = new Map(categoryRows.map((row) => [row.id, row]));
+    return {
+      ...response,
+      brands: brandIds.map((id) => ({ id, name: brandNames.get(id) ?? id })),
+      categories: categoryIds.map((id) => {
+        const category = categoriesById.get(id);
+        return {
+          id,
+          name: category?.name ?? id,
+          hierarchyLevel: category?.hierarchyLevel ?? null,
+        };
+      }),
     };
   }
 }

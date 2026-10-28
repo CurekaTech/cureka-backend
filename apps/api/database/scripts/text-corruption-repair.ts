@@ -1,0 +1,371 @@
+/**
+ * Restore Windows-1252 / UTF-8 mojibake in product and blog text.
+ *
+ * Known unambiguous sequences are mapped back to the original Unicode
+ * character. Mixed valid Unicode is preserved. Ambiguous leftovers are
+ * reported and left unchanged — never deleted.
+ */
+
+export type UnresolvedFragment = {
+  fragment: string;
+  reason: string;
+};
+
+export type RepairResult = {
+  value: string;
+  changed: boolean;
+  unresolved: UnresolvedFragment[];
+};
+
+const WIN1252_BYTE_TO_UNICODE = new Map<number, number>([
+  [0x80, 0x20ac],
+  [0x82, 0x201a],
+  [0x83, 0x0192],
+  [0x84, 0x201e],
+  [0x85, 0x2026],
+  [0x86, 0x2020],
+  [0x87, 0x2021],
+  [0x88, 0x02c6],
+  [0x89, 0x2030],
+  [0x8a, 0x0160],
+  [0x8b, 0x2039],
+  [0x8c, 0x0152],
+  [0x8e, 0x017d],
+  [0x91, 0x2018],
+  [0x92, 0x2019],
+  [0x93, 0x201c],
+  [0x94, 0x201d],
+  [0x95, 0x2022],
+  [0x96, 0x2013],
+  [0x97, 0x2014],
+  [0x98, 0x02dc],
+  [0x99, 0x2122],
+  [0x9a, 0x0161],
+  [0x9b, 0x203a],
+  [0x9c, 0x0153],
+  [0x9e, 0x017e],
+  [0x9f, 0x0178],
+]);
+
+const UNICODE_TO_WIN1252 = new Map<number, number>(
+  [...WIN1252_BYTE_TO_UNICODE.entries()].map(([byte, codePoint]) => [codePoint, byte]),
+);
+
+const UNDEFINED_WIN1252_BYTES = new Set([0x81, 0x8d, 0x8f, 0x90, 0x9d]);
+
+const LIGATURE_ASCII: Array<[string, string]> = [
+  ['\uFB00', 'ff'],
+  ['\uFB01', 'fi'],
+  ['\uFB02', 'fl'],
+  ['\uFB03', 'ffi'],
+  ['\uFB04', 'ffl'],
+];
+
+const AUDIT_CHARACTERS = [
+  '\u2018',
+  '\u2019',
+  '\u201C',
+  '\u201D',
+  '\u2013',
+  '\u2014',
+  '\u2026',
+  '\u02DA',
+  '\u02DC',
+  '\u00B0',
+  '\u00B1',
+  '\u00AE',
+  '\u00B5',
+  '\u00D7',
+  '\u00D8',
+  '\u00A9',
+  '\u00A0',
+  '\u20B9',
+  '\u2103',
+  '\u2109',
+  '\u2122',
+  '\u2212',
+  '\u03B1',
+  '\u03B2',
+  '\u03BC',
+  '\u2082',
+  '\u25AA',
+  '\u2264',
+  '\u2265',
+  '\u02B9',
+  '\u02BA',
+  '\u2153',
+  '\u00E9',
+  '\u00E8',
+  '\u00EA',
+  '\u00EB',
+  '\u00E1',
+  '\u00E0',
+  '\u00F3',
+  '\u00F1',
+  '\u00FC',
+  '\u00F6',
+];
+
+const VISUAL_SECOND_CHARS = 'éèêëáàâäãåæçíìîïñóòôöõúùûüýÿÉÈÊËÁÀÂÄÃÅÆÇÍÌÎÏÑÓÒÔÖÕÚÙÛÜÝŸ×Øµ°±®';
+
+function charToWin1252Byte(char: string): number | undefined {
+  const codePoint = char.codePointAt(0);
+  if (codePoint === undefined) return undefined;
+  const mapped = UNICODE_TO_WIN1252.get(codePoint);
+  if (mapped !== undefined) return mapped;
+  if (UNDEFINED_WIN1252_BYTES.has(codePoint) || codePoint <= 0xff) return codePoint;
+  return undefined;
+}
+
+function utf8SequenceLength(leadByte: number): number {
+  if (leadByte >= 0xc2 && leadByte <= 0xdf) return 2;
+  if (leadByte >= 0xe0 && leadByte <= 0xef) return 3;
+  if (leadByte >= 0xf0 && leadByte <= 0xf4) return 4;
+  return 0;
+}
+
+function isSafeDecoded(text: string): boolean {
+  if (!text) return false;
+  for (const char of text) {
+    const codePoint = char.codePointAt(0) ?? 0;
+    if (codePoint === 0x09 || codePoint === 0x0a || codePoint === 0x0d) continue;
+    if (codePoint < 0x20 || codePoint === 0x7f) return false;
+    if (codePoint >= 0x80 && codePoint <= 0x9f) return false;
+    if (codePoint === 0xfffd) return false;
+  }
+  return true;
+}
+
+function decodeUtf8Bytes(bytes: number[]): string | null {
+  const decoded = Buffer.from(bytes).toString('utf8');
+  if (!isSafeDecoded(decoded)) return null;
+  const roundTrip = Buffer.from(decoded, 'utf8');
+  if (roundTrip.length !== bytes.length) return null;
+  for (let index = 0; index < bytes.length; index += 1) {
+    if (roundTrip[index] !== bytes[index]) return null;
+  }
+  return decoded;
+}
+
+function expandLigatures(value: string): string {
+  let current = value;
+  for (const [ligature, ascii] of LIGATURE_ASCII) current = current.split(ligature).join(ascii);
+  return current;
+}
+
+export function encodeWindows1252Mojibake(value: string): string {
+  let output = '';
+  for (const byte of Buffer.from(value, 'utf8')) {
+    output += String.fromCodePoint(WIN1252_BYTE_TO_UNICODE.get(byte) ?? byte);
+  }
+  return output;
+}
+
+function buildExactMaps(): Array<[string, string]> {
+  const maps = new Map<string, string>();
+  const remember = (from: string, to: string) => {
+    if (from && from !== to && !maps.has(from)) maps.set(from, to);
+  };
+
+  const originals = new Set<string>(AUDIT_CHARACTERS);
+  for (let codePoint = 0xa0; codePoint <= 0xff; codePoint += 1) {
+    originals.add(String.fromCharCode(codePoint));
+  }
+
+  for (const original of originals) {
+    const once = encodeWindows1252Mojibake(original);
+    const twice = encodeWindows1252Mojibake(once);
+    const thrice = encodeWindows1252Mojibake(twice);
+    remember(thrice, original);
+    remember(twice, original);
+    remember(once, original);
+  }
+
+  for (const [ligature, ascii] of LIGATURE_ASCII) {
+    const once = encodeWindows1252Mojibake(ligature);
+    const twice = encodeWindows1252Mojibake(once);
+    remember(twice, ascii);
+    remember(once, ascii);
+  }
+
+  for (const char of VISUAL_SECOND_CHARS) {
+    remember(`\u00C3${char}`, char);
+  }
+
+  // Collapsed double-encoded apostrophe / trademark forms seen in CSV exports.
+  remember('Ã¢â‚¬â„¢', '\u2019');
+  remember('Ã¢â‚¬Å“', '\u201C');
+  remember('Ã¢â‚¬Â\u009d', '\u201D');
+
+  return [...maps.entries()].sort((left, right) => right[0].length - left[0].length);
+}
+
+const EXACT_MAPS = buildExactMaps();
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const DETECTOR_SOURCES = [
+  ...new Set([
+    ...EXACT_MAPS.map(([from]) => from).filter((from) => from.length >= 2),
+    'â€',
+    'ðŸ',
+    'ï¿½',
+    'ï¬',
+    '\uFFFD',
+  ]),
+].sort((left, right) => right.length - left.length);
+
+const DETECTOR_BODY = `${DETECTOR_SOURCES.map(escapeRegex).join('|')}|[\\u0080-\\u009F]`;
+
+export const SQL_INDICATOR = `(${DETECTOR_BODY})`;
+export const JS_INDICATOR = new RegExp(DETECTOR_BODY, 'u');
+const JS_INDICATOR_GLOBAL = new RegExp(DETECTOR_BODY, 'gu');
+
+function applyExactMaps(value: string): string {
+  let current = value;
+  for (const [from, to] of EXACT_MAPS) {
+    if (current.includes(from)) current = current.split(from).join(to);
+  }
+  return current;
+}
+
+function applyContextualDegree(value: string): string {
+  return value.replace(/(\d(?:[.,]\d+)?)\s*\u02DA\s*(?=[CFcf])/g, '$1\u00B0');
+}
+
+function decodeMappedChars(chars: string[]): string | null {
+  const bytes: number[] = [];
+  for (const char of chars) {
+    const byte = charToWin1252Byte(char);
+    if (byte === undefined) return null;
+    bytes.push(byte);
+  }
+  const decoded = decodeUtf8Bytes(bytes);
+  if (!decoded || decoded === chars.join('')) return null;
+  return expandLigatures(decoded);
+}
+
+function decodeIterative(value: string): string | null {
+  let current = value;
+  for (let pass = 0; pass < 3; pass += 1) {
+    const next = decodeMappedChars([...current]);
+    if (!next || next === current) break;
+    current = next;
+  }
+  return current === value ? null : current;
+}
+
+function repairMixed(value: string): string {
+  const chars = [...value];
+  let output = '';
+  let index = 0;
+  while (index < chars.length) {
+    const leadByte = charToWin1252Byte(chars[index] ?? '');
+    const minLength = leadByte === undefined ? 0 : utf8SequenceLength(leadByte);
+    let matched: string | null = null;
+    let consumed = 0;
+    if (minLength > 0) {
+      const max = Math.min(chars.length, index + 24);
+      for (let end = max; end >= index + minLength; end -= 1) {
+        const slice = chars.slice(index, end);
+        const decoded = decodeIterative(slice.join(''));
+        if (!decoded) continue;
+        matched = decoded;
+        consumed = end - index;
+        break;
+      }
+    }
+    if (matched !== null) {
+      output += matched;
+      index += consumed;
+    } else {
+      output += chars[index];
+      index += 1;
+    }
+  }
+  return output;
+}
+
+function reasonFor(fragment: string): string {
+  if (fragment === '\uFFFD' || fragment === 'ï¿½') return 'unrecoverable_replacement_character';
+  if (/[\u0080-\u009F]/.test(fragment)) return 'c1_control_character';
+  if (fragment.startsWith('â€') && fragment.length < 3) return 'incomplete_punctuation_mojibake';
+  if (fragment.startsWith('ðŸ') && fragment.length < 4) return 'incomplete_emoji_mojibake';
+  if (fragment.startsWith('ï¬') && fragment.length < 3) return 'incomplete_ligature_mojibake';
+  return 'ambiguous_or_incomplete_mojibake';
+}
+
+export function findUnresolved(value: string): UnresolvedFragment[] {
+  const unresolved: UnresolvedFragment[] = [];
+  JS_INDICATOR_GLOBAL.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = JS_INDICATOR_GLOBAL.exec(value))) {
+    unresolved.push({ fragment: match[0], reason: reasonFor(match[0]) });
+    if (match[0].length === 0) JS_INDICATOR_GLOBAL.lastIndex += 1;
+  }
+  return unresolved;
+}
+
+export function repairText(value: string): RepairResult {
+  if (!value) return { value, changed: false, unresolved: [] };
+  let current = value;
+  for (let pass = 0; pass < 4; pass += 1) {
+    const next = applyContextualDegree(repairMixed(applyExactMaps(current)));
+    if (next === current) break;
+    current = next;
+  }
+  return {
+    value: current,
+    changed: current !== value,
+    unresolved: findUnresolved(current),
+  };
+}
+
+export function hasIndicator(value: unknown): boolean {
+  return typeof value === 'string' && JS_INDICATOR.test(value);
+}
+
+export function cleanString(value: string): string {
+  return repairText(value).value;
+}
+
+export function cleanJson(value: unknown): {
+  value: unknown;
+  changed: boolean;
+  unresolved: UnresolvedFragment[];
+} {
+  if (typeof value === 'string') {
+    const repaired = repairText(value);
+    return {
+      value: repaired.value,
+      changed: repaired.changed,
+      unresolved: repaired.unresolved,
+    };
+  }
+  if (Array.isArray(value)) {
+    let changed = false;
+    const unresolved: UnresolvedFragment[] = [];
+    const next = value.map((item) => {
+      const result = cleanJson(item);
+      changed ||= result.changed;
+      unresolved.push(...result.unresolved);
+      return result.value;
+    });
+    return { value: next, changed, unresolved };
+  }
+  if (value && typeof value === 'object') {
+    let changed = false;
+    const unresolved: UnresolvedFragment[] = [];
+    const next: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) {
+      const result = cleanJson(item);
+      next[key] = result.value;
+      changed ||= result.changed;
+      unresolved.push(...result.unresolved);
+    }
+    return { value: next, changed, unresolved };
+  }
+  return { value, changed: false, unresolved: [] };
+}

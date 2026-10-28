@@ -28,6 +28,13 @@ export type GokwikCartMappingOptions = {
   shippingAddress?: { postalCode: string };
   availablePaymentMethods?: GokwikAvailablePaymentMethod[];
   availableShippingMethods?: GokwikAvailableShippingMethod[];
+  /** Whole rupees already reserved for this GoKwik cart. Omitted means no wallet credit. */
+  walletCreditUsed?: number;
+  /**
+   * Payable before wallet in whole rupees. Use GoKwik checkout shipping/discount
+   * when they differ from Cureka's stored cart totals.
+   */
+  payableTotalOverride?: number;
 };
 
 export function mapCartToGokwikCart(
@@ -92,11 +99,18 @@ export function mapCartToGokwikCart(
     prepaid,
   });
 
-  // Keep GoKwik total aligned with summary lines + extra fields.
-  const total = Math.max(
-    0,
-    subtotal - discountAmount + shippingTotal + handling + platform + cod - prepaid,
-  );
+  // Keep GoKwik total aligned with summary lines + extra fields, unless GoKwik
+  // sent the checkout payable used to size wallet credit.
+  const totalBeforeWallet =
+    options.payableTotalOverride != null
+      ? Math.max(0, Math.floor(Number(options.payableTotalOverride)))
+      : Math.max(
+          0,
+          subtotal - discountAmount + shippingTotal + handling + platform + cod - prepaid,
+        );
+  const requestedWalletCredit = Math.max(0, Math.floor(Number(options.walletCreditUsed ?? 0)));
+  const walletCreditUsed = Math.min(requestedWalletCredit, totalBeforeWallet);
+  const total = totalBeforeWallet - walletCreditUsed;
 
   return {
     subtotal,
@@ -106,7 +120,7 @@ export function mapCartToGokwikCart(
     currency: 'INR',
     items,
     discounts,
-    wallet_credit_used: 0,
+    wallet_credit_used: walletCreditUsed,
     membership_discount: 0,
     cashback_amount: 0,
     total_tax: 0,

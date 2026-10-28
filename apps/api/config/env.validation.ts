@@ -258,12 +258,15 @@ export const envValidationSchema = Joi.object({
 
   /** Website + admin subscription/membership module. Default off. true only on techbv. */
   SUBSCRIPTIONS_MODULE_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  /** 30-minute, 1-hour, and 1-day tenures. Leave false outside TechBV. */
+  SUBSCRIPTION_TEST_TENURES_ENABLED: Joi.string().valid('true', 'false').default('false'),
   SUBSCRIPTION_TIMEZONE: Joi.string().default('Asia/Kolkata'),
   SUBSCRIPTION_DELIVERY_LEAD_DAYS: Joi.number().integer().min(0).max(30).default(2),
   SUBSCRIPTION_MAX_RETRIES: Joi.number().integer().min(0).max(10).default(3),
   SUBSCRIPTION_CHANGE_CUTOFF_HOURS: Joi.number().integer().min(0).max(168).default(12),
   SUBSCRIPTION_PREDEBIT_HOURS: Joi.number().integer().min(0).max(72).default(24),
   SUBSCRIPTION_AUTOPAY_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  SUBSCRIPTION_CASHFREE_ADVANCE_CHARGE: Joi.string().valid('true', 'false').default('true'),
   SUBSCRIPTION_AUTOPAY_PROVIDER: Joi.string().valid('RAZORPAY', 'CASHFREE', '').optional(),
   SUBSCRIPTION_MANDATE_MAX_AMOUNT: Joi.number().positive().allow('').optional(),
   SUBSCRIPTION_PAYMENT_LINK_EXPIRY_HOURS: Joi.number().integer().min(1).max(720).default(72),

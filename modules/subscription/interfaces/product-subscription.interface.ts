@@ -96,7 +96,16 @@ export interface IUserProductSubscription {
   mandateId: string | null;
   mandateMaxAmount: string | null;
   mandateStatus?: string | null;
+  paymentPhase?:
+    | 'AWAITING_AUTHORIZATION'
+    | 'PRODUCT_PROCESSING'
+    | 'PRODUCT_CONFIRMED'
+    | 'PRODUCT_FAILED'
+    | 'RECONCILING';
+  confirmedOrderNumber?: string | null;
   intervalMonths?: number;
+  intervalDays?: number;
+  intervalMinutes?: number;
   intervalLabel?: string;
   allowedActions?: {
     pause: boolean;
@@ -121,6 +130,10 @@ export interface IUserProductSubscription {
     email?: string;
     contact?: string;
   } | null;
+  recurring?: string | null;
+  gatewayCustomerId?: string | null;
+  subscriptionCheckout?: boolean | null;
+  autopayMethod?: 'upi' | 'card' | 'emandate' | null;
   user?: ISubscriptionUserSummary | null;
   product?: ISubscriptionProductSummary | null;
   variant?: ISubscriptionVariantSummary | null;

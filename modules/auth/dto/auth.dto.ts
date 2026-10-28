@@ -69,19 +69,19 @@ export class VerifyOtpDto {
 }
 
 export class CompleteRegistrationDto {
-  @IsNotEmpty()
+  @IsNotEmpty({ message: 'First name is required.' })
   @IsString()
-  @MaxLength(100)
+  @MaxLength(100, { message: 'First name must be 100 characters or fewer.' })
   firstName!: string;
 
-  @IsNotEmpty()
+  @IsNotEmpty({ message: 'Last name is required.' })
   @IsString()
-  @MaxLength(100)
+  @MaxLength(100, { message: 'Last name must be 100 characters or fewer.' })
   lastName!: string;
 
   @IsOptional()
-  @IsEmail()
-  @MaxLength(255)
+  @IsEmail({}, { message: 'Enter a valid email address.' })
+  @MaxLength(255, { message: 'Email address must be 255 characters or fewer.' })
   email?: string;
 }
 

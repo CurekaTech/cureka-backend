@@ -1,4 +1,4 @@
-import { Body, Controller, Headers, HttpCode, HttpStatus, Inject, Logger, Post, Req, forwardRef } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Headers, HttpCode, HttpStatus, Inject, Logger, Post, Req, forwardRef } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ApiExcludeController } from '@nestjs/swagger';
 import { FastifyRequest } from 'fastify';
@@ -9,7 +9,9 @@ import { MembershipsService } from '@modules/subscription/services/memberships.s
 import { ProductSubscriptionsService } from '@modules/subscription/services/product-subscriptions.service';
 import { SubscriptionMandateService } from '@modules/subscription/services/subscription-mandate.service';
 import { SubscriptionWebhookEventsRepository } from '@modules/subscription/repositories/subscription-webhook-events.repository';
+import { readCashfreeSubscriptionWebhook } from '@modules/subscription/utils/cashfree-subscription-webhook.util';
 import { mapCashfreeSubscriptionStatus, mapRazorpayTokenStatus } from '@modules/subscription/utils/subscription-mandate-status.util';
+import { razorpaySubscriptionEventSettlesPayment } from '@modules/subscription/utils/razorpay-upi-debit.util';
 import { PaymentRequestsService } from '../services/payment-requests.service';
 import { RazorpayPaymentLinksService } from '../services/razorpay-payment-links.service';
 import { CashfreePaymentService } from '../services/cashfree-payment.service';
@@ -88,7 +90,17 @@ export class PaymentsWebhookController {
     @Headers('x-webhook-signature') signature?: string,
     @Headers('x-webhook-timestamp') timestamp?: string,
   ) {
-    const rawBody = JSON.stringify(payload);
+    const rawBodySource = (req as FastifyRequest & { rawBody?: Buffer | string }).rawBody;
+    const rawBody = Buffer.isBuffer(rawBodySource)
+      ? rawBodySource.toString('utf8')
+      : rawBodySource;
+    if (!rawBody) {
+      this.logger.error(
+        { requestId: req.id, rawBodyAvailable: false },
+        'Cashfree webhook raw body is missing, so the signature cannot be verified',
+      );
+      throw new BadRequestException('Cashfree webhook body is missing');
+    }
     this.cashfreeService.verifyWebhookSignature(rawBody, timestamp, signature);
 
     const eventType = String(payload['type'] ?? '');
@@ -121,6 +133,10 @@ export class PaymentsWebhookController {
           actor: 'cashfree-webhook',
         });
         if (!routed) {
+          this.logger.log(
+            { orderId, paymentPurpose, requestId: req.id },
+            'Cashfree payment success had no subscription purpose, so checkout handled it',
+          );
           const providerAmount = Number(
             paymentData?.['payment_amount'] ?? orderData?.['order_amount'] ?? NaN,
           );
@@ -132,7 +148,7 @@ export class PaymentsWebhookController {
           );
         }
         this.logger.log(
-          { orderId, cfPaymentId, requestId: req.id },
+          { orderId, cfPaymentId, paymentPurpose, routed, requestId: req.id },
           'Cashfree webhook handled payment success',
         );
       } else {
@@ -175,38 +191,191 @@ export class PaymentsWebhookController {
       eventType === 'SUBSCRIPTION_PAYMENT_FAILED' ||
       eventType === 'SUBSCRIPTION_PAYMENT_CANCELLED'
     ) {
-      const subscriptionData = (data?.['subscription'] ?? payload['subscription'] ?? {}) as Record<string, unknown>;
-      const eventId = String(
-        payload['event_time'] ?? cfPaymentId ?? subscriptionData['cf_subscription_id'] ?? eventType,
+      const subscription = readCashfreeSubscriptionWebhook(payload);
+      const merchantSubscriptionId = subscription.merchantSubscriptionId;
+      const cfSubscriptionId = subscription.cfSubscriptionId;
+      const subscriptionStatus = subscription.subscriptionStatus;
+      const subscriptionPaymentId = subscription.subscriptionPaymentId;
+      const subscriptionCfPaymentId = subscription.cfPaymentId || (cfPaymentId ? String(cfPaymentId) : '');
+      const eventId = [
+        subscription.subscriptionStatus || subscription.paymentStatus || 'event',
+        subscriptionCfPaymentId ||
+          subscription.paymentId ||
+          cfSubscriptionId ||
+          merchantSubscriptionId ||
+          'none',
+        String(payload['event_time'] ?? ''),
+      ].join(':');
+      this.logger.log(
+        {
+          eventType,
+          requestId: req.id,
+          merchantSubscriptionId: merchantSubscriptionId || null,
+          cfSubscriptionId: cfSubscriptionId || null,
+          subscriptionStatus: subscriptionStatus || null,
+          subscriptionPaymentId: subscriptionPaymentId ?? null,
+          cfPaymentId: subscriptionCfPaymentId || null,
+          paymentId: subscription.paymentId || null,
+          paymentStatus: subscription.paymentStatus || paymentData?.['payment_status'] || null,
+          paymentType: subscription.paymentType || null,
+          paymentAmount: subscription.paymentAmount,
+        },
+        'Cashfree subscription webhook received',
       );
       const fresh = await this.subscriptionWebhookEvents.tryRecord({
         provider: 'CASHFREE',
         eventId: `${eventType}:${eventId}`,
         eventType,
       });
-      if (fresh) {
-        if (eventType === 'SUBSCRIPTION_PAYMENT_SUCCESS') {
-          await this.productSubscriptionsService.handlePaymentSuccess({
-            gatewayOrderId: String(paymentData?.['payment_id'] ?? orderId ?? ''),
-            gatewayPaymentId: cfPaymentId ? String(cfPaymentId) : undefined,
-            actor: 'cashfree-subscription-webhook',
-          });
-        } else if (eventType === 'SUBSCRIPTION_PAYMENT_FAILED') {
+      if (!fresh) {
+        this.logger.warn(
+          { eventType, eventId, requestId: req.id },
+          'Cashfree subscription webhook was a duplicate; settlement still runs',
+        );
+      }
+      if (eventType === 'SUBSCRIPTION_PAYMENT_SUCCESS' || eventType === 'SUBSCRIPTION_PAYMENT_FAILED') {
+        if (eventType === 'SUBSCRIPTION_PAYMENT_FAILED') {
           await this.productSubscriptionsService.handlePaymentFailed({
-            gatewayOrderId: String(paymentData?.['payment_id'] ?? orderId ?? ''),
+            gatewayOrderId: subscription.paymentId || merchantSubscriptionId || String(orderId ?? ''),
             reason: String(paymentData?.['payment_message'] ?? 'Cashfree subscription charge failed'),
             actor: 'cashfree-subscription-webhook',
           });
+          this.logger.warn(
+            { eventType, merchantSubscriptionId, cfSubscriptionId, requestId: req.id },
+            'Cashfree subscription payment failed, so no order was created',
+          );
         } else {
+          if (subscriptionStatus) {
+            await this.subscriptionMandateService.handleProviderWebhook({
+              provider: SubscriptionMandateProvider.CASHFREE,
+              gatewaySubscriptionId: cfSubscriptionId || merchantSubscriptionId,
+              authorizationOrderId: merchantSubscriptionId || undefined,
+              gatewayPaymentId: subscriptionCfPaymentId || undefined,
+              status: mapCashfreeSubscriptionStatus(subscriptionStatus),
+              actor: 'cashfree-webhook',
+              raw: payload,
+            });
+          }
+          const paymentId =
+            subscriptionPaymentId ||
+            (await this.subscriptionMandateService.recordedFirstChargePaymentId(
+              merchantSubscriptionId || cfSubscriptionId,
+            )) ||
+            undefined;
+          const settled = await this.productSubscriptionsService.settleCashfreeSubscriptionPayment({
+            paymentId,
+            gatewayOrderId: subscription.paymentId || merchantSubscriptionId || String(orderId ?? ''),
+            gatewayPaymentId: subscriptionCfPaymentId || undefined,
+            gatewaySubscriptionId: cfSubscriptionId || merchantSubscriptionId || undefined,
+            actor: 'cashfree-subscription-webhook',
+          });
+          this.logger.log(
+            { settled, subscriptionPaymentId: subscriptionPaymentId ?? null, cfSubscriptionId, requestId: req.id },
+            settled
+              ? 'Cashfree subscription payment settled'
+              : 'Cashfree subscription payment was not settled, so no order was created',
+          );
+        }
+      } else if (
+        eventType === 'SUBSCRIPTION_AUTH_STATUS' &&
+        subscription.paymentStatus.toUpperCase() === 'SUCCESS'
+      ) {
+        if (subscriptionStatus) {
           await this.subscriptionMandateService.handleProviderWebhook({
             provider: SubscriptionMandateProvider.CASHFREE,
-            gatewaySubscriptionId: String(
-              subscriptionData['subscription_id'] ?? subscriptionData['cf_subscription_id'] ?? '',
-            ),
-            status: mapCashfreeSubscriptionStatus(String(subscriptionData['subscription_status'] ?? '')),
+            gatewaySubscriptionId: cfSubscriptionId || merchantSubscriptionId,
+            authorizationOrderId: merchantSubscriptionId || undefined,
+            gatewayPaymentId: subscriptionCfPaymentId || undefined,
+            status: mapCashfreeSubscriptionStatus(subscriptionStatus),
             actor: 'cashfree-webhook',
             raw: payload,
           });
+        } else {
+          this.logger.log(
+            {
+              eventType,
+              merchantSubscriptionId: merchantSubscriptionId || null,
+              cfSubscriptionId: cfSubscriptionId || null,
+              paymentStatus: subscription.paymentStatus,
+              requestId: req.id,
+            },
+            'Cashfree authorization succeeded without a subscription status, so the mandate status was left unchanged',
+          );
+        }
+        const paymentId =
+          subscriptionPaymentId ||
+          (await this.subscriptionMandateService.recordedFirstChargePaymentId(
+            merchantSubscriptionId || cfSubscriptionId,
+          )) ||
+          undefined;
+        const settled = await this.productSubscriptionsService.settleCashfreeSubscriptionPayment({
+          paymentId,
+          gatewayOrderId: subscription.paymentId || merchantSubscriptionId || String(orderId ?? ''),
+          gatewayPaymentId: subscriptionCfPaymentId || undefined,
+          gatewaySubscriptionId: cfSubscriptionId || merchantSubscriptionId || undefined,
+          actor: 'cashfree-subscription-webhook',
+        });
+        this.logger.log(
+          { settled, subscriptionPaymentId: paymentId ?? null, cfSubscriptionId, requestId: req.id },
+          settled
+            ? 'Cashfree authorization payment settled'
+            : 'Cashfree authorization payment was not settled, so no order was created',
+        );
+      } else if (!subscriptionStatus) {
+        this.logger.log(
+          {
+            eventType,
+            merchantSubscriptionId: merchantSubscriptionId || null,
+            cfSubscriptionId: cfSubscriptionId || null,
+            paymentStatus: subscription.paymentStatus || null,
+            requestId: req.id,
+          },
+          'Cashfree subscription webhook had no status, so the mandate was left unchanged',
+        );
+      } else {
+        const mandateMatched = await this.subscriptionMandateService.handleProviderWebhook({
+          provider: SubscriptionMandateProvider.CASHFREE,
+          gatewaySubscriptionId: cfSubscriptionId || merchantSubscriptionId,
+          authorizationOrderId: merchantSubscriptionId || undefined,
+          status: mapCashfreeSubscriptionStatus(subscriptionStatus),
+          actor: 'cashfree-webhook',
+          raw: payload,
+        });
+        this.logger.log(
+          {
+            eventType,
+            mandateMatched,
+            subscriptionStatus: subscriptionStatus || null,
+            merchantSubscriptionId: merchantSubscriptionId || null,
+            cfSubscriptionId: cfSubscriptionId || null,
+            requestId: req.id,
+          },
+          mandateMatched
+            ? 'Cashfree mandate status applied'
+            : 'Cashfree mandate webhook did not match a subscription',
+        );
+        if (subscriptionStatus.toUpperCase() === 'ACTIVE') {
+          const paymentId = await this.subscriptionMandateService.firstChargePaymentIdIfReady(
+            merchantSubscriptionId || cfSubscriptionId,
+          );
+          if (!paymentId) {
+            this.logger.warn(
+              { merchantSubscriptionId, cfSubscriptionId, requestId: req.id },
+              'Cashfree subscription is active, but the product payment is not ready, so no order was created',
+            );
+          } else {
+            const settled = await this.productSubscriptionsService.settleCashfreeSubscriptionPayment({
+              paymentId,
+              gatewaySubscriptionId: cfSubscriptionId || merchantSubscriptionId || undefined,
+              actor: 'cashfree-subscription-webhook',
+            });
+            this.logger.log(
+              { settled, paymentId, cfSubscriptionId, requestId: req.id },
+              settled
+                ? 'Cashfree active subscription settled the product payment'
+                : 'Cashfree subscription is active, but the product payment did not settle, so no order was created',
+            );
+          }
         }
       }
     } else if (eventType === 'REFUND_STATUS_WEBHOOK' || eventType === 'REFUND_WEBHOOK') {
@@ -279,6 +448,7 @@ export class PaymentsWebhookController {
           entity?: {
             id?: string;
             order_id?: string;
+            status?: string;
             /** Razorpay amount in paise */
             amount?: number | string;
             error_description?: string;
@@ -320,6 +490,10 @@ export class PaymentsWebhookController {
       eventType: event,
     });
     if (!fresh && event.startsWith('token.')) {
+      if (event === 'token.confirmed') {
+        const duplicateToken = payloadData?.['token'] as { entity?: { id?: string } } | undefined;
+        await this.productSubscriptionsService.resumeCardProductCharge(duplicateToken?.entity?.id);
+      }
       return { received: true, event, requestId: req.id, duplicate: true };
     }
 
@@ -350,6 +524,27 @@ export class PaymentsWebhookController {
     } else if (event === 'payment_link.expired' && linkId) {
       await this.paymentRequestsService.handlePaymentLinkExpired(linkId);
     } else if (event === 'payment.authorized' || event === 'payment.captured' || event === 'order.paid') {
+      const subscriptionPurpose =
+        paymentPurpose === SUBSCRIPTION_PAYMENT_PURPOSE.PRODUCT_SUBSCRIPTION ||
+        paymentPurpose === SUBSCRIPTION_PAYMENT_PURPOSE.MEMBERSHIP;
+      let markSubscriptionPaid = false;
+      if (subscriptionPurpose) {
+        const settlement = razorpaySubscriptionEventSettlesPayment(event, paymentEntity?.entity?.status);
+        markSubscriptionPaid =
+          settlement === 'paid' ||
+          (settlement === 'verify' &&
+            (await this.productSubscriptionsService.isRazorpayChargeCaptured({
+              gatewayOrderId: orderId,
+              gatewayPaymentId: paymentEntity?.entity?.id,
+            })));
+        if (!markSubscriptionPaid) {
+          this.logger.log(
+            { event, orderId, paymentStatus: paymentEntity?.entity?.status, requestId: req.id },
+            'Subscription payment was not captured, so it was not marked paid',
+          );
+        }
+      }
+      if (!subscriptionPurpose || markSubscriptionPaid) {
       const routed = await this.routeSubscriptionPaid({
         paymentPurpose,
         gatewayOrderId: orderId ?? linkId,
@@ -380,6 +575,7 @@ export class PaymentsWebhookController {
             razorpayAmountRupees,
           );
         }
+      }
       }
     } else if (event === 'payment.failed') {
       if (orderId) {
@@ -423,12 +619,18 @@ export class PaymentsWebhookController {
       await this.subscriptionMandateService.handleProviderWebhook({
         provider: SubscriptionMandateProvider.RAZORPAY,
         gatewayMandateId: tokenEntity?.entity?.id,
+        gatewayCustomerId: tokenEntity?.entity?.customer_id,
         status: mapRazorpayTokenStatus(
           tokenEntity?.entity?.recurring_status ?? tokenEntity?.entity?.status ?? event.replace('token.', ''),
         ),
         actor: 'razorpay-webhook',
         raw: payload,
       });
+      if (event === 'token.confirmed') {
+        await this.productSubscriptionsService.collectCardProductAfterTokenConfirmed(
+          tokenEntity?.entity?.id,
+        );
+      }
     } else if (
       event === 'refund.processed' ||
       event === 'refund.failed' ||

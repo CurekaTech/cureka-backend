@@ -1,5 +1,6 @@
 /**
- * Detect and selectively remove known mojibake indicator fragments.
+ * Detect known UTF-8 / Windows-1252 mojibake and restore the original
+ * Unicode character. Ambiguous leftovers are reported, never deleted.
  *
  * Apply requires explicit target and preview confirmation plus a pre-existing,
  * verified custom-format backup. Remote access has a separate explicit gate.
@@ -10,18 +11,32 @@ import { spawnSync } from 'child_process';
 import { statSync } from 'fs';
 import { createHash } from 'crypto';
 import { isAbsolute } from 'path';
+import {
+  SQL_INDICATOR,
+  cleanJson as repairJson,
+  hasIndicator as hasCorruptionIndicator,
+  repairText,
+  type UnresolvedFragment,
+} from './text-corruption-repair';
 
 dotenv.config();
 
-export const INDICATOR_PATTERN =
-  '(â€™|â€œ|â€|Ã[A-Za-zÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿ]|ï¿½|ðŸ)';
-const JS_INDICATOR = new RegExp(INDICATOR_PATTERN, 'gu');
-const JS_INDICATOR_TEST = new RegExp(INDICATOR_PATTERN, 'u');
+export {
+  SQL_INDICATOR,
+  cleanJson,
+  cleanString,
+  hasIndicator,
+  repairText,
+} from './text-corruption-repair';
+
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 const REMOTE_ALLOWED_HOST = '8.231.74.20';
 const REMOTE_CONFIRMATION = 'I_UNDERSTAND_THIS_IS_REMOTE_CUREKA_DATABASE';
 const SAMPLE_KEYS_PER_GROUP = 3;
+const SAMPLE_LIMIT = 50;
+const PREVIEW_CHARS = 100;
 const skippedFields = new Set<string>();
+const reviewItems: ReviewItem[] = [];
 
 export type Mode = 'dry-run' | 'apply';
 type Environment = Record<string, string | undefined>;
@@ -42,6 +57,13 @@ type Candidate = {
   pk: Record<string, unknown>;
   before: unknown;
   after: unknown;
+};
+type ReviewItem = {
+  table: string;
+  column: string;
+  pk: Record<string, unknown>;
+  unresolved: UnresolvedFragment[];
+  preview: string;
 };
 type CandidateGroup = { table: string; column: string; candidates: Candidate[] };
 type QueryResult<T> = { rows: T[]; rowCount: number | null };
@@ -125,44 +147,27 @@ function quoteIdent(identifier: string): string {
   return `"${identifier.replace(/"/g, '""')}"`;
 }
 
-export function hasIndicator(value: unknown): boolean {
-  return typeof value === 'string' && JS_INDICATOR_TEST.test(value);
+function safePreview(value: unknown): string {
+  const raw = typeof value === 'string' ? value : JSON.stringify(value);
+  const oneLine = String(raw ?? '').replace(/[\r\n\t]+/g, ' ');
+  return oneLine.length > PREVIEW_CHARS ? `${oneLine.slice(0, PREVIEW_CHARS)}…` : oneLine;
 }
 
-export function cleanString(value: string): string {
-  return value.replace(JS_INDICATOR, '');
-}
-
-export function cleanJson(value: unknown): { value: unknown; changed: boolean } {
-  if (typeof value === 'string') {
-    const cleaned = cleanString(value);
-    return { value: cleaned, changed: cleaned !== value };
-  }
-  if (Array.isArray(value)) {
-    let changed = false;
-    const next = value.map((item) => {
-      const result = cleanJson(item);
-      changed ||= result.changed;
-      return result.value;
-    });
-    return { value: next, changed };
-  }
-  if (value && typeof value === 'object') {
-    let changed = false;
-    const next: Record<string, unknown> = {};
-    for (const [key, item] of Object.entries(value)) {
-      const result = cleanJson(item);
-      Object.defineProperty(next, key, {
-        value: result.value,
-        enumerable: true,
-        configurable: true,
-        writable: true,
-      });
-      changed ||= result.changed;
-    }
-    return { value: next, changed };
-  }
-  return { value, changed: false };
+function recordReviews(
+  table: string,
+  column: string,
+  pk: Record<string, unknown>,
+  before: unknown,
+  unresolved: UnresolvedFragment[],
+): void {
+  if (!unresolved.length) return;
+  reviewItems.push({
+    table,
+    column,
+    pk,
+    unresolved,
+    preview: safePreview(before),
+  });
 }
 
 function isJsonColumn(column: PgColumn): boolean {
@@ -474,7 +479,7 @@ async function scanTable(
     .join(' OR ');
   const result = await client.query(
     `SELECT ${selected.map(quoteIdent).join(', ')} FROM public.${quoteIdent(spec.table)} WHERE ${predicates}`,
-    [INDICATOR_PATTERN],
+    [SQL_INDICATOR],
   );
   const candidates: Candidate[] = [];
   for (const row of result.rows as Record<string, unknown>[]) {
@@ -483,14 +488,19 @@ async function scanTable(
       const before = row[column.column_name];
       let after = before;
       let changed = false;
+      let unresolved: UnresolvedFragment[] = [];
       if (isJsonColumn(column)) {
-        const result = cleanJson(before);
-        after = result.value;
-        changed = result.changed;
-      } else if (hasIndicator(before)) {
-        after = cleanString(before as string);
-        changed = after !== before;
+        const repaired = repairJson(before);
+        after = repaired.value;
+        changed = repaired.changed;
+        unresolved = repaired.unresolved;
+      } else if (typeof before === 'string' && hasCorruptionIndicator(before)) {
+        const repaired = repairText(before);
+        after = repaired.value;
+        changed = repaired.changed;
+        unresolved = repaired.unresolved;
       }
+      if (!columnsToScan) recordReviews(spec.table, column.column_name, pk, before, unresolved);
       if (changed) {
         candidates.push({
           table: spec.table,
@@ -546,22 +556,10 @@ async function main(): Promise<void> {
     console.log(
       `[target] PostgreSQL ${serverVersion.rows[0]?.server_version ?? 'version unavailable'}; server address=${identity.rows[0]?.server_address ?? 'local socket'}`,
     );
+    reviewItems.length = 0;
     const regexProbe = await client.query<{ sample: string; matches: boolean }>(
       'SELECT sample, sample ~ $1 AS matches FROM unnest($2::text[]) AS samples(sample)',
-      [
-        INDICATOR_PATTERN,
-        [
-          '\u00e2\u20ac\u2122',
-          '\u00e2\u20ac\u0153',
-          '\u00e2\u20ac',
-          '\u00c3a',
-          '\u00c3\u00e9',
-          '\u00ef\u00bf\u00bd',
-          '\u00f0\u0178',
-          'caf\u00e9',
-          'ordinary text',
-        ],
-      ],
+      [SQL_INDICATOR, ['Ã¢â‚¬â„¢', 'Â°', 'ï¿½', 'ðŸ', 'ordinary text']],
     );
     console.log(`[regex] PostgreSQL pattern probe: ${JSON.stringify(regexProbe.rows)}`);
 
@@ -581,14 +579,45 @@ async function main(): Promise<void> {
         else matchedRows.set(key, new Set([item.column]));
       }
       console.log(
-        `[summary] matched rows=${matchedRows.size}; matched fields=${candidates.length}; skipped fields=${skippedFields.size}; failures=0; mode=${mode}`,
+        `[summary] matched rows=${matchedRows.size}; matched fields=${candidates.length}; review fields=${reviewItems.length}; skipped fields=${skippedFields.size}; failures=0; mode=${mode}`,
       );
       console.log(`[preview] id=${previewId}`);
       for (const group of summarizeCandidates(candidates))
         console.log(`[preview] ${JSON.stringify(group)}`);
       console.log(
-        '[preview] Samples show primary-key references only; text values are not printed.',
+        '[preview] Group samples show primary-key references only. Limited before/after field samples follow.',
       );
+
+      const reportCandidates = mode === 'apply' ? candidates : candidates.slice(0, SAMPLE_LIMIT);
+      for (const item of reportCandidates) {
+        console.log(
+          JSON.stringify({
+            action: mode === 'apply' ? 'pending' : 'detected',
+            table: `public.${item.table}`,
+            column: item.column,
+            primaryKey: redactPk(item.pk),
+            before: safePreview(item.before),
+            after: safePreview(item.after),
+          }),
+        );
+      }
+      if (mode === 'dry-run' && candidates.length > SAMPLE_LIMIT)
+        console.log(`[report] showing first ${SAMPLE_LIMIT} of ${candidates.length} field samples`);
+      const reportReviews = mode === 'apply' ? reviewItems : reviewItems.slice(0, SAMPLE_LIMIT);
+      for (const item of reportReviews) {
+        console.log(
+          JSON.stringify({
+            action: 'review',
+            table: `public.${item.table}`,
+            column: item.column,
+            primaryKey: redactPk(item.pk),
+            unresolved: item.unresolved,
+            preview: item.preview,
+          }),
+        );
+      }
+      if (mode === 'dry-run' && reviewItems.length > SAMPLE_LIMIT)
+        console.log(`[report] showing first ${SAMPLE_LIMIT} of ${reviewItems.length} review samples`);
 
       if (mode === 'apply') {
         await runApplyIfAuthorized(mode, target, previewId, backup, process.env, async () => {
@@ -612,7 +641,7 @@ async function main(): Promise<void> {
     });
     if (mode === 'apply')
       console.log(
-        `[summary] updated fields=${updated}; post-update eligible matches=0; skipped fields=${skippedFields.size}; failures=0; transaction committed.`,
+        `[summary] updated fields=${updated}; post-update repairable matches=0; review fields=${reviewItems.length}; skipped fields=${skippedFields.size}; failures=0; transaction committed.`,
       );
     else console.log('[dry-run] read-only transaction rolled back; no writes performed.');
     console.log(`[summary] final candidate field count=${candidateCount}; transaction complete.`);

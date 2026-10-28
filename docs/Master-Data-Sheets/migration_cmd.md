@@ -483,3 +483,17 @@ npm run product:backup-legacy-skus -- --sku=BEB/ACN/05489,COM/COM/16483,COM/COM/
 npm run product:backup-legacy-skus -- --apply --sku=BEB/ACN/05489,COM/COM/16483,COM/COM/16484,COM/COM/16485,COM/COM/16486,COM/COM/16487,COM/COM/16489,COM/COM/16490,COM/COM/16491,COM/COM/16492,COM/COM/16493,COM/COM/16494,COM/COM/16495,COM/COM/16496,COM/COM/16497,COM/COM/16498
 
 npm run product:legacy-image-sheet-matches
+
+
+// wallet
+npm run wallet:credit -- --phone=8888888888 --amount=2000
+npm run wallet:credit -- --phone=9974440132 --amount=3000 --apply
+
+
+npm run review:import:test
+npm run review:import:test -- --apply
+
+
+$env:REVIEW_IMPORT_LIVE_DATABASE = "your_live_database_name"
+npm run review:import:live
+npm run review:import:live -- --apply --confirm-live

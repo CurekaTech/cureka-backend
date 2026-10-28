@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Repository } from 'typeorm';
 import { SubscriptionMandateEntity } from '../entities/subscription-mandate.entity';
+import { SubscriptionMandateStatus } from '../enums/subscription-mandate-status.enum';
 
 @Injectable()
 export class SubscriptionMandatesRepository {
@@ -55,6 +56,16 @@ export class SubscriptionMandatesRepository {
     manager?: EntityManager,
   ): Promise<SubscriptionMandateEntity | null> {
     return this.use(manager).findOne({ where: { authorizationOrderId } });
+  }
+
+  findLatestPendingByGatewayCustomerId(
+    gatewayCustomerId: string,
+    manager?: EntityManager,
+  ): Promise<SubscriptionMandateEntity | null> {
+    return this.use(manager).findOne({
+      where: { gatewayCustomerId, status: SubscriptionMandateStatus.PENDING },
+      order: { createdAt: 'DESC' },
+    });
   }
 
   async updateById(

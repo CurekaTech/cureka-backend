@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, forwardRef } from '@nestjs/common';
 import { parseIndianMobileNumber } from '@modules/auth/utils/mobile-number.util';
 import { AdminSettingStatus } from '@modules/admin-settings/enums/admin-setting-status.enum';
 import { AdminSettingsRepository } from '@modules/admin-settings/repositories/admin-settings.repository';
@@ -23,6 +23,7 @@ import {
   GokwikSetShippingAddressDto,
   GokwikShippingAddressDto,
 } from '../dto/gokwik-cart-actions.dto';
+import { GokwikWalletRedemptionService } from './gokwik-wallet-redemption.service';
 
 const PAYMENT_GATEWAY_KEYS = ['razor_pay', 'cash_free', 'pay_you', 'shipway'] as const;
 
@@ -37,6 +38,8 @@ export class GokwikCartService {
     private readonly couponsRepository: CouponsRepository,
     private readonly adminSettingsRepository: AdminSettingsRepository,
     private readonly cartCheckoutAdminSettingsService: CartCheckoutAdminSettingsService,
+    @Inject(forwardRef(() => GokwikWalletRedemptionService))
+    private readonly walletRedemption: GokwikWalletRedemptionService,
   ) {}
 
   async getCart(cartId: string): Promise<GokwikGetCartSuccessResponse> {
@@ -49,6 +52,7 @@ export class GokwikCartService {
     if (!cart.items.length) {
       throw new BadRequestException('Cart is empty');
     }
+    this.assertNoSubscriptionItems(cart.items);
 
     return {
       data: {
@@ -83,6 +87,7 @@ export class GokwikCartService {
     if (!cart.items.length) {
       throw new BadRequestException('Cart is empty');
     }
+    this.assertNoSubscriptionItems(cart.items);
 
     this.logger.log(
       {
@@ -151,6 +156,7 @@ export class GokwikCartService {
       this.cartService.getCartById(cartEntity.id),
       this.couponsRepository.findAllActiveValid(),
     ]);
+    this.assertNoSubscriptionItems(cart.items);
     const context = {
       userId: cartEntity.userId,
       subtotal: cart.subtotal,
@@ -215,13 +221,34 @@ export class GokwikCartService {
   private async requireCart(cartId: string) {
     const cart = await this.cartService.findActiveCartById(cartId.trim());
     if (!cart) throw new BadRequestException('Invalid cart id');
+    this.assertNoSubscriptionItems((await this.cartService.getCartById(cart.id)).items);
     return cart;
   }
 
+  /**
+   * Blocks carts that contain a subscription line. A product that is only
+   * marked available for subscription can still be purchased one-time
+   * (`isSubscription` false) through GoKwik.
+   */
+  private assertNoSubscriptionItems(items: CartResponse['items']): void {
+    if (items.some((item) => item.isSubscription)) {
+      throw new BadRequestException({
+        code: 'SUBSCRIPTION_REQUIRES_NATIVE_CHECKOUT',
+        message: 'Subscription orders must use native checkout.',
+      });
+    }
+  }
+
   private async getCartMappingOptions(cart: CartResponse) {
+    const [availablePaymentMethods, appliedWallet] = await Promise.all([
+      this.resolveAvailablePaymentMethods(cart),
+      this.walletRedemption.readAppliedWalletAllocation(cart.cartId),
+    ]);
     return {
-      availablePaymentMethods: await this.resolveAvailablePaymentMethods(cart),
+      availablePaymentMethods,
       availableShippingMethods: this.resolveAvailableShippingMethods(cart.shippingAmount),
+      walletCreditUsed: appliedWallet.walletCreditUsed,
+      payableTotalOverride: appliedWallet.payableTotalOverride,
     };
   }
 
