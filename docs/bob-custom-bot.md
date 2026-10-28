@@ -131,6 +131,15 @@ This is **not** [Send a Template `/wabiz/send`](https://resources.businessonbot.
 | When | Path | WhatsApp BOB should send |
 |---|---|---|
 | Website / GoKwik / BOB / subscription / payment-request order is placed | `POST /orders-create` (`fullyPaid: true` prepaid, `false` COD) | Order confirmation (message 1) |
+
+**IDs in `/orders-create` must match the catalog**, or BOB Smart Automation product targets will not fire:
+
+| Field | Catalog (`GET /bob/products`) | Order notify (`/orders-create` line items) |
+|---|---|---|
+| `product.id` | Woo / catalogue number (`64762`) | Same catalogue number |
+| `variant.id` | Cureka variant UUID | Same variant UUID |
+
+Do not put old Woo ids in Smart Automation as **variant** ids unless that id is actually `variants[].id`. Pick the product from the BOB catalog (numeric `product.id`) or use the UUID from `GET /bob/variants/:variantId`.
 | Order cancelled (website, admin, or bot `/bob/cancel-order`) | `POST /orders-cancelled` | Cancel |
 | First time shipment reaches **Dispatched** (or later) with AWB — usually Shipway webhook | `POST /fulfillments-create` | Shipped / tracking (message 2) |
 | BOB pulls Cureka carts via `GET /api/v1/bob/webhooks/abandoned-cart` | (BOB sends WhatsApp) | Cart recovery |

@@ -223,8 +223,8 @@ describe('BOB catalogue product id', () => {
     );
   });
 
-  it('keeps order line items on internal product and variant ids', () => {
-    const payload = mapBobOrder({
+  function orderWithItems(items: unknown[]): OrderEntity {
+    return {
       orderStatus: OrderStatus.PROCESSING,
       orderNumber: 'ORD1',
       paymentMethod: OrderPaymentMethod.COD,
@@ -244,7 +244,34 @@ describe('BOB catalogue product id', () => {
       state: 'TN',
       pincode: '600001',
       grandTotal: '532',
-      items: [
+      items,
+    } as unknown as OrderEntity;
+  }
+
+  it('puts the catalogue product id on order line items so Smart Automation matches catalog targets', () => {
+    const payload = mapBobOrder(
+      orderWithItems([
+        {
+          productId: PRODUCT_UUID,
+          productName: 'Lactisyn Sachets (10 x 1gm Sachet)',
+          variantId: VARIANT_UUID,
+          variantName: 'Default',
+          unitPrice: '532',
+          quantity: 1,
+          sku: 'NUT/LAC/08623',
+          product: { externalProductId: CATALOGUE_ID, media: [] },
+          variant: {},
+        },
+      ]),
+    );
+
+    expect(payload.lineItems[0]?.product.id).toBe(217301);
+    expect(payload.lineItems[0]?.variant.id).toBe(VARIANT_UUID);
+  });
+
+  it('falls back to the internal product UUID when the catalogue id is missing', () => {
+    const payload = mapBobOrder(
+      orderWithItems([
         {
           productId: PRODUCT_UUID,
           productName: 'Lactisyn Sachets (10 x 1gm Sachet)',
@@ -256,8 +283,8 @@ describe('BOB catalogue product id', () => {
           product: { media: [] },
           variant: {},
         },
-      ],
-    } as unknown as OrderEntity);
+      ]),
+    );
 
     expect(payload.lineItems[0]?.product.id).toBe(PRODUCT_UUID);
     expect(payload.lineItems[0]?.variant.id).toBe(VARIANT_UUID);

@@ -3,11 +3,22 @@ import { ProductEntity } from '@modules/product/entities/product.entity';
 
 /** Catalogue / WooCommerce id exposed as the BOB product `id`. Null means not representable. */
 export function bobCatalogueProductId(
-  product: Pick<ProductEntity, 'externalProductId'>,
+  product: Pick<ProductEntity, 'externalProductId'> | null | undefined,
 ): string | null {
-  const value = product.externalProductId?.trim() ?? '';
+  const value = product?.externalProductId?.trim() ?? '';
   if (!/^\d+$/.test(value)) return null;
   return Number.isSafeInteger(Number(value)) ? value : null;
+}
+
+/**
+ * Numeric catalogue id for BOB order/fulfillment line items.
+ * Returns null instead of throwing so WhatsApp notify never fails on a missing id.
+ */
+export function optionalBobCatalogueProductId(
+  product: Pick<ProductEntity, 'externalProductId'> | null | undefined,
+): number | null {
+  const id = bobCatalogueProductId(product);
+  return id ? Number(id) : null;
 }
 
 /** Numeric catalogue sheet id for BOB payloads, for example 407432. */
