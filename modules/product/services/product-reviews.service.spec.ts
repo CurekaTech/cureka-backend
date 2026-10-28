@@ -185,13 +185,22 @@ describe('ProductReviewsService variant reviews', () => {
     });
 
     await expect(
-      service.createForProductSlug('serum', { rating: 5, review: 'Works well' }),
+      service.createForProductSlug('serum', {
+        rating: 5,
+        review: 'Works well',
+        reviewDescription: 'Helpful details',
+      }),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(reviewsRepository.create).not.toHaveBeenCalled();
 
     await service.createForProductSlug(
       'serum',
-      { rating: 5, review: 'Works well', variantId: 'v1' },
+      {
+        rating: 5,
+        review: 'Works well',
+        reviewDescription: 'Helpful details',
+        variantId: 'v1',
+      },
       {
         sub: 'user-1',
         sessionId: 'session-1',
@@ -210,6 +219,7 @@ describe('ProductReviewsService variant reviews', () => {
         variantId: 'v1',
         variantSku: 'SKU-1',
         review: 'Works well',
+        reviewDescription: 'Helpful details',
       }),
     );
   });

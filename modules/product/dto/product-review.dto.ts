@@ -34,10 +34,10 @@ export class CreateProductReviewDto {
   @MaxLength(200)
   variantSlug?: string;
 
-  @IsOptional()
   @IsString()
+  @IsNotEmpty()
   @MaxLength(5000)
-  reviewDescription?: string;
+  reviewDescription!: string;
 
   @IsOptional()
   @IsString()
