@@ -359,8 +359,9 @@ export async function applyCandidatesBatched(
           return `${quoteIdent(key)} IS NOT DISTINCT FROM $${parameters.length}`;
         });
         parameters.push(serializePgColumnValue(item.before, item.type));
+        const isJson = item.type === 'json' || item.type === 'jsonb';
         terms.push(
-          item.type === 'json'
+          isJson
             ? `${quoteIdent(group.column)}::jsonb IS NOT DISTINCT FROM $${parameters.length}::jsonb`
             : `${quoteIdent(group.column)} IS NOT DISTINCT FROM $${parameters.length}`,
         );
@@ -368,7 +369,8 @@ export async function applyCandidatesBatched(
       });
       const assignments = chunk.map((item, index) => {
         parameters.push(serializePgColumnValue(item.after, item.type));
-        return `WHEN ${predicates[index]} THEN $${parameters.length}`;
+        const isJson = item.type === 'json' || item.type === 'jsonb';
+        return `WHEN ${predicates[index]} THEN $${parameters.length}${isJson ? '::jsonb' : ''}`;
       });
       const update = await client.query(
         `UPDATE public.${quoteIdent(group.table)} SET ${quoteIdent(group.column)} = CASE ${assignments.join(' ')} ELSE ${quoteIdent(group.column)} END WHERE ${predicates.join(' OR ')}`,
@@ -395,10 +397,17 @@ export async function runCleanupTransaction<T>(
   try {
     await client.query(mode === 'apply' ? 'BEGIN' : 'BEGIN READ ONLY');
     const result = await work();
-    await client.query(mode === 'apply' ? 'COMMIT' : 'ROLLBACK');
+    if (mode === 'apply') {
+      await client.query('COMMIT');
+      console.log('[commit] transaction committed');
+    } else {
+      await client.query('ROLLBACK');
+      console.log('[commit] read-only transaction rolled back; no writes performed');
+    }
     return result;
   } catch (error) {
     await client.query('ROLLBACK').catch(() => undefined);
+    console.log('[commit] transaction rolled back after failure');
     throw error;
   }
 }
@@ -554,7 +563,7 @@ async function main(): Promise<void> {
     if (identity.rows[0]?.database_name !== target.dbName)
       throw new Error('Connected database identity differs from DATABASE_URL.');
     console.log(
-      `[target] PostgreSQL ${serverVersion.rows[0]?.server_version ?? 'version unavailable'}; server address=${identity.rows[0]?.server_address ?? 'local socket'}`,
+      `[identity] current_database=${identity.rows[0]?.database_name}; PostgreSQL ${serverVersion.rows[0]?.server_version ?? 'version unavailable'}; server address=${identity.rows[0]?.server_address ?? 'local socket'}`,
     );
     reviewItems.length = 0;
     const regexProbe = await client.query<{ sample: string; matches: boolean }>(
@@ -588,7 +597,7 @@ async function main(): Promise<void> {
         '[preview] Group samples show primary-key references only. Limited before/after field samples follow.',
       );
 
-      const reportCandidates = mode === 'apply' ? candidates : candidates.slice(0, SAMPLE_LIMIT);
+      const reportCandidates = candidates.slice(0, SAMPLE_LIMIT);
       for (const item of reportCandidates) {
         console.log(
           JSON.stringify({
@@ -601,9 +610,9 @@ async function main(): Promise<void> {
           }),
         );
       }
-      if (mode === 'dry-run' && candidates.length > SAMPLE_LIMIT)
+      if (candidates.length > SAMPLE_LIMIT)
         console.log(`[report] showing first ${SAMPLE_LIMIT} of ${candidates.length} field samples`);
-      const reportReviews = mode === 'apply' ? reviewItems : reviewItems.slice(0, SAMPLE_LIMIT);
+      const reportReviews = reviewItems.slice(0, SAMPLE_LIMIT);
       for (const item of reportReviews) {
         console.log(
           JSON.stringify({
@@ -616,7 +625,7 @@ async function main(): Promise<void> {
           }),
         );
       }
-      if (mode === 'dry-run' && reviewItems.length > SAMPLE_LIMIT)
+      if (reviewItems.length > SAMPLE_LIMIT)
         console.log(`[report] showing first ${SAMPLE_LIMIT} of ${reviewItems.length} review samples`);
 
       if (mode === 'apply') {
@@ -639,11 +648,21 @@ async function main(): Promise<void> {
         });
       }
     });
-    if (mode === 'apply')
+    if (mode === 'apply') {
+      reviewItems.length = 0;
+      const schema = await loadSchema(client);
+      const remaining: Candidate[] = [];
+      for (const spec of TABLE_SPECS) remaining.push(...(await scanTable(client, spec, schema)));
+      const remainingRepairable = remaining.length;
       console.log(
-        `[summary] updated fields=${updated}; post-update repairable matches=0; review fields=${reviewItems.length}; skipped fields=${skippedFields.size}; failures=0; transaction committed.`,
+        `[summary] updated fields=${updated}; post-commit repairable matches=${remainingRepairable}; review fields=${reviewItems.length}; skipped fields=${skippedFields.size}; failures=${remainingRepairable === 0 ? 0 : 1}.`,
       );
-    else console.log('[dry-run] read-only transaction rolled back; no writes performed.');
+      if (remainingRepairable !== 0) {
+        throw new Error(
+          `Post-commit verification found ${remainingRepairable} remaining repairable field(s).`,
+        );
+      }
+    }
     console.log(`[summary] final candidate field count=${candidateCount}; transaction complete.`);
   } finally {
     await client.end();

@@ -1,0 +1,33 @@
+{
+  "sourcePath": "/Users/onetwothreefour/Downloads/bulk-export-products (8).csv",
+  "productRecords": 12440,
+  "columns": 190,
+  "cellsInspected": 2363600,
+  "flaggedCells": 912,
+  "affectedProductRows": 797,
+  "findings": 943,
+  "byStatus": {
+    "SAFE_AUTO_REPAIR": 72,
+    "MANUAL_REVIEW": 712,
+    "SOURCE_REQUIRED": 159,
+    "VALID_UNICODE": 0,
+    "UNSUPPORTED_CHARACTER": 0
+  },
+  "byCategory": {
+    "safe_auto_repair": 72,
+    "c1_control_character": 109,
+    "spaced_curly_quote": 546,
+    "suspicious_small_tilde": 16,
+    "curly_quote_between_numbers": 112,
+    "suspicious_cent_sign": 6,
+    "incomplete_punctuation_mojibake": 43,
+    "malformed_numeric_expression": 2,
+    "ring_above_not_temperature": 27,
+    "soft_hyphen": 3,
+    "unrecoverable_replacement_character": 7
+  },
+  "distinctNonAscii": 66,
+  "autoRepairableCells": 72,
+  "manualReviewCells": 686,
+  "sourceRequiredCells": 159
+}

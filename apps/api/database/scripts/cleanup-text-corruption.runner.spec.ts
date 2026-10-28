@@ -242,6 +242,45 @@ describe('text corruption cleanup helpers', () => {
       expect(cleanString(mojibake('\u02DA'))).toBe('\u02DA');
     });
 
+    it('maps unit-only ˚C / ºC to degree and strips stray Â before space', () => {
+      expect(cleanString(`reading ${mojibake('\u02DA')}C or ${mojibake('\u02DA')}F`)).toBe(
+        'reading \u00B0C or \u00B0F',
+      );
+      expect(cleanString('36ºC')).toBe('36\u00B0C');
+      expect(cleanString('NestleÂ Baby Cereal')).toBe('Nestle Baby Cereal');
+      expect(hasIndicator('NestleÂ Baby Cereal')).toBe(true);
+    });
+
+    it('preserves Portuguese Ã and does not guess unrecoverable text', () => {
+      expect(cleanString('SÃO PAULO')).toBe('SÃO PAULO');
+      expect(hasIndicator('SÃO PAULO')).toBe(false);
+      expect(cleanString('beep\u009D sound')).toBe('beep\u009D sound');
+      expect(repairText('beep\u009D sound').unresolved.some((item) => item.reason === 'c1_control_character')).toBe(
+        true,
+      );
+      expect(cleanString('water â€ insoluable')).toBe('water â€ insoluable');
+      expect(cleanString('men\uFFFD\uFFFD\uFFFDs')).toBe('men\uFFFD\uFFFD\uFFFDs');
+      expect(cleanString('36.80.5 °C')).toBe('36.80.5 °C');
+    });
+
+    it('maps defined Windows-1252 C1 bytes and keeps emoji ZWJ sequences', () => {
+      expect(cleanString('men\u0092s')).toBe('men\u2019s');
+      expect(cleanString('👨‍👩‍👧')).toBe('👨‍👩‍👧');
+    });
+
+    it('does not change JSON keys, URLs, or already-correct measurements', () => {
+      const input = {
+        [`safe${mojibake('\u2019')}key`]: 'plain',
+        url: 'https://www.cureka.com/shop?q=caf%C3%A9',
+      };
+      const result = cleanJson(input);
+      expect(result.value).toEqual({
+        [`safe${mojibake('\u2019')}key`]: 'plain',
+        url: 'https://www.cureka.com/shop?q=caf%C3%A9',
+      });
+      expect(cleanString('Pressure ± 3mmHg')).toBe('Pressure ± 3mmHg');
+    });
+
     it('detects corruption without flagging ordinary clean text', () => {
       expect(hasIndicator(`Meni${mojibake('\u2019')}s`)).toBe(true);
       expect(hasIndicator('ordinary text')).toBe(false);
@@ -404,7 +443,8 @@ describe('text corruption cleanup helpers', () => {
       JSON.stringify('bad '),
     ]);
     const [sql, values] = client.query.mock.calls[1];
-    expect(sql).toContain('"settings" IS NOT DISTINCT FROM');
+    expect(sql).toContain('"settings"::jsonb IS NOT DISTINCT FROM');
+    expect(sql).toContain('THEN $6::jsonb');
     expect(values).toEqual([
       'jsonb-row',
       JSON.stringify(beforeObject),
