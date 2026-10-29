@@ -1,5 +1,6 @@
 import { Transform } from 'class-transformer';
 import {
+  IsDateString,
   IsEmail,
   IsNotEmpty,
   IsOptional,
@@ -83,6 +84,13 @@ export class CompleteRegistrationDto {
   @IsEmail({}, { message: 'Enter a valid email address.' })
   @MaxLength(255, { message: 'Email address must be 255 characters or fewer.' })
   email?: string;
+
+  @IsNotEmpty({ message: 'Date of birth is required.' })
+  @IsDateString(
+    {},
+    { message: 'dateOfBirth must be a valid ISO 8601 date string (e.g. 1990-06-15)' },
+  )
+  dateOfBirth!: string;
 }
 
 /** No body required — guest session is created server-side */

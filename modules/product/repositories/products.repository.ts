@@ -756,17 +756,28 @@ export class ProductsRepository {
     return { product, matchedVariantId: match.variantId ?? null };
   }
 
+  /**
+   * True when a **live** (published) product or one of its non-deleted variants
+   * already uses this slug. Draft / pending / rejected / archived / inactive
+   * products do not force a `-2` suffix.
+   */
   async isSlugTakenGlobally(
     slug: string,
-    exclude?: { productRefId?: string; variantId?: string },
+    exclude?: { productRefId?: string; productId?: string; variantId?: string },
   ): Promise<boolean> {
     const productQb = this.repo
       .createQueryBuilder('product')
       .where('product.slug = :slug', { slug })
-      .andWhere('product.deletedAt IS NULL');
+      .andWhere('product.deletedAt IS NULL')
+      .andWhere('product.status = :published', { published: ProductStatus.PUBLISHED });
     if (exclude?.productRefId) {
       productQb.andWhere('product.refId != :productRefId', {
         productRefId: exclude.productRefId,
+      });
+    }
+    if (exclude?.productId) {
+      productQb.andWhere('product.id != :productId', {
+        productId: exclude.productId,
       });
     }
     if (await productQb.getCount()) {
@@ -775,10 +786,21 @@ export class ProductsRepository {
 
     const variantQb = this.repo.manager
       .createQueryBuilder(ProductVariantEntity, 'variant')
+      .innerJoin('variant.product', 'product')
       .where('variant.slug = :slug', { slug })
-      .andWhere('variant.deletedAt IS NULL');
+      .andWhere('variant.deletedAt IS NULL')
+      .andWhere('product.deletedAt IS NULL')
+      .andWhere('product.status = :published', { published: ProductStatus.PUBLISHED });
     if (exclude?.variantId) {
       variantQb.andWhere('variant.id != :variantId', { variantId: exclude.variantId });
+    }
+    if (exclude?.productId) {
+      variantQb.andWhere('product.id != :productId', { productId: exclude.productId });
+    }
+    if (exclude?.productRefId) {
+      variantQb.andWhere('product.refId != :productRefId', {
+        productRefId: exclude.productRefId,
+      });
     }
     return (await variantQb.getCount()) > 0;
   }
@@ -1211,15 +1233,11 @@ export class ProductsRepository {
     return (await qb.getCount()) > 0;
   }
 
+  /** Live (published) product slug conflict only — drafts may reuse the same slug. */
   async existsBySlug(slug: string, excludeRefId?: string): Promise<boolean> {
-    const qb = this.repo
-      .createQueryBuilder('product')
-      .where('product.slug = :slug', { slug })
-      .andWhere('product.deletedAt IS NULL');
-    if (excludeRefId) {
-      qb.andWhere('product.refId != :excludeRefId', { excludeRefId });
-    }
-    return (await qb.getCount()) > 0;
+    return this.isSlugTakenGlobally(slug, {
+      productRefId: excludeRefId,
+    });
   }
 
   async updateByRefId(

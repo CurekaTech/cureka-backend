@@ -57,6 +57,53 @@ export class OrdersRepository {
     return count > 0;
   }
 
+  /** True when the user has a non-cancelled order that includes the variant. */
+  async userHasOrderedProductVariant(
+    userId: string,
+    productId: string,
+    variantId: string,
+  ): Promise<boolean> {
+    const count = await this.repo
+      .createQueryBuilder('order')
+      .innerJoin('order.items', 'item')
+      .where('order.userId = :userId', { userId })
+      .andWhere('item.productId = :productId', { productId })
+      .andWhere('item.variantId = :variantId', { variantId })
+      .andWhere('order.orderStatus != :cancelled', { cancelled: OrderStatus.CANCELLED })
+      .getCount();
+
+    return count > 0;
+  }
+
+  /**
+   * City/state from the most recent non-cancelled order that includes the product
+   * (and variant when provided).
+   */
+  async findLatestOrderLocationForPurchase(
+    userId: string,
+    productId: string,
+    variantId?: string | null,
+  ): Promise<{ city: string; state: string } | null> {
+    const qb = this.repo
+      .createQueryBuilder('order')
+      .innerJoin('order.items', 'item')
+      .select(['order.city', 'order.state'])
+      .where('order.userId = :userId', { userId })
+      .andWhere('item.productId = :productId', { productId })
+      .andWhere('order.orderStatus != :cancelled', { cancelled: OrderStatus.CANCELLED })
+      .orderBy('order.createdAt', 'DESC')
+      .addOrderBy('order.id', 'DESC')
+      .take(1);
+
+    if (variantId) {
+      qb.andWhere('item.variantId = :variantId', { variantId });
+    }
+
+    const order = await qb.getOne();
+    if (!order) return null;
+    return { city: order.city, state: order.state };
+  }
+
   findByIdAndUserId(
     id: string,
     userId: string,

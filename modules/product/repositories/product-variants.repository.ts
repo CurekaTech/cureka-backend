@@ -414,6 +414,7 @@ export class ProductVariantsRepository {
         },
         undefined,
         reservedSlugs,
+        productId,
       );
 
       const inCurekaInventory = dto.inCurekaInventory === true;
@@ -609,6 +610,11 @@ export class ProductVariantsRepository {
     input: { slug?: string; attributeValues?: string[] },
     excludeVariantId?: string,
     reservedSlugs: string[] = [],
+    /**
+     * Parent product id. That product's own slug must not force `-2` on its
+     * first/default variant — product and its variants share the public URL space.
+     */
+    excludeProductId?: string,
   ): Promise<string> {
     const max = APP_CONSTANTS.PRODUCT_URL_SLUG_MAX_LENGTH;
     const reserved = new Set(reservedSlugs);
@@ -618,6 +624,7 @@ export class ProductVariantsRepository {
       if (reserved.has(slug)) return true;
       return this.productsRepository.isSlugTakenGlobally(slug, {
         variantId: excludeVariantId,
+        productId: excludeProductId,
       });
     };
 
@@ -696,6 +703,8 @@ export class ProductVariantsRepository {
             attributeValues,
           },
           existing.id,
+          [],
+          existing.productId,
         )
       : shouldRegenerateVariantSlugFromProductChange({
             currentSlug: existing.slug,
@@ -710,6 +719,8 @@ export class ProductVariantsRepository {
               attributeValues,
             },
             existing.id,
+            [],
+            existing.productId,
           )
         : existing.slug;
 

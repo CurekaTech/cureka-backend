@@ -1300,6 +1300,26 @@ export class OrdersService {
     return this.ordersRepository.userHasOrderedProduct(userId, productId);
   }
 
+  userHasOrderedProductVariant(
+    userId: string,
+    productId: string,
+    variantId: string,
+  ): Promise<boolean> {
+    return this.ordersRepository.userHasOrderedProductVariant(userId, productId, variantId);
+  }
+
+  findLatestOrderLocationForPurchase(
+    userId: string,
+    productId: string,
+    variantId?: string | null,
+  ): Promise<{ city: string; state: string } | null> {
+    return this.ordersRepository.findLatestOrderLocationForPurchase(
+      userId,
+      productId,
+      variantId,
+    );
+  }
+
   async findAllForAdmin(query: AdminOrderQueryDto) {
     const paginationOptions = buildPaginationOptions(query);
     const presetRange = resolveAdminDatePreset(query.datePreset);

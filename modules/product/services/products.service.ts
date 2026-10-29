@@ -338,6 +338,39 @@ export class ProductsService {
     }
   }
 
+  /**
+   * Before going live, the product slug and each variant slug must not already
+   * belong to another published product. Drafts may reuse slugs until publish.
+   */
+  private async assertLiveSlugAvailable(product: ProductEntity): Promise<void> {
+    if (
+      await this.productsRepository.isSlugTakenGlobally(product.slug, {
+        productId: product.id,
+        productRefId: product.refId,
+      })
+    ) {
+      throw new ConflictException(
+        `Cannot publish: slug "${product.slug}" is already used by a live product. Change the slug first.`,
+      );
+    }
+
+    for (const variant of product.variants ?? []) {
+      const slug = variant.slug?.trim();
+      if (!slug) continue;
+      if (
+        await this.productsRepository.isSlugTakenGlobally(slug, {
+          productId: product.id,
+          productRefId: product.refId,
+          variantId: variant.id,
+        })
+      ) {
+        throw new ConflictException(
+          `Cannot publish: variant slug "${slug}" is already used by a live product. Change the slug first.`,
+        );
+      }
+    }
+  }
+
   private async assertProductIsBundle(refId: string): Promise<void> {
     const existing = await this.productsRepository.findByRefId(refId);
     if (!existing) throw new NotFoundException(`Product with refId ${refId} not found`);
@@ -549,7 +582,9 @@ export class ProductsService {
     );
 
     if (slugExists.exists) {
-      throw new ConflictException(`Product slug "${slugExists.slug}" already exists`);
+      throw new ConflictException(
+        `Product slug "${slugExists.slug}" is already used by a live product`,
+      );
     }
     if (normalizedDto.productType === ProductType.BUNDLE) {
       await this.assertBundleTitleAvailable(normalizedDto.name);
@@ -842,7 +877,9 @@ export class ProductsService {
       const slug = dto.slug ?? generateProductSlug(dto.name ?? existing.name);
       assertProductUrlSlugLength(slug, 'Product');
       if (await this.productsRepository.existsBySlug(slug, refId)) {
-        throw new ConflictException(`Product slug "${slug}" already exists`);
+        throw new ConflictException(
+          `Product slug "${slug}" is already used by a live product`,
+        );
       }
       payload.slug = slug;
     }
@@ -1373,6 +1410,8 @@ export class ProductsService {
     //   throw new BadRequestException('Only products pending review can be approved');
     // }
 
+    await this.assertLiveSlugAvailable(existing);
+
     await this.productsRepository.updateByRefId(refId, {
       status: ProductStatus.PUBLISHED,
       publishedAt: new Date(),
@@ -1422,6 +1461,8 @@ export class ProductsService {
       return this.findOne(refId);
     }
 
+    await this.assertLiveSlugAvailable(existing);
+
     await this.productsRepository.updateByRefId(refId, {
       status: ProductStatus.PUBLISHED,
       publishedAt: new Date(),
@@ -1439,6 +1480,12 @@ export class ProductsService {
   async updateStatus(refId: string, dto: UpdateProductStatusDto, updatedBy: string): Promise<IProduct> {
     const existing = await this.productsRepository.findByRefId(refId);
     if (!existing) throw new NotFoundException(`Product with refId ${refId} not found`);
+    if (
+      dto.status === ProductStatus.PUBLISHED &&
+      existing.status !== ProductStatus.PUBLISHED
+    ) {
+      await this.assertLiveSlugAvailable(existing);
+    }
     await this.productsRepository.updateByRefId(refId, { status: dto.status, updatedBy });
     await this.emitProductUpdated(refId, 'status_updated');
     await this.auditProductStatus(existing, dto.status, updatedBy);
