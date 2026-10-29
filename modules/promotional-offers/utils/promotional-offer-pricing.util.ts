@@ -437,6 +437,33 @@ const giftCandidates = (
   return [{ threshold, target: gift }];
 };
 
+const giftThresholdSubtotal = (
+  offer: PromotionOfferInput,
+  lines: PromotionCustomerLine[],
+  customerSubtotal: number,
+): { amount: number; scoped: boolean; matched: boolean } => {
+  const scope = readOfferScope(offer.config);
+  const qualifyingIds = new Set(
+    offer.targets
+      .filter((row) => row.role === PromotionalOfferTargetRole.QUALIFYING)
+      .map((row) => row.variantId),
+  );
+  const scoped = scope.brandIds.length > 0 || scope.categoryIds.length > 0 || qualifyingIds.size > 0;
+  if (!scoped || String(offer.config['thresholdBasis'] ?? '') === 'cart') {
+    return { amount: customerSubtotal, scoped, matched: !scoped || lines.some((line) => !line.isSubscription) };
+  }
+  let amount = 0;
+  let matched = false;
+  for (const line of lines) {
+    if (line.isSubscription || line.productType === 'bundle') continue;
+    if (qualifyingIds.has(line.variantId) || lineMatchesOfferScope(line, scope)) {
+      matched = true;
+      amount += line.totalPrice;
+    }
+  }
+  return { amount, scoped, matched };
+};
+
 const applyGift = (
   offer: PromotionOfferInput,
   customerSubtotal: number,
@@ -444,20 +471,15 @@ const applyGift = (
   result: PromotionEvaluation,
   claimed: Set<string>,
 ): void => {
-  const scope = readOfferScope(offer.config);
-  if (scope.brandIds.length || scope.categoryIds.length) {
-    const matches = lines.some(
-      (line) => !line.isSubscription && line.productType !== 'bundle' && lineMatchesOfferScope(line, scope),
-    );
-    if (!matches) {
-      result.warnings.push({
-        code: 'OFFER_NOT_ELIGIBLE',
-        message: 'This offer does not apply to the products in your cart.',
-      });
-      return;
-    }
+  const thresholdBase = giftThresholdSubtotal(offer, lines, customerSubtotal);
+  if (thresholdBase.scoped && !thresholdBase.matched) {
+    result.warnings.push({
+      code: 'OFFER_NOT_ELIGIBLE',
+      message: 'This offer does not apply to the products in your cart.',
+    });
+    return;
   }
-  const winner = giftCandidates(offer).find((candidate) => customerSubtotal >= candidate.threshold);
+  const winner = giftCandidates(offer).find((candidate) => thresholdBase.amount >= candidate.threshold);
   if (!winner) return;
   const available = availableForReward(winner.target, customerQty(lines, winner.target.variantId));
   if (available < 1) {
@@ -492,7 +514,10 @@ const applyBuyMoreSaveMore = (
   const tiers = Array.isArray(offer.config['tiers']) ? offer.config['tiers'] : [];
   const eligibleTiers = tiers
     .map((tier) => tier as { minQuantity?: unknown; discountType?: unknown; discountValue?: unknown })
-    .filter((tier) => quantity >= Math.floor(num(tier.minQuantity)))
+    .filter((tier) => {
+      const minQuantity = Math.floor(num(tier.minQuantity));
+      return minQuantity >= 2 && quantity >= minQuantity;
+    })
     .sort((a, b) => num(b.minQuantity) - num(a.minQuantity));
   const tier = eligibleTiers[0];
   if (!tier) return;
