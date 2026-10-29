@@ -398,14 +398,27 @@ export class PromotionalOffersService {
   }
 
   private targetVariantLabel(target: {
-    variant?: { sku?: string | null; displayName?: string | null; product?: { name?: string | null } | null } | null;
+    variant?: {
+      sku?: string | null;
+      displayName?: string | null;
+      mrp?: string | number | null;
+      product?: { name?: string | null } | null;
+    } | null;
   }): string | null {
     const variant = target.variant;
     if (!variant) return null;
     const name = String(variant.displayName || variant.product?.name || '').trim();
     const sku = String(variant.sku || '').trim();
-    if (name && sku) return `${name} (${sku})`;
-    return name || sku || null;
+    const mrp = Number(variant.mrp);
+    const priceText =
+      Number.isFinite(mrp) && mrp > 0
+        ? `₹${mrp.toLocaleString('en-IN', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}`
+        : '';
+    const label = [name, sku, priceText].filter(Boolean).join(' · ');
+    return label || null;
   }
 
   private assertRewardPricing(config: Record<string, unknown>): void {
