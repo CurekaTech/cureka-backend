@@ -13,6 +13,7 @@ import { createHash } from 'crypto';
 import { isAbsolute } from 'path';
 import {
   SQL_INDICATOR,
+  assertNoNulCodePoint,
   cleanJson as repairJson,
   hasIndicator as hasCorruptionIndicator,
   repairText,
@@ -23,11 +24,21 @@ dotenv.config();
 
 export {
   SQL_INDICATOR,
+  assertNoNulCodePoint,
   cleanJson,
   cleanString,
   hasIndicator,
   repairText,
 } from './text-corruption-repair';
+
+export function assertSqlBindValues(values: unknown[] | undefined, context: string): void {
+  if (!values) return;
+  const check = (item: unknown, path: string): void => {
+    if (typeof item === 'string') assertNoNulCodePoint(item, `${context} ${path}`);
+    if (Array.isArray(item)) item.forEach((entry, index) => check(entry, `${path}[${index}]`));
+  };
+  values.forEach((value, index) => check(value, `$${index + 1}`));
+}
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 const REMOTE_ALLOWED_HOST = '8.231.74.20';
@@ -328,6 +339,7 @@ export function groupCandidatesForApply(candidates: Candidate[]): CandidateGroup
 
 const MAX_BIND_PARAMETERS = 60_000;
 const MAX_ROWS_PER_UPDATE = 500;
+export const SCAN_BATCH_SIZE = 500;
 
 export async function applyCandidatesBatched(
   client: Pick<PgClient, 'query'>,
@@ -372,6 +384,7 @@ export async function applyCandidatesBatched(
         const isJson = item.type === 'json' || item.type === 'jsonb';
         return `WHEN ${predicates[index]} THEN $${parameters.length}${isJson ? '::jsonb' : ''}`;
       });
+      assertSqlBindValues(parameters, `UPDATE public.${group.table}.${group.column}`);
       const update = await client.query(
         `UPDATE public.${quoteIdent(group.table)} SET ${quoteIdent(group.column)} = CASE ${assignments.join(' ')} ELSE ${quoteIdent(group.column)} END WHERE ${predicates.join(' OR ')}`,
         parameters,
@@ -486,44 +499,55 @@ async function scanTable(
   const predicates = eligible
     .map((column) => `${quoteIdent(column.column_name)}::text ~ $1`)
     .join(' OR ');
-  const result = await client.query(
-    `SELECT ${selected.map(quoteIdent).join(', ')} FROM public.${quoteIdent(spec.table)} WHERE ${predicates}`,
-    [SQL_INDICATOR],
-  );
+  const orderBy = primaryKeys.map(quoteIdent).join(', ');
   const candidates: Candidate[] = [];
-  for (const row of result.rows as Record<string, unknown>[]) {
-    const pk = Object.fromEntries(primaryKeys.map((key) => [key, row[key]]));
-    for (const column of eligible) {
-      const before = row[column.column_name];
-      let after = before;
-      let changed = false;
-      let unresolved: UnresolvedFragment[] = [];
-      if (isJsonColumn(column)) {
-        const repaired = repairJson(before);
-        after = repaired.value;
-        changed = repaired.changed;
-        unresolved = repaired.unresolved;
-      } else if (typeof before === 'string' && hasCorruptionIndicator(before)) {
-        const repaired = repairText(before);
-        after = repaired.value;
-        changed = repaired.changed;
-        unresolved = repaired.unresolved;
-      }
-      if (!columnsToScan) recordReviews(spec.table, column.column_name, pk, before, unresolved);
-      if (changed) {
-        candidates.push({
-          table: spec.table,
-          column: column.column_name,
-          type: column.data_type,
-          pk,
-          before,
-          after,
-        });
+  let matchedRows = 0;
+  let offset = 0;
+  while (true) {
+    const scanValues: unknown[] = [SQL_INDICATOR, SCAN_BATCH_SIZE, offset];
+    assertSqlBindValues(scanValues, `SELECT public.${spec.table}`);
+    const result = await client.query(
+      `SELECT ${selected.map(quoteIdent).join(', ')} FROM public.${quoteIdent(spec.table)} WHERE ${predicates} ORDER BY ${orderBy} LIMIT $2 OFFSET $3`,
+      scanValues,
+    );
+    const rows = result.rows as Record<string, unknown>[];
+    matchedRows += rows.length;
+    for (const row of rows) {
+      const pk = Object.fromEntries(primaryKeys.map((key) => [key, row[key]]));
+      for (const column of eligible) {
+        const before = row[column.column_name];
+        let after = before;
+        let changed = false;
+        let unresolved: UnresolvedFragment[] = [];
+        if (isJsonColumn(column)) {
+          const repaired = repairJson(before);
+          after = repaired.value;
+          changed = repaired.changed;
+          unresolved = repaired.unresolved;
+        } else if (typeof before === 'string' && hasCorruptionIndicator(before)) {
+          const repaired = repairText(before);
+          after = repaired.value;
+          changed = repaired.changed;
+          unresolved = repaired.unresolved;
+        }
+        if (!columnsToScan) recordReviews(spec.table, column.column_name, pk, before, unresolved);
+        if (changed) {
+          candidates.push({
+            table: spec.table,
+            column: column.column_name,
+            type: column.data_type,
+            pk,
+            before,
+            after,
+          });
+        }
       }
     }
+    if (rows.length < SCAN_BATCH_SIZE) break;
+    offset += rows.length;
   }
   console.log(
-    `[scan] public.${spec.table}: ${result.rowCount ?? 0} rows matched SQL indicators; ${candidates.length} field candidates`,
+    `[scan] public.${spec.table}: ${matchedRows} rows matched SQL indicators; ${candidates.length} field candidates`,
   );
   return candidates;
 }
@@ -566,9 +590,14 @@ async function main(): Promise<void> {
       `[identity] current_database=${identity.rows[0]?.database_name}; PostgreSQL ${serverVersion.rows[0]?.server_version ?? 'version unavailable'}; server address=${identity.rows[0]?.server_address ?? 'local socket'}`,
     );
     reviewItems.length = 0;
+    const regexProbeValues: unknown[] = [
+      SQL_INDICATOR,
+      ['Ã¢â‚¬â„¢', 'Â°', 'ï¿½', 'ðŸ', 'ordinary text', 'beep\u0007', 'beep\u009D'],
+    ];
+    assertSqlBindValues(regexProbeValues, 'regex probe');
     const regexProbe = await client.query<{ sample: string; matches: boolean }>(
       'SELECT sample, sample ~ $1 AS matches FROM unnest($2::text[]) AS samples(sample)',
-      [SQL_INDICATOR, ['Ã¢â‚¬â„¢', 'Â°', 'ï¿½', 'ðŸ', 'ordinary text']],
+      regexProbeValues,
     );
     console.log(`[regex] PostgreSQL pattern probe: ${JSON.stringify(regexProbe.rows)}`);
 
