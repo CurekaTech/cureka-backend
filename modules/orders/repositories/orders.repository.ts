@@ -84,24 +84,27 @@ export class OrdersRepository {
     productId: string,
     variantId?: string | null,
   ): Promise<{ city: string; state: string } | null> {
+    // Use getRawOne — partial .select() + getOne() makes TypeORM wrap a DISTINCT
+    // subquery that references distinctAlias.order_id even when id was not selected.
     const qb = this.repo
       .createQueryBuilder('order')
       .innerJoin('order.items', 'item')
-      .select(['order.city', 'order.state'])
+      .select('order.city', 'city')
+      .addSelect('order.state', 'state')
       .where('order.userId = :userId', { userId })
       .andWhere('item.productId = :productId', { productId })
       .andWhere('order.orderStatus != :cancelled', { cancelled: OrderStatus.CANCELLED })
       .orderBy('order.createdAt', 'DESC')
       .addOrderBy('order.id', 'DESC')
-      .take(1);
+      .limit(1);
 
     if (variantId) {
       qb.andWhere('item.variantId = :variantId', { variantId });
     }
 
-    const order = await qb.getOne();
-    if (!order) return null;
-    return { city: order.city, state: order.state };
+    const row = await qb.getRawOne<{ city: string; state: string }>();
+    if (!row) return null;
+    return { city: row.city, state: row.state };
   }
 
   findByIdAndUserId(
