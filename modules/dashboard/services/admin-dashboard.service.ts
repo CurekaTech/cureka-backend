@@ -2,7 +2,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { OrderEntity } from '@modules/orders/entities/order.entity';
 import { OrderItemEntity } from '@modules/orders/entities/order-item.entity';
 import { CouponUsageEntity } from '@modules/orders/entities/coupon-usage.entity';
-import { OrderPaymentStatus } from '@modules/orders/enums/order-payment-status.enum';
 import { OrderSource } from '@modules/orders/enums/order-source.enum';
 import { OrderStatus } from '@modules/orders/enums/order-status.enum';
 import { ProductEntity } from '@modules/product/entities/product.entity';
@@ -19,6 +18,7 @@ import {
   DASHBOARD_CHANNEL_COLORS,
   DASHBOARD_ORDER_STATUS_GROUPS,
   DASHBOARD_PAYMENT_BUCKETS,
+  DASHBOARD_KPI_ORDER_STATUSES,
   REVENUE_EXCLUDED_STATUSES,
   resolveOrderSources,
 } from '../constants/dashboard.constants';
@@ -332,9 +332,6 @@ export class AdminDashboardService {
       })
       .andWhere('order.orderStatus NOT IN (:...excluded)', {
         excluded: REVENUE_EXCLUDED_STATUSES,
-      })
-      .andWhere('order.paymentStatus IN (:...paid)', {
-        paid: [OrderPaymentStatus.PAID, OrderPaymentStatus.PARTIALLY_PAID],
       });
 
     if (sources?.length) {
@@ -495,9 +492,6 @@ export class AdminDashboardService {
       .andWhere('order.orderStatus NOT IN (:...excluded)', {
         excluded: REVENUE_EXCLUDED_STATUSES,
       })
-      .andWhere('order.paymentStatus IN (:...paid)', {
-        paid: [OrderPaymentStatus.PAID, OrderPaymentStatus.PARTIALLY_PAID],
-      })
       .groupBy('brand.id')
       .addGroupBy('brand.name')
       .orderBy('revenue', 'DESC')
@@ -539,9 +533,6 @@ export class AdminDashboardService {
       })
       .andWhere('order.orderStatus NOT IN (:...excluded)', {
         excluded: REVENUE_EXCLUDED_STATUSES,
-      })
-      .andWhere('order.paymentStatus IN (:...paid)', {
-        paid: [OrderPaymentStatus.PAID, OrderPaymentStatus.PARTIALLY_PAID],
       })
       .groupBy('category.id')
       .addGroupBy('category.name')
@@ -814,9 +805,6 @@ export class AdminDashboardService {
       .andWhere('order.orderStatus NOT IN (:...excluded)', {
         excluded: REVENUE_EXCLUDED_STATUSES,
       })
-      .andWhere('order.paymentStatus IN (:...paid)', {
-        paid: [OrderPaymentStatus.PAID, OrderPaymentStatus.PARTIALLY_PAID],
-      })
       .groupBy('item.productId');
 
     if (sources?.length) {
@@ -963,9 +951,6 @@ export class AdminDashboardService {
       .andWhere('order.orderStatus NOT IN (:...excluded)', {
         excluded: REVENUE_EXCLUDED_STATUSES,
       })
-      .andWhere('order.paymentStatus IN (:...paid)', {
-        paid: [OrderPaymentStatus.PAID, OrderPaymentStatus.PARTIALLY_PAID],
-      })
       .groupBy('brand.id')
       .addGroupBy('brand.name');
 
@@ -1038,13 +1023,11 @@ export class AdminDashboardService {
     range: DateRange,
     sources: OrderSource[] | null,
   ): SelectQueryBuilder<OrderEntity> {
-    return this.baseOrdersQb(range, sources)
-      .andWhere('order.orderStatus NOT IN (:...excluded)', {
-        excluded: REVENUE_EXCLUDED_STATUSES,
-      })
-      .andWhere('order.paymentStatus IN (:...paid)', {
-        paid: [OrderPaymentStatus.PAID, OrderPaymentStatus.PARTIALLY_PAID],
-      });
+    // No paymentStatus filter: COD orders often stay unpaid until delivery.
+    return this.baseOrdersQb(range, sources).andWhere(
+      'order.orderStatus NOT IN (:...excluded)',
+      { excluded: REVENUE_EXCLUDED_STATUSES },
+    );
   }
 
   private async computeKpiSnapshot(
@@ -1059,13 +1042,17 @@ export class AdminDashboardService {
   }> {
     const revenueRow = await this.revenueOrdersQb(range, sources)
       .select('COALESCE(SUM(order.grandTotal), 0)', 'revenue')
-      .addSelect('COUNT(*)', 'paidOrders')
-      .getRawOne<{ revenue: string; paidOrders: string }>();
+      .addSelect('COUNT(*)', 'revenueOrders')
+      .getRawOne<{ revenue: string; revenueOrders: string }>();
 
-    const orders = await this.baseOrdersQb(range, sources).getCount();
+    const orders = await this.baseOrdersQb(range, sources)
+      .andWhere('order.orderStatus IN (:...included)', {
+        included: DASHBOARD_KPI_ORDER_STATUSES,
+      })
+      .getCount();
     const revenue = round2(toNumber(revenueRow?.revenue));
-    const paidOrders = toNumber(revenueRow?.paidOrders);
-    const aov = paidOrders > 0 ? round2(revenue / paidOrders) : 0;
+    const revenueOrders = toNumber(revenueRow?.revenueOrders);
+    const aov = revenueOrders > 0 ? round2(revenue / revenueOrders) : 0;
 
     const [customers, guests] = await Promise.all([
       this.countAudienceUsers({ isGuest: false, createdAtTo: range.end }),
@@ -1118,9 +1105,6 @@ export class AdminDashboardService {
       })
       .andWhere('"order"."order_status" NOT IN (:...excluded)', {
         excluded: REVENUE_EXCLUDED_STATUSES,
-      })
-      .andWhere('"order"."payment_status" IN (:...paid)', {
-        paid: [OrderPaymentStatus.PAID, OrderPaymentStatus.PARTIALLY_PAID],
       })
       .groupBy('bucket')
       .orderBy('bucket', 'ASC');

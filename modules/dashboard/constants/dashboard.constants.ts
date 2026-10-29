@@ -115,3 +115,14 @@ export const REVENUE_EXCLUDED_STATUSES: OrderStatus[] = [
   OrderStatus.CANCELLED,
   OrderStatus.FAILED_DELIVERY,
 ];
+
+/** Order statuses counted in the Total Orders KPI (excludes cancelled and failed delivery). */
+export const DASHBOARD_KPI_ORDER_STATUSES: OrderStatus[] = [
+  OrderStatus.PENDING,
+  OrderStatus.CONFIRMED,
+  OrderStatus.PROCESSING,
+  OrderStatus.SHIPPED,
+  OrderStatus.OUT_FOR_DELIVERY,
+  OrderStatus.DELIVERED,
+  OrderStatus.RTO,
+];
