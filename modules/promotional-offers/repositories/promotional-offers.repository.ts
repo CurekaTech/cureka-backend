@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
+import { EntityManager, LessThanOrEqual, Repository } from 'typeorm';
 import { PromotionalOfferEntity } from '../entities/promotional-offer.entity';
 import { PromotionalOfferType } from '../enums/promotional-offer-type.enum';
 import { MasterStatus } from '@modules/master/enums/master-status.enum';
@@ -49,6 +49,7 @@ export class PromotionalOffersRepository {
   }
 
   async findLive(now = new Date()): Promise<PromotionalOfferEntity[]> {
+    await this.deactivateExpired(now);
     return this.repo
       .createQueryBuilder('offer')
       .leftJoinAndSelect('offer.targets', 'target')
@@ -58,6 +59,19 @@ export class PromotionalOffersRepository {
       .andWhere('offer.code IS NOT NULL')
       .orderBy('offer.createdAt', 'ASC')
       .getMany();
+  }
+
+  /** Mark active offers as inactive once their expiry date/time has passed. */
+  async deactivateExpired(now = new Date(), manager?: EntityManager): Promise<number> {
+    const repository = manager ? manager.getRepository(PromotionalOfferEntity) : this.repo;
+    const result = await repository.update(
+      {
+        status: MasterStatus.ACTIVE,
+        expiryDate: LessThanOrEqual(now),
+      },
+      { status: MasterStatus.INACTIVE },
+    );
+    return result.affected ?? 0;
   }
 
   async search(params: {

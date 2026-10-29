@@ -494,6 +494,12 @@ npm run review:import:test
 npm run review:import:test -- --apply
 
 
+# Live product reviews. Large sheets are processed in batches (default 200 rows).
+# SKU lookups are prefetched per batch. Inserts commit in chunks of 50.
+# Redis product cache is NOT cleared — do not run cache:invalidate-products afterward
+# unless you intentionally want storefront product payloads refreshed immediately.
+# Dry-run first, then apply with an explicit live confirm.
 $env:REVIEW_IMPORT_LIVE_DATABASE = "your_live_database_name"
 npm run review:import:live
 npm run review:import:live -- --apply --confirm-live
+npm run review:import:live -- --apply --confirm-live --batch-size=500

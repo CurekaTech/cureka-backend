@@ -488,6 +488,8 @@ function buildSyntheticOrderFromPaymentRequest(
     platformFee: request.platformFee ?? '0.00',
     codCharge: request.codCharge ?? '0.00',
     prepaidDiscount: request.prepaidDiscount ?? '0.00',
+    promotionDiscount: request.promotionDiscount ?? '0.00',
+    promotionSnapshot: request.promotionSnapshot ?? null,
     grandTotal: request.totalAmount,
     couponId: null,
     couponCode: request.couponCode,

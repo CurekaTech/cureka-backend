@@ -44,6 +44,9 @@ export class PromotionalOffersService {
     if ((dto.status ?? MasterStatus.INACTIVE) === MasterStatus.ACTIVE && !code) {
       throw new BadRequestException('An active offer requires a code');
     }
+    if ((dto.status ?? MasterStatus.INACTIVE) === MasterStatus.ACTIVE && new Date(dto.expiryDate) <= new Date()) {
+      throw new BadRequestException('An active offer requires an expiry date and time in the future');
+    }
     const targets = await this.validate(dto);
     const refId = await generateUniqueRefId('PO', async (candidate) => {
       const existing = await this.offersRepository.findByRefId(candidate);
@@ -100,6 +103,7 @@ export class PromotionalOffersService {
   }
 
   async findAll(query: PromotionalOfferListQueryDto) {
+    await this.offersRepository.deactivateExpired();
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
     const { rows, total } = await this.offersRepository.search({
@@ -119,6 +123,7 @@ export class PromotionalOffersService {
   }
 
   async findOne(refId: string) {
+    await this.offersRepository.deactivateExpired();
     const offer = await this.offersRepository.findByRefId(refId);
     if (!offer) throw new NotFoundException('Promotional offer not found');
     return this.withScopeLabels(this.toResponse(offer));
@@ -136,6 +141,9 @@ export class PromotionalOffersService {
     const nextStatus = dto.status ?? existing.status;
     if (nextStatus === MasterStatus.ACTIVE && !code) {
       throw new BadRequestException('An active offer requires a code');
+    }
+    if (nextStatus === MasterStatus.ACTIVE && new Date(dto.expiryDate) <= new Date()) {
+      throw new BadRequestException('An active offer requires an expiry date and time in the future');
     }
     const targets = await this.validate(dto);
     await this.dataSource.transaction(async (manager) => {
@@ -188,10 +196,14 @@ export class PromotionalOffersService {
   }
 
   async updateStatus(refId: string, dto: UpdatePromotionalOfferStatusDto, actor: string) {
+    await this.offersRepository.deactivateExpired();
     const existing = await this.offersRepository.findByRefId(refId);
     if (!existing) throw new NotFoundException('Promotional offer not found');
     if (dto.status === MasterStatus.ACTIVE && !existing.code) {
       throw new BadRequestException('An active offer requires a code');
+    }
+    if (dto.status === MasterStatus.ACTIVE && existing.expiryDate <= new Date()) {
+      throw new BadRequestException('Cannot activate an expired offer. Extend the expiry date first.');
     }
     await this.dataSource.getRepository(PromotionalOfferEntity).update(
       { id: existing.id },
@@ -258,10 +270,21 @@ export class PromotionalOffersService {
       if (!qualifying.length && !scope.brandIds.length && !scope.categoryIds.length) {
         throw new BadRequestException('BOGO requires at least one qualifying variant, brand, or category');
       }
-      this.assertRewardPricing(config);
-      if (Number(config['qualifyingQuantity']) < 1 || Number(config['rewardQuantity']) < 1) {
-        throw new BadRequestException('BOGO quantities must be at least 1');
+      if (String(config['rewardPricing'] ?? '') !== RewardPricing.FREE) {
+        throw new BadRequestException('BOGO reward price must be free');
       }
+      if (Number(config['qualifyingQuantity']) < 1) {
+        throw new BadRequestException('BOGO buy quantity must be at least 1');
+      }
+      if (Number(config['rewardQuantity']) !== 1) {
+        throw new BadRequestException('BOGO reward quantity must be 1');
+      }
+      if (!(Number(config['maxRewardQuantity']) >= 1)) {
+        throw new BadRequestException('BOGO max reward quantity must be at least 1');
+      }
+      config['rewardPricing'] = RewardPricing.FREE;
+      config['rewardQuantity'] = 1;
+      config['rewardDiscountValue'] = 0;
     }
     if (dto.offerType === PromotionalOfferType.BUY_X_GET_Y) {
       this.assertBuyXGetYConfig(dto, config, scope);
@@ -279,8 +302,8 @@ export class PromotionalOffersService {
         if (discountType !== 'percentage' && discountType !== 'fixed') {
           throw new BadRequestException('Tier discount type must be percentage or fixed');
         }
-        if (minQuantity < 1 || Number(tier.discountValue) <= 0) {
-          throw new BadRequestException('Each tier needs a positive quantity and discount');
+        if (minQuantity < 2 || Number(tier.discountValue) <= 0) {
+          throw new BadRequestException('Each tier needs a minimum quantity of at least 2 and a positive discount');
         }
         if (discountType === 'percentage' && Number(tier.discountValue) > 100) {
           throw new BadRequestException('Percentage tier discount cannot exceed 100');
@@ -422,8 +445,10 @@ export class PromotionalOffersService {
     const now = new Date();
     let derivedStatus = 'inactive';
     if (offer.status === MasterStatus.ACTIVE && now < offer.startDate) derivedStatus = 'scheduled';
-    else if (offer.status === MasterStatus.ACTIVE && now > offer.expiryDate) derivedStatus = 'expired';
+    else if (offer.status === MasterStatus.ACTIVE && now >= offer.expiryDate) derivedStatus = 'expired';
     else if (offer.status === MasterStatus.ACTIVE) derivedStatus = 'live';
+    const effectiveStatus =
+      derivedStatus === 'expired' ? MasterStatus.INACTIVE : offer.status;
     return {
       id: offer.id,
       refId: offer.refId,
@@ -431,7 +456,7 @@ export class PromotionalOffersService {
       internalDescription: offer.internalDescription,
       customerMessage: offer.customerMessage,
       offerType: offer.offerType,
-      status: offer.status,
+      status: effectiveStatus,
       derivedStatus,
       startDate: offer.startDate,
       expiryDate: offer.expiryDate,

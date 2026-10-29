@@ -368,10 +368,10 @@ describe('evaluatePromotionalOffers', () => {
     expect(result.rewardLines.map((row) => row.variantId)).toEqual(['variant-1']);
   });
 
-  it('grants a scoped cart-value gift from the full subtotal and only once', () => {
+  it('grants a scoped cart-value gift from the eligible subtotal and only once', () => {
     const result = evaluatePromotionalOffers(
       [
-        line({ id: 'match', variantId: 'variant-1', quantity: 1, unitPrice: 40, totalPrice: 40, brandId: brand, categoryId: category }),
+        line({ id: 'match', variantId: 'variant-1', quantity: 1, unitPrice: 130, totalPrice: 130, brandId: brand, categoryId: category }),
         line({ id: 'other', variantId: 'variant-2', quantity: 1, unitPrice: 90, totalPrice: 90, brandId: otherBrand }),
       ],
       [
@@ -381,10 +381,51 @@ describe('evaluatePromotionalOffers', () => {
           targets: [target({ role: PromotionalOfferTargetRole.GIFT, variantId: 'gift-1', productId: 'g', ...purchasable, sku: 'GIFT' })],
         }),
       ],
-      130,
+      220,
     );
     expect(result.rewardLines).toHaveLength(1);
     expect(result.rewardLines[0].variantId).toBe('gift-1');
+  });
+
+  it('does not count out-of-scope lines toward a scoped gift threshold', () => {
+    const result = evaluatePromotionalOffers(
+      [
+        line({ id: 'match', variantId: 'variant-1', quantity: 1, unitPrice: 40, totalPrice: 40, brandId: brand }),
+        line({ id: 'other', variantId: 'variant-2', quantity: 1, unitPrice: 200, totalPrice: 200, brandId: otherBrand }),
+      ],
+      [
+        offer({
+          offerType: PromotionalOfferType.GIFT_ON_CART_VALUE,
+          config: { brandIds: [brand], threshold: 100, gifts: [{ threshold: 100, variantId: 'gift-1' }] },
+          targets: [target({ role: PromotionalOfferTargetRole.GIFT, variantId: 'gift-1', productId: 'g', ...purchasable, sku: 'GIFT' })],
+        }),
+      ],
+      240,
+    );
+    expect(result.rewardLines).toHaveLength(0);
+  });
+
+  it('uses the full cart subtotal when thresholdBasis is cart', () => {
+    const result = evaluatePromotionalOffers(
+      [
+        line({ id: 'match', variantId: 'variant-1', quantity: 1, unitPrice: 40, totalPrice: 40, brandId: brand }),
+        line({ id: 'other', variantId: 'variant-2', quantity: 1, unitPrice: 90, totalPrice: 90, brandId: otherBrand }),
+      ],
+      [
+        offer({
+          offerType: PromotionalOfferType.GIFT_ON_CART_VALUE,
+          config: {
+            brandIds: [brand],
+            thresholdBasis: 'cart',
+            threshold: 120,
+            gifts: [{ threshold: 120, variantId: 'gift-1' }],
+          },
+          targets: [target({ role: PromotionalOfferTargetRole.GIFT, variantId: 'gift-1', productId: 'g', ...purchasable, sku: 'GIFT' })],
+        }),
+      ],
+      130,
+    );
+    expect(result.rewardLines).toHaveLength(1);
   });
 
   it('does not grant a scoped gift when no cart line matches the brand or category', () => {
