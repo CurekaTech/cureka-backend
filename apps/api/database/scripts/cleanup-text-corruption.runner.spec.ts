@@ -6,7 +6,9 @@ import {
   repairText,
 } from './text-corruption-repair';
 import {
+  SQL_INDICATOR,
   applyCandidatesBatched,
+  assertSqlBindValues,
   cleanJson as runnerCleanJson,
   cleanString as runnerCleanString,
   groupCandidatesForApply,
@@ -279,6 +281,33 @@ describe('text corruption cleanup helpers', () => {
         url: 'https://www.cureka.com/shop?q=caf%C3%A9',
       });
       expect(cleanString('Pressure ± 3mmHg')).toBe('Pressure ± 3mmHg');
+    });
+
+    it('never puts a literal U+0000 in the SQL regex while still detecting C0/C1 in memory', () => {
+      expect(SQL_INDICATOR.includes('\u0000')).toBe(false);
+      expect(Buffer.from(SQL_INDICATOR, 'utf8').includes(0)).toBe(false);
+      expect(SQL_INDICATOR).toContain('\\x01-\\x08');
+      expect(() => assertSqlBindValues([SQL_INDICATOR, ['Â°', 'beep\u0007']], 'regex probe')).not.toThrow();
+      expect(() => assertSqlBindValues(['prefix\u0000suffix'], 'regex probe')).toThrow(/U\+0000/);
+
+      const c0 = [0x01, 0x08, 0x0b, 0x0c, 0x0e, 0x1f, 0x7f].map((code) => String.fromCharCode(code));
+      for (const fragment of c0) {
+        expect(hasIndicator(`x${fragment}y`)).toBe(true);
+        expect(cleanString(`x${fragment}y`)).toBe('xy');
+      }
+      for (let code = 0x80; code <= 0x9f; code += 1) {
+        expect(hasIndicator(`x${String.fromCharCode(code)}y`)).toBe(true);
+      }
+      expect(hasIndicator('keep\ttabs\nand\rreturns')).toBe(false);
+      expect(cleanString('keep\ttabs\nand\rreturns')).toBe('keep\ttabs\nand\rreturns');
+      expect(hasIndicator('\u0000hidden')).toBe(true);
+    });
+
+    it('repairs nested JSONB string controls without mutating keys or numbers', () => {
+      const input = { safe: 1, nested: { note: `ok\u0007 ${mojibake('\u00AE')}` } };
+      const result = cleanJson(input);
+      expect(result.changed).toBe(true);
+      expect(result.value).toEqual({ safe: 1, nested: { note: 'ok \u00AE' } });
     });
 
     it('detects corruption without flagging ordinary clean text', () => {
@@ -758,5 +787,56 @@ describe('backup and apply safeguards', () => {
       ),
     ).rejects.toThrow(/CONFIRM_TARGET/);
     expect(write).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('SQL bind guard and optional PostgreSQL probe', () => {
+  it('does not send U+0000 to the client query when apply values contain NUL', async () => {
+    const client = { query: jest.fn().mockResolvedValue({ rows: [], rowCount: 1 }) };
+    await expect(
+      applyCandidatesBatched(client, [
+        {
+          table: 'products',
+          column: 'description',
+          type: 'text',
+          pk: { id: '1' },
+          before: 'bad\u0000text',
+          after: 'badtext',
+        },
+      ]),
+    ).rejects.toThrow(/U\+0000/);
+    expect(client.query).not.toHaveBeenCalled();
+  });
+
+  const pgUrl = process.env['TEXT_CORRUPTION_PG_TEST_URL'];
+  const pgIt = pgUrl ? it : it.skip;
+
+  pgIt('binds SQL_INDICATOR on an isolated PostgreSQL 18 database without error 22021', async () => {
+    const { Client } = require('pg') as {
+      Client: new (options: object) => {
+        connect(): Promise<void>;
+        end(): Promise<void>;
+        query: (sql: string, values?: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }>;
+      };
+    };
+    const client = new Client({ connectionString: pgUrl });
+    await client.connect();
+    try {
+      assertSqlBindValues([SQL_INDICATOR], 'pg-probe');
+      const probe = await client.query(
+        'SELECT sample, sample ~ $1 AS matches FROM unnest($2::text[]) AS samples(sample)',
+        [SQL_INDICATOR, ['Â°', 'ordinary text', 'beep\u0007', 'beep\u009D', 'Ã¢â‚¬â„¢']],
+      );
+      const bySample = Object.fromEntries(
+        probe.rows.map((row) => [String(row['sample']), row['matches']]),
+      );
+      expect(bySample['Â°']).toBe(true);
+      expect(bySample['ordinary text']).toBe(false);
+      expect(bySample['beep\u0007']).toBe(true);
+      expect(bySample['beep\u009D']).toBe(true);
+      expect(bySample['Ã¢â‚¬â„¢']).toBe(true);
+    } finally {
+      await client.end();
+    }
   });
 });

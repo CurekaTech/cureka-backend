@@ -217,12 +217,16 @@ function regexCharClass(chars: string): string {
   return `[${escaped}]`;
 }
 
-const C0_EXCEPT_WHITESPACE = Array.from({ length: 32 }, (_, code) =>
-  code === 0x09 || code === 0x0a || code === 0x0d ? '' : String.fromCharCode(code),
-).join('');
 const C1_CHARS = Array.from({ length: 32 }, (_, index) => String.fromCharCode(0x80 + index)).join('');
 const INVISIBLE_FORMAT = '\u200B\u200E\u200F\u202A\u202B\u202C\u202D\u202E\u2060\uFEFF';
-const CONTROL_CLASS = regexCharClass(`${C0_EXCEPT_WHITESPACE}\u007F${C1_CHARS}`);
+const C1_CLASS = regexCharClass(C1_CHARS);
+/**
+ * C0 except NUL/tab/LF/CR, plus DEL. Written as POSIX hex escapes so the bound
+ * PostgreSQL text parameter never contains a literal U+0000 (error 22021).
+ */
+const SQL_C0_DEL_CLASS = '[\\x01-\\x08\\x0B\\x0C\\x0E-\\x1F\\x7F]';
+/** In-memory/CSV detector also matches U+0000; that character cannot be stored in PostgreSQL text. */
+const JS_C0_DEL_CLASS = '[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F\\x7F]';
 const STRAY_LEAD_FOLLOWER = ' \t,.;:!?)]}\'"';
 const STRAY_LEAD_PATTERNS = ['Â', 'Ã'].flatMap((lead) =>
   [...STRAY_LEAD_FOLLOWER, ''].map((follower) => `${lead}${follower}`).filter((item) => item.length === 2),
@@ -241,16 +245,28 @@ const DETECTOR_SOURCES = [
   ]),
 ].sort((left, right) => right.length - left.length);
 
-const DETECTOR_BODY = [
-  ...DETECTOR_SOURCES.map(escapeRegex),
-  CONTROL_CLASS,
-  '[ÂÃ]$',
-  'º\\s*[CFcf]',
-].join('|');
+function detectorBody(controlClass: string): string {
+  return [...DETECTOR_SOURCES.map(escapeRegex), controlClass, C1_CLASS, '[ÂÃ]$', 'º\\s*[CFcf]'].join(
+    '|',
+  );
+}
 
-export const SQL_INDICATOR = `(${DETECTOR_BODY})`;
-export const JS_INDICATOR = new RegExp(DETECTOR_BODY, 'u');
-const JS_INDICATOR_GLOBAL = new RegExp(DETECTOR_BODY, 'gu');
+export function assertNoNulCodePoint(value: string, label: string): string {
+  const index = value.indexOf('\u0000');
+  if (index !== -1) {
+    throw new Error(
+      `${label} contains U+0000 at index ${index}; PostgreSQL UTF-8 text cannot encode NUL.`,
+    );
+  }
+  return value;
+}
+
+export const SQL_INDICATOR = assertNoNulCodePoint(
+  `(${detectorBody(SQL_C0_DEL_CLASS)})`,
+  'SQL_INDICATOR',
+);
+export const JS_INDICATOR = new RegExp(detectorBody(JS_C0_DEL_CLASS), 'u');
+const JS_INDICATOR_GLOBAL = new RegExp(detectorBody(JS_C0_DEL_CLASS), 'gu');
 
 function applyExactMaps(value: string): string {
   let current = value;
