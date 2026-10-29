@@ -2498,6 +2498,11 @@ export class ProductSubscriptionsService {
     ) {
       return;
     }
+    // Already recorded a missed Cashfree window for this cycle — do not rewrite
+    // history or cycle rows on every test-tenure / advance tick.
+    if (cycle.skipReason === CASHFREE_MISSED_SCHEDULE_REASON) {
+      return;
+    }
 
     if (decision.outcome === 'missed') {
       await this.recordMissedCashfreeSchedule(sub, cycle.id, decision.reason, billingCycleRef);
@@ -2528,12 +2533,21 @@ export class ProductSubscriptionsService {
     await this.attemptAutopay(sub, cycle, mandate.id, amount, billingCycleRef, sub.nextBillingDate);
   }
 
+  /**
+   * Records a missed Cashfree CHARGE window once per billing cycle.
+   * Returns false when this cycle was already marked MISSED_SCHEDULE so the
+   * minute/hourly scheduler does not spam history or rewrite the same row.
+   */
   private async recordMissedCashfreeSchedule(
     sub: UserProductSubscriptionEntity,
     cycleId: string,
     reason: string,
     billingCycleRef: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
+    const current = await this.billingCycleService.findById(cycleId);
+    if (current?.skipReason === CASHFREE_MISSED_SCHEDULE_REASON) {
+      return false;
+    }
     this.logger.warn(
       { subscriptionId: sub.id, billingCycleRef, reason },
       'Cashfree CHARGE window was missed; debit date was not shifted',
@@ -2547,8 +2561,10 @@ export class ProductSubscriptionsService {
       subscriptionId: sub.id,
       action: SubscriptionHistoryAction.SKIPPED,
       performedBy: 'scheduler',
+      reason: CASHFREE_MISSED_SCHEDULE_REASON,
       details: { reason: CASHFREE_MISSED_SCHEDULE_REASON, billingCycleRef, message: reason },
     });
+    return true;
   }
 
   async processGraceAndExpiry(asOfDate = new Date()): Promise<number> {
@@ -3100,11 +3116,12 @@ export class ProductSubscriptionsService {
       return;
     }
     {
-      const existingPayment = cycle.paymentId
+      const byId = cycle.paymentId
         ? await this.paymentsService.findById(cycle.paymentId)
-        : await this.paymentsService
-            .findBySubscriptionId(sub.id)
-            .then((rows) => rows.find((row) => row.billingCycleRef === billingCycleRef));
+        : null;
+      const rows = byId ? [] : await this.paymentsService.findBySubscriptionId(sub.id);
+      const existingPayment =
+        byId ?? rows.find((row) => row.billingCycleRef === billingCycleRef) ?? null;
       if (existingPayment?.status === SubscriptionPaymentStatus.PAID) return;
       if (existingPayment?.status === SubscriptionPaymentStatus.RECONCILING) {
         this.logger.log(
@@ -3148,7 +3165,15 @@ export class ProductSubscriptionsService {
           });
           if (decision.outcome === 'wait') return;
           if (decision.outcome === 'missed') {
-            await this.recordMissedCashfreeSchedule(sub, cycle.id, decision.reason, billingCycleRef);
+            // Record once, then open a manual payment link below.
+            // Later scheduler ticks must not rewrite history / payments.
+            const recorded = await this.recordMissedCashfreeSchedule(
+              sub,
+              cycle.id,
+              decision.reason,
+              billingCycleRef,
+            );
+            if (!recorded) return;
           } else {
             const charged = await this.attemptAutopay(
               sub,
