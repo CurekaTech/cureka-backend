@@ -38,16 +38,6 @@ export class CreateProductReviewDto {
   @IsNotEmpty()
   @MaxLength(5000)
   reviewDescription!: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(50)
-  customerAge?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  customerLocation?: string;
 }
 
 export class PublicProductReviewQueryDto {

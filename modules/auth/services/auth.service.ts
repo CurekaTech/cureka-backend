@@ -306,6 +306,7 @@ export class AuthService {
       firstName: dto.firstName,
       lastName: dto.lastName,
       email: dto.email,
+      dateOfBirth: dto.dateOfBirth,
     });
 
     await this.sessionCacheService.invalidateAllForUser(userId);

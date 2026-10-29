@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -20,6 +21,7 @@ import { ProductsRepository } from '@modules/product/repositories/products.repos
 import { ProductMediaEntity } from '@modules/product/entities/product-media.entity';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { UsersRepository } from '@modules/users/repositories/users.repository';
+import { UserAddressesRepository } from '@modules/users/repositories/user-addresses.repository';
 import {
   CreateProductReviewDto,
   ProductReviewQueryDto,
@@ -42,6 +44,10 @@ import { ProductVariantsRepository } from '../repositories/product-variants.repo
 import { ProductReviewEntity } from '../entities/product-review.entity';
 import { ProductEntity } from '../entities/product.entity';
 import { ProductVariantEntity } from '../entities/product-variant.entity';
+import {
+  calculateAgeYears,
+  formatReviewLocation,
+} from '../utils/customer-review-profile.util';
 
 @Injectable()
 export class ProductReviewsService {
@@ -50,6 +56,7 @@ export class ProductReviewsService {
     private readonly productsRepository: ProductsRepository,
     private readonly variantsRepository: ProductVariantsRepository,
     private readonly usersRepository: UsersRepository,
+    private readonly userAddressesRepository: UserAddressesRepository,
     private readonly storageUrlEnricher: StorageUrlEnricher,
     @Inject(forwardRef(() => OrdersService))
     private readonly ordersService: OrdersService,
@@ -96,14 +103,37 @@ export class ProductReviewsService {
   async canReviewForProductSlug(
     slug: string,
     user?: IUserSessionContext,
+    query?: PublicProductReviewQueryDto,
   ): Promise<{ canReview: boolean }> {
     if (!user?.isRegistered || !user.sub) {
       return { canReview: false };
     }
 
-    const product = await this.resolvePublishedProduct(slug);
-    const hasOrdered = await this.ordersService.userHasOrderedProduct(user.sub, product.id);
-    return { canReview: hasOrdered };
+    const { product, variant } = await this.resolvePublishedProductContext(slug, query);
+
+    const hasOrdered = variant
+      ? await this.ordersService.userHasOrderedProductVariant(
+          user.sub,
+          product.id,
+          variant.id,
+        )
+      : await this.ordersService.userHasOrderedProduct(user.sub, product.id);
+
+    if (!hasOrdered) {
+      return { canReview: false };
+    }
+
+    if (variant) {
+      const alreadyReviewed = await this.reviewsRepository.existsByUserIdAndVariantId(
+        user.sub,
+        variant.id,
+      );
+      if (alreadyReviewed) {
+        return { canReview: false };
+      }
+    }
+
+    return { canReview: true };
   }
 
   async createForProductSlug(
@@ -117,9 +147,30 @@ export class ProductReviewsService {
 
     const { product, variant } = await this.resolvePublishedProductContext(slug, dto);
 
-    const hasOrdered = await this.ordersService.userHasOrderedProduct(user.sub, product.id);
+    const hasOrdered = variant
+      ? await this.ordersService.userHasOrderedProductVariant(
+          user.sub,
+          product.id,
+          variant.id,
+        )
+      : await this.ordersService.userHasOrderedProduct(user.sub, product.id);
+
     if (!hasOrdered) {
-      throw new ForbiddenException('Only customers who ordered this product can submit a review');
+      throw new ForbiddenException(
+        variant
+          ? 'Only customers who ordered this variant can submit a review'
+          : 'Only customers who ordered this product can submit a review',
+      );
+    }
+
+    if (variant) {
+      const alreadyReviewed = await this.reviewsRepository.existsByUserIdAndVariantId(
+        user.sub,
+        variant.id,
+      );
+      if (alreadyReviewed) {
+        throw new ConflictException('You have already submitted a review for this variant');
+      }
     }
 
     const rating = Number(dto.rating);
@@ -144,33 +195,82 @@ export class ProductReviewsService {
       user.profile?.email ||
       'Customer';
 
+    const ageYears = calculateAgeYears(customer?.dateOfBirth);
+    const customerAge = ageYears != null ? String(ageYears) : null;
+    const customerLocation = await this.resolveReviewLocation(
+      user.sub,
+      product.id,
+      variant?.id ?? null,
+    );
+
     const refId = await generateUniqueRefId(reviewText.slice(0, 20), (id) =>
       this.reviewsRepository.existsByRefId(id),
     );
 
     const actor = user.profile?.email ?? customer?.email ?? user.sub;
-    const entity = await this.reviewsRepository.create({
-      refId,
-      productId: product.id,
-      productRefId: product.refId,
-      variantId: variant?.id ?? null,
-      variantSku: variant?.sku ?? null,
-      userId: user.sub,
-      customerName,
-      rating,
-      review: reviewText,
-      reviewDescription,
-      customerAge: blankToNull(dto.customerAge),
-      customerLocation: blankToNull(dto.customerLocation),
-      status: ProductReviewStatus.PENDING,
-      createdBy: actor,
-      updatedBy: actor,
-    });
+
+    let entity: ProductReviewEntity;
+    try {
+      entity = await this.reviewsRepository.create({
+        refId,
+        productId: product.id,
+        productRefId: product.refId,
+        variantId: variant?.id ?? null,
+        variantSku: variant?.sku ?? null,
+        userId: user.sub,
+        customerName,
+        rating,
+        review: reviewText,
+        reviewDescription,
+        customerAge,
+        customerLocation,
+        status: ProductReviewStatus.PENDING,
+        createdBy: actor,
+        updatedBy: actor,
+      });
+    } catch (error) {
+      if (this.isUniqueUserVariantViolation(error)) {
+        throw new ConflictException('You have already submitted a review for this variant');
+      }
+      throw error;
+    }
 
     return mapProductReviewEntityToAdmin(entity, {
       productName: product.name,
       productImage: null,
     });
+  }
+
+  private async resolveReviewLocation(
+    userId: string,
+    productId: string,
+    variantId: string | null,
+  ): Promise<string | null> {
+    const orderLocation = await this.ordersService.findLatestOrderLocationForPurchase(
+      userId,
+      productId,
+      variantId,
+    );
+    const fromOrder = formatReviewLocation(orderLocation ?? {});
+    if (fromOrder) return fromOrder;
+
+    const defaultAddress = await this.userAddressesRepository.findDefaultByUserId(userId);
+    return formatReviewLocation({
+      city: defaultAddress?.city,
+      state: defaultAddress?.state,
+    });
+  }
+
+  private isUniqueUserVariantViolation(error: unknown): boolean {
+    const driver =
+      error && typeof error === 'object' && 'driverError' in error
+        ? (error as { driverError?: { code?: string; constraint?: string; message?: string } })
+            .driverError
+        : (error as { code?: string; constraint?: string; message?: string } | null);
+
+    if (driver?.code !== '23505') return false;
+    const haystack = `${driver.constraint ?? ''} ${driver.message ?? ''}`;
+    return haystack.includes('UQ_product_reviews_user_variant_active');
   }
 
   async updateStatus(
@@ -379,9 +479,4 @@ export class ProductReviewsService {
       breakdown,
     };
   }
-}
-
-function blankToNull(value: string | null | undefined): string | null {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : null;
 }

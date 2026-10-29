@@ -45,6 +45,13 @@ export class UserAddressesRepository {
     });
   }
 
+  findDefaultByUserId(userId: string): Promise<UserAddressEntity | null> {
+    return this.repo.findOne({
+      where: { userId, isDefault: true },
+      order: { updatedAt: 'DESC' },
+    });
+  }
+
   countByUserId(userId: string, manager?: EntityManager): Promise<number> {
     const repository = manager ? manager.getRepository(UserAddressEntity) : this.repo;
     return repository.count({ where: { userId } });

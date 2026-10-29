@@ -33,16 +33,18 @@ export class PublicProductReviewsController {
   }
 
   @ApiOperation({
-    summary: 'Whether the current user can review this product (must have ordered it)',
+    summary:
+      'Whether the current user can review this product/variant (ordered it and has not already reviewed the variant)',
   })
   @ResponseMessage('Review eligibility retrieved successfully')
   @UseGuards(OptionalSessionCookieGuard)
   @Get(':slug/can-review')
   canReview(
     @Param('slug') slug: string,
+    @Query() query: PublicProductReviewQueryDto,
     @CurrentSessionUser() user: IUserSessionContext | undefined,
   ) {
-    return this.productReviewsService.canReviewForProductSlug(slug, user);
+    return this.productReviewsService.canReviewForProductSlug(slug, user, query);
   }
 
   @ApiOperation({ summary: 'Submit a product review (pending until admin approval)' })

@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { ProductReviewStatus } from '../enums/product-review-status.enum';
 import { ProductReviewEntity } from '../entities/product-review.entity';
 import { ProductReviewsService } from './product-reviews.service';
@@ -20,18 +20,42 @@ function review(partial: Partial<ProductReviewEntity>): ProductReviewEntity {
   } as ProductReviewEntity;
 }
 
+const shopper = {
+  sub: 'user-1',
+  sessionId: 'session-1',
+  role: 'customer',
+  isGuest: false,
+  isRegistered: true,
+  status: 'active',
+  profile: { email: 'asha@cureka.test' },
+} as never;
+
 function createService(options?: {
   productReviews?: ProductReviewEntity[];
   variantReviews?: ProductReviewEntity[];
   variantsById?: Record<string, { id: string; productId: string; sku: string } | null>;
   variantsBySlug?: Record<string, { id: string; productId: string; sku: string } | null>;
   ordered?: boolean;
+  orderedVariant?: boolean;
+  alreadyReviewed?: boolean;
+  dateOfBirth?: Date | null;
+  orderLocation?: { city: string; state: string } | null;
+  defaultAddress?: { city: string; state: string } | null;
 }) {
   const reviewsRepository = {
     findApprovedByProductId: jest.fn(async () => options?.productReviews ?? []),
     findApprovedByVariantId: jest.fn(async () => options?.variantReviews ?? []),
     create: jest.fn(async (data: Partial<ProductReviewEntity>) => data),
     existsByRefId: jest.fn(async () => false),
+    existsByUserIdAndVariantId: jest.fn(async () => options?.alreadyReviewed === true),
+  };
+  const ordersService = {
+    userHasOrderedProduct: jest.fn(async () => options?.ordered !== false),
+    userHasOrderedProductVariant: jest.fn(async () => options?.orderedVariant !== false),
+    findLatestOrderLocationForPurchase: jest.fn(async () => options?.orderLocation ?? null),
+  };
+  const userAddressesRepository = {
+    findDefaultByUserId: jest.fn(async () => options?.defaultAddress ?? null),
   };
   const service = Object.create(ProductReviewsService.prototype) as ProductReviewsService;
   Object.assign(service, {
@@ -45,15 +69,19 @@ function createService(options?: {
       findActiveBySlug: jest.fn(async (slug: string) => options?.variantsBySlug?.[slug] ?? null),
     },
     usersRepository: {
-      findById: jest.fn(async () => ({ firstName: 'Asha', lastName: 'Rao', email: 'asha@cureka.test' })),
+      findById: jest.fn(async () => ({
+        firstName: 'Asha',
+        lastName: 'Rao',
+        email: 'asha@cureka.test',
+        dateOfBirth: options?.dateOfBirth === undefined ? new Date('1990-06-15') : options.dateOfBirth,
+      })),
     },
-    ordersService: {
-      userHasOrderedProduct: jest.fn(async () => options?.ordered !== false),
-    },
+    userAddressesRepository,
+    ordersService,
     storageUrlEnricher: { enrichFields: jest.fn(async (item: unknown) => item) },
     eventEmitter: { emitAsync: jest.fn(async () => undefined) },
   });
-  return { service, reviewsRepository };
+  return { service, reviewsRepository, ordersService, userAddressesRepository };
 }
 
 describe('ProductReviewsService variant reviews', () => {
@@ -182,6 +210,7 @@ describe('ProductReviewsService variant reviews', () => {
   it('requires a signed-in shopper and stores that user on a pending review', async () => {
     const { service, reviewsRepository } = createService({
       variantsById: { v1: variant },
+      orderLocation: { city: 'Ahmedabad', state: 'Gujarat' },
     });
 
     await expect(
@@ -201,15 +230,7 @@ describe('ProductReviewsService variant reviews', () => {
         reviewDescription: 'Helpful details',
         variantId: 'v1',
       },
-      {
-        sub: 'user-1',
-        sessionId: 'session-1',
-        role: 'customer',
-        isGuest: false,
-        isRegistered: true,
-        status: 'active',
-        profile: { email: 'asha@cureka.test' },
-      } as never,
+      shopper,
     );
 
     expect(reviewsRepository.create).toHaveBeenCalledWith(
@@ -220,8 +241,135 @@ describe('ProductReviewsService variant reviews', () => {
         variantSku: 'SKU-1',
         review: 'Works well',
         reviewDescription: 'Helpful details',
+        customerAge: expect.any(String),
+        customerLocation: 'Ahmedabad, Gujarat',
       }),
     );
+  });
+
+  it('derives age from DOB and ignores client age/location fields', async () => {
+    const { service, reviewsRepository } = createService({
+      variantsById: { v1: variant },
+      dateOfBirth: new Date(Date.UTC(1994, 0, 1)),
+      orderLocation: { city: 'Pune', state: 'Maharashtra' },
+    });
+
+    await service.createForProductSlug(
+      'serum',
+      {
+        rating: 4,
+        review: 'Good',
+        reviewDescription: 'Nice product',
+        variantId: 'v1',
+        customerAge: '99',
+        customerLocation: 'Somewhere Else',
+      } as never,
+      shopper,
+    );
+
+    const created = reviewsRepository.create.mock.calls[0][0] as Partial<ProductReviewEntity>;
+    expect(created.customerAge).not.toBe('99');
+    expect(created.customerLocation).toBe('Pune, Maharashtra');
+    expect(created.customerAge).toMatch(/^\d+$/);
+  });
+
+  it('falls back to default address city/state when the order has no usable location', async () => {
+    const { service, reviewsRepository, userAddressesRepository } = createService({
+      variantsById: { v1: variant },
+      orderLocation: { city: '  ', state: '' },
+      defaultAddress: { city: 'Surat', state: 'Gujarat' },
+    });
+
+    await service.createForProductSlug(
+      'serum',
+      {
+        rating: 5,
+        review: 'Great',
+        reviewDescription: 'Details',
+        variantId: 'v1',
+      },
+      shopper,
+    );
+
+    expect(userAddressesRepository.findDefaultByUserId).toHaveBeenCalledWith('user-1');
+    expect(reviewsRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ customerLocation: 'Surat, Gujarat' }),
+    );
+  });
+
+  it('stores null location when order and default address lack city/state', async () => {
+    const { service, reviewsRepository } = createService({
+      variantsById: { v1: variant },
+      orderLocation: null,
+      defaultAddress: null,
+      dateOfBirth: null,
+    });
+
+    await service.createForProductSlug(
+      'serum',
+      {
+        rating: 5,
+        review: 'Ok',
+        reviewDescription: 'Details',
+        variantId: 'v1',
+      },
+      shopper,
+    );
+
+    expect(reviewsRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customerAge: null,
+        customerLocation: null,
+      }),
+    );
+  });
+
+  it('rejects a second review for the same user and variant', async () => {
+    const { service } = createService({
+      variantsById: { v1: variant },
+      alreadyReviewed: true,
+    });
+
+    await expect(
+      service.createForProductSlug(
+        'serum',
+        {
+          rating: 5,
+          review: 'Again',
+          reviewDescription: 'Duplicate',
+          variantId: 'v1',
+        },
+        shopper,
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('can-review is false after any prior review for that variant and true for a sibling', async () => {
+    const sibling = { id: 'v2', productId: 'p1', sku: 'SKU-2' };
+    const { service, reviewsRepository } = createService({
+      variantsById: { v1: variant, v2: sibling },
+      alreadyReviewed: true,
+    });
+
+    await expect(
+      service.canReviewForProductSlug('serum', shopper, { variantId: 'v1' }),
+    ).resolves.toEqual({ canReview: false });
+
+    reviewsRepository.existsByUserIdAndVariantId.mockResolvedValueOnce(false);
+    await expect(
+      service.canReviewForProductSlug('serum', shopper, { variantId: 'v2' }),
+    ).resolves.toEqual({ canReview: true });
+  });
+
+  it('can-review is false when the variant was not ordered', async () => {
+    const { service } = createService({
+      variantsById: { v1: variant },
+      orderedVariant: false,
+    });
+
+    await expect(
+      service.canReviewForProductSlug('serum', shopper, { variantId: 'v1' }),
+    ).resolves.toEqual({ canReview: false });
   });
 });
 
@@ -241,5 +389,21 @@ describe('variant review migration rollback', () => {
     expect(raise).toBeGreaterThan(guard);
     expect(restore).toBeGreaterThan(raise);
     expect(drop).toBeGreaterThan(restore);
+  });
+});
+
+describe('user-variant unique migration', () => {
+  it('creates a partial unique index on user_id and variant_id', () => {
+    const source = readFileSync(
+      join(
+        __dirname,
+        '../../../apps/api/database/migrations/1786025000000-add-product-reviews-user-variant-unique.ts',
+      ),
+      'utf8',
+    );
+    expect(source).toContain('UQ_product_reviews_user_variant_active');
+    expect(source).toContain('"user_id" IS NOT NULL');
+    expect(source).toContain('"variant_id" IS NOT NULL');
+    expect(source).toContain('"deleted_at" IS NULL');
   });
 });

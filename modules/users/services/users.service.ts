@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -46,6 +47,7 @@ import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enrich
 import { RolesRepository } from '@modules/roles/repositories/roles.repository';
 import { RoleEntity } from '@modules/roles/entities/role.entity';
 import { UserAddressesService } from './user-addresses.service';
+import { parseAndValidateDateOfBirth } from '../utils/date-of-birth.util';
 
 const USER_MEDIA_FIELDS = ['profileImageUrl'] as const;
 
@@ -65,7 +67,9 @@ export class UsersService {
     const updateData: Partial<UserEntity> = { ...rest };
 
     if (dateOfBirth !== undefined) {
-      updateData.dateOfBirth = dateOfBirth ? new Date(dateOfBirth) : undefined;
+      updateData.dateOfBirth = dateOfBirth
+        ? parseAndValidateDateOfBirth(dateOfBirth)
+        : undefined;
     }
     if (profileImageUrl !== undefined) {
       updateData.profileImageUrl = this.storageUrlEnricher.persist(profileImageUrl);
@@ -216,12 +220,17 @@ export class UsersService {
 
   async completeRegistration(
     userId: string,
-    data: { firstName: string; lastName: string; email?: string },
+    data: { firstName: string; lastName: string; email?: string; dateOfBirth: string },
   ): Promise<IUser> {
     const current = await this.usersRepository.findById(userId);
     if (!current) {
       throw new NotFoundException(`User with id ${userId} not found`);
     }
+
+    if (!data.dateOfBirth?.trim()) {
+      throw new BadRequestException('Date of birth is required.');
+    }
+    const dateOfBirth = parseAndValidateDateOfBirth(data.dateOfBirth);
 
     if (data.email) {
       const emailTaken = await this.usersRepository.existsByEmail(data.email);
@@ -234,6 +243,7 @@ export class UsersService {
       firstName: data.firstName,
       lastName: data.lastName,
       email: data.email,
+      dateOfBirth,
       isGuest: false,
       isRegistered: true,
     };
@@ -459,6 +469,10 @@ export class UsersService {
     const sessionUser = await this.usersRepository.findById(userId);
     if (!sessionUser) {
       throw new NotFoundException(`User with id ${userId} not found`);
+    }
+
+    if (!sessionUser.isRegistered && !dto.dateOfBirth?.trim()) {
+      throw new BadRequestException('Date of birth is required.');
     }
 
     const mobileOwner = await this.usersRepository.findByMobileNumber(dto.mobileNumber);

@@ -34,6 +34,12 @@ export class ProductReviewsRepository {
     return (await this.repo.count({ where: { refId } })) > 0;
   }
 
+  async existsByUserIdAndVariantId(userId: string, variantId: string): Promise<boolean> {
+    return this.repo.exists({
+      where: { userId, variantId },
+    });
+  }
+
   async updateByRefId(
     refId: string,
     data: Partial<ProductReviewEntity>,
