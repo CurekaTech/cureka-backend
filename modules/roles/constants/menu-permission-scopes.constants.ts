@@ -51,8 +51,14 @@ const scope = (
 });
 
 export const MENU_PERMISSION_SCOPES: readonly MenuPermissionScope[] = [
-  scope('active-users', 'users', 'Active Users', READ),
-  scope('inactive-users', 'users', 'Inactive Users', READ),
+  scope('active-users', 'users', 'Active Users', [
+    PermissionAction.READ,
+    PermissionAction.STATUS,
+  ]),
+  scope('inactive-users', 'users', 'Inactive Users', [
+    PermissionAction.READ,
+    PermissionAction.STATUS,
+  ]),
 
   scope('add-vendor', 'vendors', 'Add Vendor', [PermissionAction.CREATE]),
   scope('vendor-list', 'vendors', 'Vendor List', [
