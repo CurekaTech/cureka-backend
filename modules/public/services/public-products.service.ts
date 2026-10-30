@@ -352,7 +352,7 @@ export class PublicProductsService {
       sortOrder: paginationOptions.sortOrder,
       productType,
       prioritizeInStock: true,
-      inStockOnly: false,
+      inStockOnly: true,
       searchRelevance: 2,
       pincode: query.pincode ?? null,
     });
@@ -380,6 +380,7 @@ export class PublicProductsService {
           minPrice: priceRange?.minPrice,
           maxPrice: priceRange?.maxPrice,
           pincodeId: filters.pincodeId,
+          inStockOnly: true,
         });
         this.logger.log(`[PERF] searchVariants | DB query: ${Date.now() - tDb}ms`);
         return buildPaginatedResult(

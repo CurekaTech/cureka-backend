@@ -199,7 +199,7 @@ describe('PublicSearchService native fallback', () => {
     expect(typesenseClient.getSearchClient).not.toHaveBeenCalled();
     expect(productsRepository.findPublishedDropdownSuggestions).toHaveBeenCalledWith('vit', 30, null);
   });
-  it('searches Typesense products without an in-stock filter and ranks in-stock hits first', async () => {
+  it('filters Typesense products to in-stock and ranks in-stock hits first', async () => {
     typesenseClient.isEnabled.mockReturnValue(true);
     adminSettingsService.isTypesenseSearchEnabled.mockResolvedValue(true);
     collectionService.getSearchRuntimeConfig.mockResolvedValue({
@@ -226,9 +226,11 @@ describe('PublicSearchService native fallback', () => {
       filter_by?: string;
       sort_by?: string;
     }>;
-    const productSearch = searches.find((search) => search.filter_by === 'entityType:=Product');
-    expect(productSearch?.filter_by).toBe('entityType:=Product');
-    expect(productSearch?.filter_by).not.toContain('inStock:true');
+    const productSearch = searches.find((search) =>
+      search.filter_by?.includes('entityType:=Product'),
+    );
+    expect(productSearch?.filter_by).toContain('entityType:=Product');
+    expect(productSearch?.filter_by).toContain('inStock:true');
     expect(productSearch?.sort_by).toBe('inStock:desc,_text_match:desc');
   });
 
@@ -312,7 +314,7 @@ describe('PublicSearchService native fallback', () => {
     const perform = enableTypesense(
       jest.fn().mockImplementation(async ({ searches }: { searches: Array<{ filter_by?: string }> }) => ({
         results: searches.map((search) => ({
-          hits: search.filter_by === 'entityType:=Product'
+          hits: search.filter_by?.includes('entityType:=Product')
             ? [{ document: {
                 entityType: SEARCH_ENTITY_TYPES.PRODUCT,
                 refId: 'BRAND-MATCH',
@@ -588,7 +590,9 @@ describe('PublicSearchService native fallback', () => {
       split_join_tokens?: string;
       query_by?: string;
     }>;
-    const productSearch = searches.find((search) => search.filter_by === 'entityType:=Product');
+    const productSearch = searches.find((search) =>
+      search.filter_by?.includes('entityType:=Product'),
+    );
     expect(productSearch?.split_join_tokens).toBe('always');
     expect(productSearch?.query_by).toContain('nameCompact');
     expect(results).toEqual(
