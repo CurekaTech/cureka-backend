@@ -4,7 +4,6 @@ import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { ProductType } from '@modules/product/enums/product-type.enum';
-import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { PromotionalPageType } from '@modules/promotional-pages/enums/promotional-page-type.enum';
 import { PromotionalTargetType } from '@modules/promotional-pages/enums/promotional-target-type.enum';
 import { PromotionalPageEntity } from '@modules/promotional-pages/entities/promotional-page.entity';
@@ -158,14 +157,12 @@ export class GokwikCatalogSyncService {
         });
         if (!category) throw new NotFoundException('Category not found');
 
-        // GoKwik collection product_ids are variant ids, matching variants[].id on
-        // update-product-details. A simple or bundle product has one variant, so it
-        // contributes that id. A variable product contributes each active variant.
-        const variants = await this.dataSource
+        // GoKwik collection product_ids match Sync Product top-level id (product UUID),
+        // same as cart product_id and their catalog product_id.
+        const products = await this.dataSource
           .getRepository(ProductEntity)
           .createQueryBuilder('product')
-          .innerJoin('product.variants', 'variant')
-          .select('variant.id', 'id')
+          .select('product.id', 'id')
           .distinct(true)
           .where(PRODUCT_MATCHES_CATEGORY_ENTITY_SQL)
           .setParameter('categoryId', categoryId)
@@ -174,13 +171,11 @@ export class GokwikCatalogSyncService {
           .andWhere('product.productType IN (:...catalogProductTypes)', {
             catalogProductTypes: [ProductType.SIMPLE, ProductType.VARIABLE, ProductType.BUNDLE],
           })
-          .andWhere('variant.deletedAt IS NULL')
-          .andWhere('variant.status = :variantStatus', { variantStatus: VariantStatus.ACTIVE })
-          .orderBy('variant.id', 'ASC')
+          .orderBy('product.id', 'ASC')
           .getRawMany<{ id: string }>();
 
         const productIds = [
-          ...new Set(variants.map((variant) => variant.id).filter((id) => Boolean(id))),
+          ...new Set(products.map((row) => row.id).filter((id) => Boolean(id))),
         ];
 
         const payload = {
@@ -195,7 +190,7 @@ export class GokwikCatalogSyncService {
           {
             categoryId: category.id,
             refId: category.refId,
-            variantCount: payload.product_ids.length,
+            productCount: payload.product_ids.length,
             deleted: Boolean(category.deletedAt),
           },
           'Syncing collection to GoKwik',

@@ -23,8 +23,8 @@ const CRUD: Action[] = ['create', 'read', 'update', 'delete', 'status'];
 const ORDER_ROW: Action[] = ['read', 'update', 'status'];
 
 export const MENU_SCOPED_ROWS: ScopedRow[] = [
-  { menuKey: 'active-users', base: 'users', label: 'Active Users', actions: ['read'] },
-  { menuKey: 'inactive-users', base: 'users', label: 'Inactive Users', actions: ['read'] },
+  { menuKey: 'active-users', base: 'users', label: 'Active Users', actions: ['read', 'status'] },
+  { menuKey: 'inactive-users', base: 'users', label: 'Inactive Users', actions: ['read', 'status'] },
   { menuKey: 'add-vendor', base: 'vendors', label: 'Add Vendor', actions: ['create'] },
   { menuKey: 'vendor-list', base: 'vendors', label: 'Vendor List', actions: ['read', 'update', 'delete', 'status'] },
   { menuKey: 'products-list-all', base: 'products', label: 'All Products', actions: ALL },

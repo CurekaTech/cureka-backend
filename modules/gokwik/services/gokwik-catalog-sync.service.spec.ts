@@ -3,7 +3,6 @@ import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { ProductType } from '@modules/product/enums/product-type.enum';
-import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { PromotionalPageType } from '@modules/promotional-pages/enums/promotional-page-type.enum';
 import { PromotionalPageEntity } from '@modules/promotional-pages/entities/promotional-page.entity';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
@@ -59,7 +58,6 @@ function queryBuilder(rows: { promotionType: PromotionalPageType }[]) {
 
 function collectionQueryBuilder() {
   const builder = {
-    innerJoin: jest.fn(),
     select: jest.fn(),
     distinct: jest.fn(),
     where: jest.fn(),
@@ -67,13 +65,12 @@ function collectionQueryBuilder() {
     andWhere: jest.fn(),
     orderBy: jest.fn(),
     getRawMany: jest.fn(async () => [
-      { id: 'simple-variant-id' },
-      { id: 'variable-variant-a' },
-      { id: 'variable-variant-a' },
-      { id: 'variable-variant-b' },
+      { id: 'product-a' },
+      { id: 'product-a' },
+      { id: 'product-b' },
+      { id: 'product-c' },
     ]),
   };
-  builder.innerJoin.mockReturnValue(builder);
   builder.select.mockReturnValue(builder);
   builder.distinct.mockReturnValue(builder);
   builder.where.mockReturnValue(builder);
@@ -207,7 +204,7 @@ describe('GokwikCatalogSyncService promotion type', () => {
 
     await service.syncCollection('category-id');
 
-    expect(collectionQuery.innerJoin).toHaveBeenCalledWith('product.variants', 'variant');
+    expect(collectionQuery.select).toHaveBeenCalledWith('product.id', 'id');
     expect(collectionQuery.distinct).toHaveBeenCalledWith(true);
     expect(collectionQuery.where).toHaveBeenCalledWith(PRODUCT_MATCHES_CATEGORY_ENTITY_SQL);
     expect(collectionQuery.setParameter).toHaveBeenCalledWith('categoryId', 'category-id');
@@ -220,16 +217,12 @@ describe('GokwikCatalogSyncService promotion type', () => {
         catalogProductTypes: [ProductType.SIMPLE, ProductType.VARIABLE, ProductType.BUNDLE],
       },
     );
-    expect(collectionQuery.andWhere).toHaveBeenCalledWith('variant.deletedAt IS NULL');
-    expect(collectionQuery.andWhere).toHaveBeenCalledWith('variant.status = :variantStatus', {
-      variantStatus: VariantStatus.ACTIVE,
-    });
-    expect(collectionQuery.orderBy).toHaveBeenCalledWith('variant.id', 'ASC');
+    expect(collectionQuery.orderBy).toHaveBeenCalledWith('product.id', 'ASC');
     expect(apiService.syncCollections).toHaveBeenCalledWith({
       id: 'category-id',
       handle: 'skin-care',
       title: 'Skin Care',
-      product_ids: ['simple-variant-id', 'variable-variant-a', 'variable-variant-b'],
+      product_ids: ['product-a', 'product-b', 'product-c'],
       updated_at: '2026-06-01T00:00:00.000Z',
     });
   });
