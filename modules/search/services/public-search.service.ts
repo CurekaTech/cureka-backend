@@ -921,7 +921,9 @@ export class PublicSearchService {
     pincode: string | null,
   ): string | undefined {
     const clause = this.typesensePincodeClause(config, pincode);
-    const combined = [filterBy, clause].filter(Boolean).join(' && ');
+    // Storefront search must not surface OOS when the collection has inStock.
+    const inStock = config.hasInStock ? 'inStock:true' : undefined;
+    const combined = [filterBy, clause, inStock].filter(Boolean).join(' && ');
     return combined || undefined;
   }
 

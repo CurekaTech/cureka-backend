@@ -1710,6 +1710,11 @@ export class ProductsRepository {
     if (options.variantSlug) {
       qb.andWhere('variant.slug = :variantSlug', { variantSlug: options.variantSlug });
     }
+    if (options.inStockOnly) {
+      qb.andWhere(
+        `${sellableVariantAvailabilitySql('variant')} AND ${bundleDependencyAvailableSql('product')}`,
+      );
+    }
 
     this.applyPublicVariantPriceRangeFilter(qb, options);
   }
@@ -2952,6 +2957,9 @@ export class ProductsRepository {
       .andWhere('brand.deletedAt IS NULL')
       .andWhere('category.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
       .andWhere('category.deletedAt IS NULL')
+      .andWhere(
+        `${sellableVariantAvailabilitySql('variant')} AND ${bundleDependencyAvailableSql('product')}`,
+      )
       .andWhere(plan.whereSql, plan.parameters)
       .addSelect(plan.rankSql, 'search_rank')
       .addSelect(publicAvailabilityRankSql('variant', 'product'), 'availability_rank')
@@ -3067,7 +3075,10 @@ export class ProductsRepository {
       .andWhere('brand.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
       .andWhere('brand.deletedAt IS NULL')
       .andWhere('category.status = :masterStatus', { masterStatus: MasterStatus.ACTIVE })
-      .andWhere('category.deletedAt IS NULL');
+      .andWhere('category.deletedAt IS NULL')
+      .andWhere(
+        `${sellableVariantAvailabilitySql('variant')} AND ${bundleDependencyAvailableSql('product')}`,
+      );
     bindPincodeAvailability(qb, pincodeId);
     this.applyVariantToleranceMatch(qb, mode, compact, 'brand');
     if (mode === 'compact' || mode === 'catalog') {
