@@ -9,6 +9,10 @@ export enum MembershipBillingCycle {
   HOURLY = 'HOURLY',
   /** TechBV test tenure (27 hours). Hidden unless SUBSCRIPTION_TEST_TENURES_ENABLED=true. */
   HOURS_27 = 'HOURS_27',
+  /** TechBV test tenure (48 hours). Hidden unless SUBSCRIPTION_TEST_TENURES_ENABLED=true. */
+  HOURS_48 = 'HOURS_48',
+  /** TechBV test tenure (72 hours). Hidden unless SUBSCRIPTION_TEST_TENURES_ENABLED=true. */
+  HOURS_72 = 'HOURS_72',
   /** TechBV test tenure (1 day). Hidden unless SUBSCRIPTION_TEST_TENURES_ENABLED=true. */
   DAILY = 'DAILY',
   MONTHLY = 'MONTHLY',

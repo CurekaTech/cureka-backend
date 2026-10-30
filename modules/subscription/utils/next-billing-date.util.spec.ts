@@ -41,6 +41,12 @@ describe('next-billing-date.util', () => {
     expect(getNextProductBillingDate(base, ProductSubscriptionFrequency.HOURS_27, 'UTC').getTime() - base.getTime()).toBe(
       27 * 60 * 60 * 1000,
     );
+    expect(getNextProductBillingDate(base, ProductSubscriptionFrequency.HOURS_48, 'UTC').getTime() - base.getTime()).toBe(
+      48 * 60 * 60 * 1000,
+    );
+    expect(getNextProductBillingDate(base, ProductSubscriptionFrequency.HOURS_72, 'UTC').getTime() - base.getTime()).toBe(
+      72 * 60 * 60 * 1000,
+    );
     expect(getNextProductBillingDate(base, ProductSubscriptionFrequency.DAILY, 'UTC').getTime() - base.getTime()).toBe(
       24 * 60 * 60 * 1000,
     );
@@ -59,9 +65,32 @@ describe('next-billing-date.util', () => {
     expect(getNextMembershipBillingDate(base, MembershipBillingCycle.HOURS_27).getTime() - base.getTime()).toBe(
       27 * 60 * 60 * 1000,
     );
+    expect(getNextMembershipBillingDate(base, MembershipBillingCycle.HOURS_48).getTime() - base.getTime()).toBe(
+      48 * 60 * 60 * 1000,
+    );
+    expect(getNextMembershipBillingDate(base, MembershipBillingCycle.HOURS_72).getTime() - base.getTime()).toBe(
+      72 * 60 * 60 * 1000,
+    );
     expect(getNextMembershipBillingDate(base, MembershipBillingCycle.DAILY).getTime() - base.getTime()).toBe(
       24 * 60 * 60 * 1000,
     );
+  });
+
+  it('HOURS_48 and HOURS_72 advance by exact elapsed hours across IST midnight', () => {
+    // Monday 10:00 IST = 04:30Z
+    const monday1000Ist = new Date('2026-11-02T04:30:00.000Z');
+    const plus48 = getNextProductBillingDate(
+      monday1000Ist,
+      ProductSubscriptionFrequency.HOURS_48,
+      'Asia/Kolkata',
+    );
+    const plus72 = getNextProductBillingDate(
+      monday1000Ist,
+      ProductSubscriptionFrequency.HOURS_72,
+      'Asia/Kolkata',
+    );
+    expect(plus48.toISOString()).toBe('2026-11-04T04:30:00.000Z'); // Wed 10:00 IST
+    expect(plus72.toISOString()).toBe('2026-11-05T04:30:00.000Z'); // Thu 10:00 IST
   });
 
   it('clamps month-end January 31 to February 28', () => {
