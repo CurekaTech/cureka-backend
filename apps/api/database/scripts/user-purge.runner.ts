@@ -283,6 +283,105 @@ async function purgeUser(userId: string, mobile: string, apply: boolean): Promis
       );
     }
 
+    // Product subscriptions reference user_addresses (ON DELETE RESTRICT) — remove first.
+    if (await tableExists('user_product_subscriptions')) {
+      const subscriptionRows: Array<{ id: string }> = await qr.query(
+        `SELECT id FROM user_product_subscriptions WHERE user_id = $1`,
+        [userId],
+      );
+      const subscriptionIds = subscriptionRows.map((r) => r.id);
+
+      if (subscriptionIds.length) {
+        // Defensive: clear leftover FKs from cart/order items if any remain.
+        if (await tableExists('order_items')) {
+          await del(
+            `UPDATE order_items SET subscription_id = NULL
+             WHERE subscription_id = ANY($1::uuid[])`,
+            [subscriptionIds],
+          );
+        }
+        if (await tableExists('cart_items')) {
+          await del(
+            `UPDATE cart_items SET subscription_id = NULL
+             WHERE subscription_id = ANY($1::uuid[])`,
+            [subscriptionIds],
+          );
+        }
+
+        for (const table of [
+          'subscription_reminder_logs',
+          'subscription_payments',
+          'subscription_billing_cycles',
+          'subscription_mandates',
+          'subscription_status_history',
+        ]) {
+          if (await tableExists(table)) {
+            bump(
+              counts,
+              table,
+              await del(
+                `DELETE FROM ${table} WHERE subscription_id = ANY($1::uuid[]) RETURNING id`,
+                [subscriptionIds],
+              ),
+            );
+          }
+        }
+
+        bump(
+          counts,
+          'user_product_subscriptions',
+          await del(
+            `DELETE FROM user_product_subscriptions WHERE id = ANY($1::uuid[]) RETURNING id`,
+            [subscriptionIds],
+          ),
+        );
+      }
+    }
+
+    if (await tableExists('membership_payments')) {
+      bump(
+        counts,
+        'membership_payments',
+        await del(`DELETE FROM membership_payments WHERE user_id = $1 RETURNING id`, [userId]),
+      );
+    }
+    if (await tableExists('user_memberships')) {
+      bump(
+        counts,
+        'user_memberships',
+        await del(`DELETE FROM user_memberships WHERE user_id = $1 RETURNING id`, [userId]),
+      );
+    }
+
+    // Refund wallet (RESTRICT on users) — clear before user delete.
+    if (await tableExists('refund_wallet_reservations')) {
+      bump(
+        counts,
+        'refund_wallet_reservations',
+        await del(`DELETE FROM refund_wallet_reservations WHERE customer_id = $1 RETURNING id`, [
+          userId,
+        ]),
+      );
+    }
+    if (await tableExists('refund_wallet_ledger')) {
+      bump(
+        counts,
+        'refund_wallet_ledger',
+        await del(`DELETE FROM refund_wallet_ledger WHERE customer_id = $1 RETURNING id`, [
+          userId,
+        ]),
+      );
+    }
+    if (await tableExists('refund_wallet_accounts')) {
+      bump(
+        counts,
+        'refund_wallet_accounts',
+        await del(`DELETE FROM refund_wallet_accounts WHERE customer_id = $1 RETURNING id`, [
+          userId,
+        ]),
+      );
+    }
+
     bump(
       counts,
       'user_sessions',
@@ -415,6 +514,18 @@ const previewCounts = async (userId: string, mobile: string): Promise<DeleteCoun
     `SELECT COUNT(*)::text AS c FROM user_addresses WHERE user_id = $1`,
     [userId],
   );
+  if (await tableExists('user_product_subscriptions')) {
+    counts.user_product_subscriptions = await q(
+      `SELECT COUNT(*)::text AS c FROM user_product_subscriptions WHERE user_id = $1`,
+      [userId],
+    );
+  }
+  if (await tableExists('user_memberships')) {
+    counts.user_memberships = await q(
+      `SELECT COUNT(*)::text AS c FROM user_memberships WHERE user_id = $1`,
+      [userId],
+    );
+  }
   if (await tableExists('wishlist_items')) {
     counts.wishlist_items = await q(
       `SELECT COUNT(*)::text AS c FROM wishlist_items WHERE user_id = $1`,
