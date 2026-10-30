@@ -91,6 +91,49 @@ describe('cashfree-schedule-date.util', () => {
     ).toBe('missed');
   });
 
+  it('HOURS_48 UPI waits beyond T+14 and schedules on Kolkata T+2, never misses while early', () => {
+    // Mon 10:00 IST → +48h = Wed 10:00 IST
+    const monday1000Ist = new Date('2026-11-02T04:30:00.000Z');
+    const wednesday1000Ist = new Date('2026-11-04T04:30:00.000Z');
+    const twoWeeksEarlier = new Date('2026-10-18T04:30:00.000Z');
+    expect(
+      resolveCashfreeChargeSchedule({
+        intended: wednesday1000Ist,
+        now: twoWeeksEarlier,
+        method: 'upi',
+      }).outcome,
+    ).toBe('wait');
+    expect(
+      resolveCashfreeChargeSchedule({
+        intended: wednesday1000Ist,
+        now: monday1000Ist,
+        method: 'upi',
+      }),
+    ).toMatchObject({ outcome: 'schedule', scheduleDate: wednesday1000Ist });
+    expect(CASHFREE_MISSED_SCHEDULE_REASON).toBe('MISSED_SCHEDULE');
+  });
+
+  it('HOURS_72 card waits on T+1 and schedules only at T+2+', () => {
+    // Mon 10:00 IST → +72h = Thu 10:00 IST
+    const thursday1000Ist = new Date('2026-11-05T04:30:00.000Z');
+    const wednesday1000Ist = new Date('2026-11-04T04:30:00.000Z'); // T+1 before debit
+    const tuesday1000Ist = new Date('2026-11-03T04:30:00.000Z'); // T+2
+    expect(
+      resolveCashfreeChargeSchedule({
+        intended: thursday1000Ist,
+        now: wednesday1000Ist,
+        method: 'card',
+      }).outcome,
+    ).toBe('wait');
+    expect(
+      resolveCashfreeChargeSchedule({
+        intended: thursday1000Ist,
+        now: tuesday1000Ist,
+        method: 'card',
+      }),
+    ).toMatchObject({ outcome: 'schedule', scheduleDate: thursday1000Ist });
+  });
+
   it('waits when the intended date is beyond T+14', () => {
     const now = new Date('2026-11-01T00:00:00.000Z');
     const decision = resolveCashfreeChargeSchedule({

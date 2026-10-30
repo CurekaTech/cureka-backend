@@ -1245,6 +1245,118 @@ describe('Product subscription Razorpay UPI renewal', () => {
     expect(charge.mock.calls[0][0].scheduleDate).toEqual(intended);
   });
 
+  it('HOURS_48 UPI does not MISSED_SCHEDULE while still beyond T+14; CHARGE once when T+2 opens', async () => {
+    const firstPay = new Date('2026-11-02T04:30:00.000Z'); // Mon 10:00 IST
+    const intended = new Date(firstPay.getTime() + 48 * 60 * 60 * 1000); // Wed 10:00 IST
+    const tooEarly = new Date(intended.getTime() - 16 * 24 * 60 * 60 * 1000);
+    const onT2 = firstPay;
+    variantsRepository.findById.mockResolvedValue({ sellingPrice: '2.00' });
+    membershipBenefits.getMemberDiscount.mockResolvedValue(null);
+    pricingService.calculate.mockReturnValue({ finalAmount: '2.00' });
+    usersRepository.findById.mockResolvedValue({ email: 'a@example.com', mobileNumber: '9999999999' });
+    paymentsService.upsertPendingCycle.mockResolvedValue({
+      id: 'pay-row-1',
+      refId: 'spay-1',
+      amount: '2.00',
+      status: SubscriptionPaymentStatus.PENDING,
+    });
+    billingCycleService.findBySubscriptionId.mockResolvedValue([]);
+    billingCycleService.getOrCreate.mockResolvedValue({
+      id: 'cycle-48',
+      status: SubscriptionBillingCycleStatus.SCHEDULED,
+    });
+    charge.mockResolvedValue({ accepted: true, pending: true, gatewayOrderId: 'pay_cf_48' });
+    mandateService.resolveChargeProvider.mockReturnValue(SubscriptionMandateProvider.CASHFREE);
+    mandateService.canPresentAsAutopay.mockReturnValue(true);
+    const sub48 = subscription({
+      paymentGateway: 'CASHFREE',
+      autopayReady: true,
+      frequency: ProductSubscriptionFrequency.HOURS_48,
+      nextBillingDate: intended,
+    });
+    subscriptionsRepository.findById.mockResolvedValue(sub48);
+    mandateService.getForSubscription.mockResolvedValue({
+      id: 'man-1',
+      provider: SubscriptionMandateProvider.CASHFREE,
+      authorizationOrderId: 'sub_sub-1',
+      maxAmount: '2500.00',
+      consentEvidence: { method: 'upi' },
+    });
+
+    await presentCashfree('sub-1', tooEarly);
+    expect(charge).not.toHaveBeenCalled();
+    expect(billingCycleService.updateById).not.toHaveBeenCalledWith(
+      'cycle-48',
+      expect.objectContaining({ skipReason: 'MISSED_SCHEDULE' }),
+    );
+
+    await presentCashfree('sub-1', onT2);
+    expect(charge).toHaveBeenCalledTimes(1);
+    expect(charge.mock.calls[0][0].scheduleDate).toEqual(intended);
+
+    charge.mockClear();
+    billingCycleService.findBySubscriptionId.mockResolvedValue([
+      {
+        id: 'cycle-48',
+        status: SubscriptionBillingCycleStatus.DEBIT_PENDING,
+        billingCycleRef: buildBillingCycleRef(intended, ProductSubscriptionFrequency.HOURS_48),
+        paymentId: 'pay-row-1',
+      },
+    ]);
+    await presentCashfree('sub-1', onT2);
+    expect(charge).not.toHaveBeenCalled();
+  });
+
+  it('HOURS_72 card waits on T+1 and CHARGE once on T+2 with intended scheduleDate', async () => {
+    const firstPay = new Date('2026-11-02T04:30:00.000Z'); // Mon 10:00 IST
+    const intended = new Date(firstPay.getTime() + 72 * 60 * 60 * 1000); // Thu 10:00 IST
+    const onT1 = new Date(intended.getTime() - 24 * 60 * 60 * 1000); // Wed 10:00 IST
+    const onT2 = new Date(intended.getTime() - 48 * 60 * 60 * 1000); // Tue 10:00 IST
+    variantsRepository.findById.mockResolvedValue({ sellingPrice: '2.00' });
+    membershipBenefits.getMemberDiscount.mockResolvedValue(null);
+    pricingService.calculate.mockReturnValue({ finalAmount: '2.00' });
+    usersRepository.findById.mockResolvedValue({ email: 'a@example.com', mobileNumber: '9999999999' });
+    paymentsService.upsertPendingCycle.mockResolvedValue({
+      id: 'pay-row-1',
+      refId: 'spay-1',
+      amount: '2.00',
+      status: SubscriptionPaymentStatus.PENDING,
+    });
+    billingCycleService.findBySubscriptionId.mockResolvedValue([]);
+    billingCycleService.getOrCreate.mockResolvedValue({
+      id: 'cycle-72',
+      status: SubscriptionBillingCycleStatus.SCHEDULED,
+    });
+    charge.mockResolvedValue({ accepted: true, pending: true, gatewayOrderId: 'pay_cf_72' });
+    mandateService.resolveChargeProvider.mockReturnValue(SubscriptionMandateProvider.CASHFREE);
+    mandateService.canPresentAsAutopay.mockReturnValue(true);
+    subscriptionsRepository.findById.mockResolvedValue(
+      subscription({
+        paymentGateway: 'CASHFREE',
+        autopayReady: true,
+        frequency: ProductSubscriptionFrequency.HOURS_72,
+        nextBillingDate: intended,
+      }),
+    );
+    mandateService.getForSubscription.mockResolvedValue({
+      id: 'man-1',
+      provider: SubscriptionMandateProvider.CASHFREE,
+      authorizationOrderId: 'sub_sub-1',
+      maxAmount: '2500.00',
+      consentEvidence: { method: 'card' },
+    });
+
+    await presentCashfree('sub-1', onT1);
+    expect(charge).not.toHaveBeenCalled();
+    expect(historyRepository.append).not.toHaveBeenCalledWith(
+      expect.objectContaining({ reason: 'MISSED_SCHEDULE' }),
+    );
+
+    await presentCashfree('sub-1', onT2);
+    expect(charge).toHaveBeenCalledTimes(1);
+    expect(charge.mock.calls[0][0].scheduleDate).toEqual(intended);
+  });
+
   it('does not raise a Cashfree CHARGE when the customer cancelled the mandate', async () => {
     const intended = new Date('2026-11-25T18:30:00.000Z');
     const asOf = new Date('2026-11-24T21:30:00.000Z');

@@ -10,6 +10,8 @@ export const TEST_PRODUCT_FREQUENCIES = new Set<ProductSubscriptionFrequency>([
   ProductSubscriptionFrequency.MINUTES_30,
   ProductSubscriptionFrequency.HOURLY,
   ProductSubscriptionFrequency.HOURS_27,
+  ProductSubscriptionFrequency.HOURS_48,
+  ProductSubscriptionFrequency.HOURS_72,
   ProductSubscriptionFrequency.DAILY,
 ]);
 
@@ -19,6 +21,8 @@ export const TEST_MEMBERSHIP_CYCLES = new Set<MembershipBillingCycle>([
   MembershipBillingCycle.MINUTES_30,
   MembershipBillingCycle.HOURLY,
   MembershipBillingCycle.HOURS_27,
+  MembershipBillingCycle.HOURS_48,
+  MembershipBillingCycle.HOURS_72,
   MembershipBillingCycle.DAILY,
 ]);
 
@@ -36,7 +40,7 @@ export function assertProductFrequenciesAllowed(
   for (const frequency of frequencies) {
     if (TEST_PRODUCT_FREQUENCIES.has(frequency)) {
       throw new BadRequestException(
-        '2-minute, 5-minute, 30-minute, 1-hour, 27-hour, and 1-day tenures are only available in the TechBV test environment',
+        '2-minute, 5-minute, 30-minute, 1-hour, 27-hour, 48-hour, 72-hour, and 1-day tenures are only available in the TechBV test environment',
       );
     }
   }
@@ -49,7 +53,7 @@ export function assertMembershipCycleAllowed(
   if (!billingCycle || isSubscriptionTestTenuresEnabled(config)) return;
   if (TEST_MEMBERSHIP_CYCLES.has(billingCycle)) {
     throw new BadRequestException(
-      '2-minute, 5-minute, 30-minute, 1-hour, 27-hour, and 1-day tenures are only available in the TechBV test environment',
+      '2-minute, 5-minute, 30-minute, 1-hour, 27-hour, 48-hour, 72-hour, and 1-day tenures are only available in the TechBV test environment',
     );
   }
 }
