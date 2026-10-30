@@ -223,7 +223,7 @@ Idempotency: unique cycle ref, unique payment cycle, payment `idempotency_key`, 
 
 ### Razorpay Recurring (UPI Autopay / token)
 
-Implemented against [Razorpay Recurring Payments — UPI authorisation](https://razorpay.com/docs/api/payments/recurring-payments/upi-reserve-pay/authorization-transaction) and `POST /v1/payments/create/recurring`.
+Implemented against Razorpay Recurring UPI Autopay (`frequency: as_presented`, no SBMD type) and `POST /v1/payments/create/recurring`. SBMD / UPI Reserve Pay is not used: that token type rejects any expiry beyond 90 days.
 
 | Topic | Implemented / documented |
 | --- | --- |

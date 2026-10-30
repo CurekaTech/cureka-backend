@@ -125,6 +125,17 @@ const tableExists = async (table: string): Promise<boolean> => {
   return Boolean(rows[0]?.exists);
 };
 
+const columnExists = async (table: string, column: string): Promise<boolean> => {
+  const rows: Array<{ exists: boolean }> = await AppDataSource.query(
+    `SELECT EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2
+     ) AS exists`,
+    [table, column],
+  );
+  return Boolean(rows[0]?.exists);
+};
+
 async function purgeUser(userId: string, mobile: string, apply: boolean): Promise<DeleteCounts> {
   const counts: DeleteCounts = {};
   const qr = AppDataSource.createQueryRunner();
@@ -292,15 +303,21 @@ async function purgeUser(userId: string, mobile: string, apply: boolean): Promis
       const subscriptionIds = subscriptionRows.map((r) => r.id);
 
       if (subscriptionIds.length) {
-        // Defensive: clear leftover FKs from cart/order items if any remain.
-        if (await tableExists('order_items')) {
+        // Defensive: clear leftover FKs only when the column exists on this DB.
+        if (
+          (await tableExists('order_items')) &&
+          (await columnExists('order_items', 'subscription_id'))
+        ) {
           await del(
             `UPDATE order_items SET subscription_id = NULL
              WHERE subscription_id = ANY($1::uuid[])`,
             [subscriptionIds],
           );
         }
-        if (await tableExists('cart_items')) {
+        if (
+          (await tableExists('cart_items')) &&
+          (await columnExists('cart_items', 'subscription_id'))
+        ) {
           await del(
             `UPDATE cart_items SET subscription_id = NULL
              WHERE subscription_id = ANY($1::uuid[])`,
