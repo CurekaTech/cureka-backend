@@ -203,22 +203,26 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
         `/subscriptions/${encodeURIComponent(params.gatewaySubscriptionId)}/payments`,
       );
       const rows = cashfreePaymentRows(listed);
-      const wanted = [params.gatewayOrderId, params.gatewayPaymentId].filter(
-        (value): value is string => Boolean(value),
-      );
+      const wanted = [params.gatewayOrderId, params.gatewayPaymentId]
+        .map((value) => (value == null ? '' : String(value).trim()))
+        .filter((value) => value.length > 0);
       const captured = rows.filter((row) => cashfreePaymentSnapshot(row).state === 'captured');
-      const match = wanted.length
+      const byId = wanted.length
         ? rows.find((row) => cashfreeRowIds(row).some((id) => wanted.includes(id)))
-        : params.matchSingleCaptured && captured.length === 1
-          ? captured[0]
-          : undefined;
+        : undefined;
+      const soleChargeCaptured = cashfreeSoleNonAuthCaptured(captured);
+      const match =
+        byId ??
+        soleChargeCaptured ??
+        (params.matchSingleCaptured && captured.length === 1 ? captured[0] : undefined);
       if (!match) {
         this.logger.warn(
           {
             gatewaySubscriptionId: params.gatewaySubscriptionId,
             rowCount: rows.length,
             capturedCount: captured.length,
-            lookedUpPaymentId: Boolean(params.gatewayOrderId || params.gatewayPaymentId),
+            lookedUpPaymentId: wanted.length > 0,
+            soleChargeCaptured: Boolean(soleChargeCaptured),
           },
           'Cashfree subscription payment was not found in the payment list',
         );
@@ -227,6 +231,19 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
           gatewayOrderId: params.gatewayOrderId,
           gatewayPaymentId: params.gatewayPaymentId,
         };
+      }
+      if (!byId && wanted.length > 0) {
+        this.logger.log(
+          {
+            gatewaySubscriptionId: params.gatewaySubscriptionId,
+            rowCount: rows.length,
+            capturedCount: captured.length,
+            lookedUpPaymentId: true,
+            usedSoleChargeFallback: Boolean(soleChargeCaptured),
+            usedMatchSingleCaptured: !soleChargeCaptured,
+          },
+          'Cashfree subscription payment matched via sole captured CHARGE after id lookup missed',
+        );
       }
       return cashfreePaymentSnapshot(match);
     } catch (error) {
@@ -320,9 +337,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function cashfreeRowIds(row: Record<string, unknown>): string[] {
   const gateway = isRecord(row['payment_gateway_details']) ? row['payment_gateway_details'] : {};
-  return [row['payment_id'], row['cf_payment_id'], row['cf_order_id'], gateway['gateway_payment_id'], gateway['gateway_order_id']]
+  return [
+    row['payment_id'],
+    row['cf_payment_id'],
+    row['cf_order_id'],
+    row['order_id'],
+    row['merchant_payment_id'],
+    row['subscription_payment_id'],
+    gateway['gateway_payment_id'],
+    gateway['gateway_order_id'],
+    gateway['payment_id'],
+  ]
     .map((value) => (value == null ? '' : String(value).trim()))
     .filter((value) => value.length > 0);
+}
+
+/** Prefer a single non-AUTH SUCCESS payment so AUTH ₹ auth does not settle a product CHARGE. */
+function cashfreeSoleNonAuthCaptured(captured: Record<string, unknown>[]): Record<string, unknown> | undefined {
+  const charges = captured.filter((row) => !cashfreeIsAuthPayment(row));
+  return charges.length === 1 ? charges[0] : undefined;
+}
+
+function cashfreeIsAuthPayment(row: Record<string, unknown>): boolean {
+  return String(row['payment_type'] ?? '').trim().toUpperCase() === 'AUTH';
 }
 
 function cashfreePaymentSnapshot(payment: Record<string, unknown>): GatewayChargeSnapshot {

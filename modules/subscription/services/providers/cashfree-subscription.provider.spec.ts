@@ -95,11 +95,18 @@ describe('CashfreeSubscriptionProvider payment status', () => {
     ).resolves.toMatchObject({ state: 'captured', amount: '2.00', currency: 'INR' });
   });
 
-  it('does not choose an older payment when the renewal has no payment id', async () => {
+  it('does not choose an older AUTH payment when the renewal has no payment id', async () => {
     jest.spyOn(global, 'fetch').mockResolvedValueOnce(
       jsonResponse({
         payments: [
-          { payment_id: 'auth_pay', cf_payment_id: 'cf_auth', payment_status: 'SUCCESS', payment_amount: 2, payment_currency: 'INR' },
+          {
+            payment_id: 'auth_pay',
+            cf_payment_id: 'cf_auth',
+            payment_status: 'SUCCESS',
+            payment_amount: 2,
+            payment_currency: 'INR',
+            payment_type: 'AUTH',
+          },
         ],
       }) as never,
     );
@@ -107,6 +114,94 @@ describe('CashfreeSubscriptionProvider payment status', () => {
     await expect(
       provider.fetchChargeStatus({ gatewaySubscriptionId: 'sub_1' }),
     ).resolves.toMatchObject({ state: 'unknown' });
+  });
+
+  it('falls back to the sole captured CHARGE when stored payment ids do not match Cashfree', async () => {
+    jest.spyOn(global, 'fetch').mockResolvedValueOnce(
+      jsonResponse({
+        payments: [
+          {
+            payment_id: 'CH_real',
+            cf_payment_id: '999',
+            payment_status: 'SUCCESS',
+            payment_amount: 2,
+            payment_currency: 'INR',
+            payment_type: 'CHARGE',
+          },
+        ],
+      }) as never,
+    );
+
+    await expect(
+      provider.fetchChargeStatus({
+        gatewaySubscriptionId: 'sub_1',
+        gatewayOrderId: 'sub:cycle:1:autopay',
+        gatewayPaymentId: 'stale-local-id',
+      }),
+    ).resolves.toMatchObject({
+      state: 'captured',
+      amount: '2.00',
+      currency: 'INR',
+      gatewayOrderId: 'CH_real',
+      gatewayPaymentId: '999',
+    });
+  });
+
+  it('does not settle against AUTH when stored ids miss and only AUTH is captured', async () => {
+    jest.spyOn(global, 'fetch').mockResolvedValueOnce(
+      jsonResponse({
+        payments: [
+          {
+            payment_id: 'CH_auth',
+            cf_payment_id: '1',
+            payment_status: 'SUCCESS',
+            payment_amount: 2,
+            payment_currency: 'INR',
+            payment_type: 'AUTH',
+          },
+        ],
+      }) as never,
+    );
+
+    await expect(
+      provider.fetchChargeStatus({
+        gatewaySubscriptionId: 'sub_1',
+        gatewayOrderId: 'wrong-id',
+      }),
+    ).resolves.toMatchObject({ state: 'unknown' });
+  });
+
+  it('picks the sole CHARGE when AUTH and CHARGE are both captured and local ids are missing', async () => {
+    jest.spyOn(global, 'fetch').mockResolvedValueOnce(
+      jsonResponse({
+        payments: [
+          {
+            payment_id: 'auth_pay',
+            cf_payment_id: 'cf_auth',
+            payment_status: 'SUCCESS',
+            payment_amount: 2,
+            payment_currency: 'INR',
+            payment_type: 'AUTH',
+          },
+          {
+            payment_id: 'CH_charge',
+            cf_payment_id: 'cf_charge',
+            payment_status: 'SUCCESS',
+            payment_amount: 2,
+            payment_currency: 'INR',
+            payment_type: 'CHARGE',
+          },
+        ],
+      }) as never,
+    );
+
+    await expect(
+      provider.fetchChargeStatus({ gatewaySubscriptionId: 'sub_1' }),
+    ).resolves.toMatchObject({
+      state: 'captured',
+      gatewayOrderId: 'CH_charge',
+      gatewayPaymentId: 'cf_charge',
+    });
   });
 
   it('omits currency when Cashfree does not send payment_currency', async () => {
