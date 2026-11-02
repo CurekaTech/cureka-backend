@@ -229,23 +229,32 @@ export class BulkReturnUpdateProcessor extends WorkerHost {
       }
     }
 
-    const successfulRows = summary.variantsUpdated + summary.productReturnRecordsUpdated;
+    // Count unique spreadsheet rows, not DB write ops. Updating both the product
+    // and a variant for one SKU must not inflate Successful past totalRows, and
+    // duplicate error entries for the same row must not inflate Failed.
+    const failedRowNumbers = new Set(
+      errors
+        .map((error) => error.rowNumber)
+        .filter((rowNumber) => Number.isFinite(rowNumber) && rowNumber > 0),
+    );
+    const failedRows = failedRowNumbers.size;
+    const successfulRows = Math.max(0, totalRows - failedRows);
     let status = BulkUploadStatus.COMPLETED;
-    if (successfulRows === 0 && errors.length > 0) status = BulkUploadStatus.FAILED;
-    else if (errors.length > 0) status = BulkUploadStatus.PARTIAL_SUCCESS;
+    if (successfulRows === 0 && failedRows > 0) status = BulkUploadStatus.FAILED;
+    else if (failedRows > 0) status = BulkUploadStatus.PARTIAL_SUCCESS;
 
     await this.repository.updateFieldsByRefId(uploadRefId, {
       status,
       totalRows,
       processedRows: totalRows,
       successfulRows,
-      failedRows: errors.length,
+      failedRows,
       errorFileUrl,
       errorSummary: [summary, ...errors.slice(0, 1000)],
       completedAt: new Date(),
     });
     this.logger.log(
-      `[BULK_RETURN_UPDATE] Finished ${uploadRefId} status=${status} writes=${successfulRows} fail=${errors.length}`,
+      `[BULK_RETURN_UPDATE] Finished ${uploadRefId} status=${status} ok=${successfulRows} fail=${failedRows} writes=${summary.variantsUpdated + summary.productReturnRecordsUpdated} errorEntries=${errors.length}`,
     );
   }
 

@@ -26,18 +26,24 @@ export class PublicHomepageCacheListener {
 
   @OnEvent(EVENTS.CATEGORY_UPDATED)
   async onCategoryUpdated(_event: CategoryUpdatedEvent): Promise<void> {
+    // Invalidate Redis first, then drop process L1. Clearing L1 before Redis
+    // lets a concurrent request refill L1 from the stale header tree for ~60s —
+    // which looked like "Add to Header" needing a reorder to take effect.
+    await this.cacheStrategy.invalidateOnly({
+      patterns: [
+        CacheKeys.homepage.categoryHeaderPattern(),
+        CacheKeys.homepage.footerNavPattern(),
+      ],
+    });
     this.homepageService.invalidateHeaderTreeLocalCache();
     this.homepageService.invalidateFooterNavLocalCache();
-    await this.cacheStrategy.invalidateOnly({
-      patterns: [CacheKeys.homepage.footerNavPattern()],
-    });
   }
 
   @OnEvent(EVENTS.BRAND_UPDATED)
   async onBrandUpdated(_event: BrandUpdatedEvent): Promise<void> {
-    this.homepageService.invalidateFooterNavLocalCache();
     await this.cacheStrategy.invalidateOnly({
       patterns: [CacheKeys.homepage.footerNavPattern()],
     });
+    this.homepageService.invalidateFooterNavLocalCache();
   }
 }

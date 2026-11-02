@@ -499,7 +499,11 @@ export const buildAvailableActions = (entity: ReturnRequestEntity): IReturnAvail
   return [
     {
       action: 'review',
-      allowed: status === ReturnStatus.REQUESTED || status === ReturnStatus.UNDER_REVIEW,
+      // Only before review has started (or after more info was requested).
+      // UNDER_REVIEW must not re-enable Start Review — self-transition is illegal.
+      allowed:
+        status === ReturnStatus.REQUESTED ||
+        status === ReturnStatus.ADDITIONAL_INFORMATION_REQUIRED,
       requiredPermission: RETURN_PERMISSIONS.UPDATE,
     },
     { action: 'approve', allowed: inReview, requiredPermission: RETURN_PERMISSIONS.APPROVE },

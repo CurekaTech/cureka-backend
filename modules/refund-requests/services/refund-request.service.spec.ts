@@ -175,6 +175,11 @@ describe('RefundRequestsService workflow', () => {
     expect(created.status).toBe(RefundRequestStatus.REQUESTED);
     expect(created.requestedAmount).toBe('150.00');
     expect(created.returnRequestId).toBe('ret-1');
+    expect(amountService.calculateRefundableAmount).toHaveBeenCalledWith(
+      expect.anything(),
+      undefined,
+      { includeCodCollected: true },
+    );
     // Approval stays with the admin: creating the refund never touches a provider.
     expect(processor.initiate).not.toHaveBeenCalled();
   });
@@ -281,6 +286,11 @@ describe('RefundRequestsService workflow', () => {
 
     await service.approve('rr-approve', { comment: 'ok' }, actor);
 
+    expect(amountService.calculateRefundableAmount).toHaveBeenCalledWith(
+      expect.anything(),
+      'rr-approve',
+      { includeCodCollected: true },
+    );
     expect(refundRequestsRepository.updateById).toHaveBeenCalledWith(
       'rr-approve',
       expect.objectContaining({

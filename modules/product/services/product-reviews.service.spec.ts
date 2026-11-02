@@ -42,12 +42,35 @@ function createService(options?: {
   orderLocation?: { city: string; state: string } | null;
   defaultAddress?: { city: string; state: string } | null;
 }) {
+  const existingReview =
+    options?.alreadyReviewed === true
+      ? review({
+          refId: 'EXISTING',
+          userId: 'user-1',
+          productId: 'p1',
+          variantId: 'v1',
+          rating: 4,
+          review: 'Prior',
+          reviewDescription: 'Prior details',
+          status: ProductReviewStatus.APPROVED,
+        })
+      : null;
   const reviewsRepository = {
     findApprovedByProductId: jest.fn(async () => options?.productReviews ?? []),
     findApprovedByVariantId: jest.fn(async () => options?.variantReviews ?? []),
     create: jest.fn(async (data: Partial<ProductReviewEntity>) => data),
     existsByRefId: jest.fn(async () => false),
     existsByUserIdAndVariantId: jest.fn(async () => options?.alreadyReviewed === true),
+    existsByUserIdAndProductId: jest.fn(async () => options?.alreadyReviewed === true),
+    findByUserIdAndProductId: jest.fn(async () => existingReview),
+    findByRefId: jest.fn(async (refId: string) =>
+      existingReview && existingReview.refId === refId ? existingReview : null,
+    ),
+    updateByRefId: jest.fn(async (_refId: string, data: Partial<ProductReviewEntity>) => ({
+      ...existingReview,
+      ...data,
+      productRefId: 'PR1',
+    })),
   };
   const ordersService = {
     userHasOrderedProduct: jest.fn(async () => options?.ordered !== false),
@@ -324,7 +347,7 @@ describe('ProductReviewsService variant reviews', () => {
     );
   });
 
-  it('rejects a second review for the same user and variant', async () => {
+  it('rejects a second review for the same user and product', async () => {
     const { service } = createService({
       variantsById: { v1: variant },
       alreadyReviewed: true,
@@ -344,32 +367,89 @@ describe('ProductReviewsService variant reviews', () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('can-review is false after any prior review for that variant and true for a sibling', async () => {
+  it('can-review is false with existingReview after any prior review for that product', async () => {
     const sibling = { id: 'v2', productId: 'p1', sku: 'SKU-2' };
-    const { service, reviewsRepository } = createService({
+    const { service } = createService({
       variantsById: { v1: variant, v2: sibling },
       alreadyReviewed: true,
     });
 
     await expect(
       service.canReviewForProductSlug('serum', shopper, { variantId: 'v1' }),
-    ).resolves.toEqual({ canReview: false });
+    ).resolves.toEqual({
+      canReview: false,
+      existingReview: expect.objectContaining({ refId: 'EXISTING', rating: 4 }),
+    });
 
-    reviewsRepository.existsByUserIdAndVariantId.mockResolvedValueOnce(false);
     await expect(
       service.canReviewForProductSlug('serum', shopper, { variantId: 'v2' }),
-    ).resolves.toEqual({ canReview: true });
+    ).resolves.toEqual({
+      canReview: false,
+      existingReview: expect.objectContaining({ refId: 'EXISTING' }),
+    });
   });
 
-  it('can-review is false when the variant was not ordered', async () => {
+  it('can-review is false when the product was not ordered', async () => {
     const { service } = createService({
       variantsById: { v1: variant },
-      orderedVariant: false,
+      ordered: false,
     });
 
     await expect(
       service.canReviewForProductSlug('serum', shopper, { variantId: 'v1' }),
-    ).resolves.toEqual({ canReview: false });
+    ).resolves.toEqual({ canReview: false, existingReview: null });
+  });
+
+  it('lets the owner update their existing review and resets status to pending', async () => {
+    const { service, reviewsRepository } = createService({
+      variantsById: { v1: variant },
+      alreadyReviewed: true,
+    });
+
+    const updated = await service.updateMyReviewForProductSlug(
+      'serum',
+      'EXISTING',
+      {
+        rating: 5,
+        review: 'Updated title',
+        reviewDescription: 'Updated details',
+        variantId: 'v1',
+      },
+      shopper,
+    );
+
+    expect(reviewsRepository.updateByRefId).toHaveBeenCalledWith(
+      'EXISTING',
+      expect.objectContaining({
+        rating: 5,
+        review: 'Updated title',
+        reviewDescription: 'Updated details',
+        status: ProductReviewStatus.PENDING,
+        moderatedBy: null,
+        moderatedAt: null,
+      }),
+    );
+    expect(updated.rating).toBe(5);
+  });
+
+  it('forbids editing another customer’s review', async () => {
+    const { service, reviewsRepository } = createService({ alreadyReviewed: true });
+    reviewsRepository.findByRefId.mockResolvedValueOnce(
+      review({
+        refId: 'EXISTING',
+        userId: 'someone-else',
+        productId: 'p1',
+      }),
+    );
+
+    await expect(
+      service.updateMyReviewForProductSlug(
+        'serum',
+        'EXISTING',
+        { rating: 3, review: 'Nope', reviewDescription: 'Not mine' },
+        shopper,
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 });
 
@@ -405,5 +485,23 @@ describe('user-variant unique migration', () => {
     expect(source).toContain('"user_id" IS NOT NULL');
     expect(source).toContain('"variant_id" IS NOT NULL');
     expect(source).toContain('"deleted_at" IS NULL');
+  });
+});
+
+describe('user-product unique migration', () => {
+  it('replaces variant uniqueness with a partial unique index on user_id and product_id', () => {
+    const source = readFileSync(
+      join(
+        __dirname,
+        '../../../apps/api/database/migrations/1786028000000-product-reviews-one-per-user-product.ts',
+      ),
+      'utf8',
+    );
+    expect(source).toContain('DROP INDEX IF EXISTS "UQ_product_reviews_user_variant_active"');
+    expect(source).toContain('UQ_product_reviews_user_product_active');
+    expect(source).toContain('"user_id" IS NOT NULL');
+    expect(source).toContain('"product_id"');
+    expect(source).toContain('"deleted_at" IS NULL');
+    expect(source).toContain('PARTITION BY user_id, product_id');
   });
 });

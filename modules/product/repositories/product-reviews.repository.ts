@@ -40,6 +40,22 @@ export class ProductReviewsRepository {
     });
   }
 
+  async existsByUserIdAndProductId(userId: string, productId: string): Promise<boolean> {
+    return this.repo.exists({
+      where: { userId, productId },
+    });
+  }
+
+  async findByUserIdAndProductId(
+    userId: string,
+    productId: string,
+  ): Promise<ProductReviewEntity | null> {
+    return this.repo.findOne({
+      where: { userId, productId },
+      order: { updatedAt: 'DESC' },
+    });
+  }
+
   async updateByRefId(
     refId: string,
     data: Partial<ProductReviewEntity>,

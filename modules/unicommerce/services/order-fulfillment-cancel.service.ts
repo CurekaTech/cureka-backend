@@ -380,11 +380,16 @@ export class OrderFulfillmentCancelService {
     }
 
     if (!shipment.awbNumber) {
+      // No courier booking yet — mark local row cancelled so My Orders delivery
+      // status reflects the cancel without calling Shipway /api/cancel.
+      shipment.shipmentStatus = ShipmentStatus.CANCELLED;
+      shipment.updatedBy = 'order-cancel';
+      await this.shipmentsRepository.save(shipment);
       return {
         status: CancellationSyncStatus.NOT_REQUIRED,
         retriable: false,
         message:
-          'Shipway shipment exists without an AWB. POST /api/cancel requires awb_number; tracking-record deletion is not courier cancellation.',
+          'Shipway shipment exists without an AWB. Local shipment marked cancelled; courier /api/cancel not required.',
         eventType: OrderFulfillmentEventType.SHIPWAY_CANCEL_SKIPPED,
       };
     }
