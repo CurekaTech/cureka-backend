@@ -77,3 +77,61 @@ export function resolveAdminDatePreset(
     end: endOfIstDay(today),
   };
 }
+
+/** Parse `YYYY-MM-DD` (or date-only ISO prefix) as an Asia/Kolkata calendar day. */
+export function parseAdminCalendarDate(
+  value: string | undefined,
+): IstDateParts | null {
+  if (!value?.trim()) return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value.trim());
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(day) ||
+    month < 0 ||
+    month > 11 ||
+    day < 1 ||
+    day > 31
+  ) {
+    return null;
+  }
+  return { year, month, day };
+}
+
+/**
+ * Inclusive Asia/Kolkata window for custom start/end date strings.
+ * Same-day ranges cover the full calendar day (not a single UTC midnight).
+ */
+export function resolveAdminCustomDateRange(
+  startDate: string | undefined,
+  endDate: string | undefined,
+  now: Date = new Date(),
+): AdminDateRange {
+  const today = istDateParts(now);
+  let startParts = parseAdminCalendarDate(startDate);
+  let endParts = parseAdminCalendarDate(endDate);
+
+  if (!startParts && !endParts) {
+    return {
+      start: startOfIstDay({ year: today.year, month: today.month, day: 1 }),
+      end: endOfIstDay(today),
+    };
+  }
+
+  if (!endParts) endParts = today;
+  if (!startParts) {
+    startParts = { year: endParts.year, month: endParts.month, day: 1 };
+  }
+
+  let start = startOfIstDay(startParts);
+  let end = endOfIstDay(endParts);
+  if (start.getTime() > end.getTime()) {
+    start = startOfIstDay(endParts);
+    end = endOfIstDay(startParts);
+  }
+  return { start, end };
+}

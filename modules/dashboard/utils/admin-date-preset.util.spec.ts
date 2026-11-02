@@ -1,4 +1,7 @@
-import { resolveAdminDatePreset } from './admin-date-preset.util';
+import {
+  resolveAdminCustomDateRange,
+  resolveAdminDatePreset,
+} from './admin-date-preset.util';
 
 describe('resolveAdminDatePreset', () => {
   const now = new Date('2026-10-01T05:28:00.000Z');
@@ -35,5 +38,27 @@ describe('resolveAdminDatePreset', () => {
 
   it('returns null when the preset is omitted', () => {
     expect(resolveAdminDatePreset(undefined, now)).toBeNull();
+  });
+});
+
+describe('resolveAdminCustomDateRange', () => {
+  const now = new Date('2026-11-02T05:28:00.000Z');
+
+  it('covers a full Asia/Kolkata day when start and end are the same date', () => {
+    const range = resolveAdminCustomDateRange('2026-10-31', '2026-10-31', now);
+    expect(range.start.toISOString()).toBe('2026-10-30T18:30:00.000Z');
+    expect(range.end.toISOString()).toBe('2026-10-31T18:29:59.999Z');
+  });
+
+  it('uses inclusive Asia/Kolkata bounds across a multi-day custom range', () => {
+    const range = resolveAdminCustomDateRange('2026-10-01', '2026-10-07', now);
+    expect(range.start.toISOString()).toBe('2026-09-30T18:30:00.000Z');
+    expect(range.end.toISOString()).toBe('2026-10-07T18:29:59.999Z');
+  });
+
+  it('swaps inverted custom dates', () => {
+    const range = resolveAdminCustomDateRange('2026-10-07', '2026-10-01', now);
+    expect(range.start.toISOString()).toBe('2026-09-30T18:30:00.000Z');
+    expect(range.end.toISOString()).toBe('2026-10-07T18:29:59.999Z');
   });
 });
