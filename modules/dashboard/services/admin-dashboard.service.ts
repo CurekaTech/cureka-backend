@@ -42,7 +42,10 @@ import {
   startOfDay,
   toNumber,
 } from '../utils/dashboard-format.util';
-import { resolveAdminDatePreset } from '../utils/admin-date-preset.util';
+import {
+  resolveAdminCustomDateRange,
+  resolveAdminDatePreset,
+} from '../utils/admin-date-preset.util';
 
 type DateRange = { start: Date; end: Date };
 
@@ -995,11 +998,7 @@ export class AdminDashboardService {
     const preset = resolveAdminDatePreset(query.datePreset);
     if (preset) return preset;
 
-    const end = query.endDate ? new Date(query.endDate) : endOfDay(new Date());
-    const start = query.startDate
-      ? new Date(query.startDate)
-      : startOfDay(new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), 1)));
-    return { start, end };
+    return resolveAdminCustomDateRange(query.startDate, query.endDate);
   }
 
   private baseOrdersQb(
