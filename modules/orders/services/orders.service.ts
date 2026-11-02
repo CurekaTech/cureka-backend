@@ -1395,7 +1395,10 @@ export class OrdersService {
     if (!order) {
       paymentRequest = await this.findPaymentRequestForAdminOrder(idOrRefId);
       if (paymentRequest) {
-        order = await this.ordersRepository.findLinkedToPaymentRequestRef(paymentRequest.refId);
+        order = await this.ordersRepository.findLinkedToPaymentRequest({
+          paymentRequestId: paymentRequest.id,
+          paymentRequestRefId: paymentRequest.refId,
+        });
       }
     }
 
@@ -1901,6 +1904,28 @@ export class OrdersService {
     const { orderId, reason, updatedBy, ownerUserId, actorType } = params;
     let enqueueJob = false;
     let confirmedImmediately = false;
+    const stockAffectedProductIds = new Set<string>();
+
+    // COD (and wallet) orders are CONFIRMED on create and may already have a
+    // UniCommerce push queued. Drop a not-yet-started push first so we can
+    // confirm locally when nothing has been exported (no AWB / no completed push).
+    const existingShipment = await this.shipmentsRepository.findByOrderId(orderId);
+    if (isShipmentDispatched(existingShipment?.shipmentStatus)) {
+      throw new BadRequestException(
+        'This order has already been dispatched and cannot be cancelled. Contact support for interception or RTO.',
+      );
+    }
+    const hasAwb = Boolean(existingShipment?.awbNumber);
+    let pushMayHaveExported = hasAwb;
+    let pushCancelResult: { removed: boolean; state: string } = {
+      removed: false,
+      state: 'skipped',
+    };
+    if (!hasAwb) {
+      pushCancelResult = await this.unicommerceOrderQueueService.cancelPendingPush(orderId);
+      pushMayHaveExported =
+        pushCancelResult.state === 'active' || pushCancelResult.state === 'completed';
+    }
 
     await this.dataSource.transaction(async (manager) => {
       const qb = manager
@@ -1940,10 +1965,31 @@ export class OrdersService {
         );
       }
 
-      const neverExported = locked.orderStatus === OrderStatus.PENDING;
+      // Immediate confirm when nothing was exported yet (covers COD CONFIRMED
+      // with a waiting/missing UniCommerce push — previously only PENDING).
+      const neverExported = !Boolean(shipment?.awbNumber) && !pushMayHaveExported;
       const now = new Date();
 
       if (neverExported) {
+        if (
+          locked.orderStatus === OrderStatus.CONFIRMED ||
+          locked.orderStatus === OrderStatus.PROCESSING
+        ) {
+          const items = await manager.getRepository(OrderItemEntity).find({ where: { orderId } });
+          for (const item of items) {
+            const variant = await manager.getRepository(ProductVariantEntity).findOne({
+              where: { id: item.variantId },
+              select: ['id', 'productId', 'inCurekaInventory'],
+            });
+            if (!variant || !isCurekaInventoryManaged(variant)) continue;
+            await applyStockDeltaInManager(manager, item.variantId, item.quantity, {
+              requireVariant: false,
+            });
+            stockAffectedProductIds.add(variant.productId);
+          }
+          await manager.getRepository(CouponUsageEntity).delete({ orderId });
+        }
+
         await this.ordersRepository.updateById(
           orderId,
           {
@@ -1961,6 +2007,11 @@ export class OrdersService {
           },
           manager,
         );
+        if (shipment && shipment.shipmentStatus !== ShipmentStatus.CANCELLED) {
+          shipment.shipmentStatus = ShipmentStatus.CANCELLED;
+          shipment.updatedBy = updatedBy;
+          await this.shipmentsRepository.save(shipment, manager);
+        }
         confirmedImmediately = true;
       } else {
         await this.ordersRepository.updateById(
@@ -1981,6 +2032,10 @@ export class OrdersService {
         enqueueJob = true;
       }
     });
+
+    if (confirmedImmediately && stockAffectedProductIds.size > 0) {
+      await this.emitProductsUpdatedAfterStockChange(stockAffectedProductIds);
+    }
 
     await this.fulfillmentEventsRepository.create({
       orderId,
@@ -2007,18 +2062,16 @@ export class OrdersService {
         message: 'Order was never exported; future Unicommerce/Shipway push is blocked',
         isCustomerVisible: true,
       });
-      await this.unicommerceOrderQueueService.cancelPendingPush(orderId);
       return { confirmedImmediately: true };
     }
 
-    const pushState = await this.unicommerceOrderQueueService.cancelPendingPush(orderId);
     await this.fulfillmentEventsRepository.create({
       orderId,
       requestType: OrderFulfillmentRequestType.CANCELLATION,
       eventType: OrderFulfillmentEventType.EXPORT_BLOCKED,
       actorId: updatedBy,
       actorType,
-      message: `Pending Unicommerce push job state=${pushState.state} removed=${pushState.removed}`,
+      message: `Pending Unicommerce push job state=${pushCancelResult.state} removed=${pushCancelResult.removed}`,
     });
 
     if (enqueueJob) {

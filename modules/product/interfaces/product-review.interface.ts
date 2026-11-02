@@ -58,3 +58,20 @@ export interface IPublicProductReviewsResponse {
   /** Set only when `scope` is `variant`. */
   variantId: string | null;
 }
+
+/** Signed-in shopper's existing review for a product (any status). */
+export interface IMyProductReviewSnapshot {
+  refId: string;
+  rating: number;
+  review: string | null;
+  reviewDescription: string | null;
+  status: ProductReviewStatus;
+  variantId: string | null;
+}
+
+export interface IProductReviewEligibility {
+  /** True when the shopper may create a new review (ordered + none yet). */
+  canReview: boolean;
+  /** Present when this shopper already has a review for the product. */
+  existingReview: IMyProductReviewSnapshot | null;
+}

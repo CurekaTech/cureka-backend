@@ -56,6 +56,34 @@ export class UpdateProductReviewStatusDto {
   status!: ProductReviewStatus;
 }
 
+/** Customer edit of their own review (rating / title / description). */
+export class UpdateMyProductReviewDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  rating!: number;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(2000)
+  review!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(5000)
+  reviewDescription!: string;
+
+  @IsOptional()
+  @IsUUID()
+  variantId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  variantSlug?: string;
+}
+
 export class ProductReviewQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsEnum(ProductReviewStatus)

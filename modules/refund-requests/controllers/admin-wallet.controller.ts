@@ -10,9 +10,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { IsEnum } from 'class-validator';
+import { IsIn, IsInt, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
-import { IsInt, Max, Min } from 'class-validator';
 import { CurrentAdminUser, IAdminJwtPayload, JwtAuthGuard, Roles, RolesGuard } from '@packages/auth';
 import { ResponseMessage } from '@packages/common';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
@@ -22,9 +21,15 @@ import { PaymentRequestsService } from '@modules/payment-requests/services/payme
 import { RefundWalletAccountStatus } from '../enums/refund-wallet-account-status.enum';
 import { RefundWalletService } from '../services/refund-wallet.service';
 
+/** Admin may only enable or disable; Freeze is no longer offered. */
+const WALLET_ADMIN_STATUS_VALUES = [
+  RefundWalletAccountStatus.ACTIVE,
+  RefundWalletAccountStatus.DISABLED,
+] as const;
+
 class UpdateWalletStatusDto {
-  @IsEnum(RefundWalletAccountStatus)
-  status!: RefundWalletAccountStatus;
+  @IsIn(WALLET_ADMIN_STATUS_VALUES)
+  status!: (typeof WALLET_ADMIN_STATUS_VALUES)[number];
 }
 
 class WalletPageQueryDto {

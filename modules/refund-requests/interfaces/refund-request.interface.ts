@@ -124,6 +124,10 @@ export interface IRefundRequestDetail extends IRefundRequestListItem {
   codPayout: ICodPayoutAdminView | null;
   history: IRefundRequestHistoryItem[];
   availableActions: IRefundAvailableAction[];
+  /** Live order status (not snapshotted on the refund row). */
+  orderStatus?: string | null;
+  /** Live order payment status (PAID / PENDING / …). */
+  orderPaymentStatus?: string | null;
 }
 
 export interface ICustomerRefundView {

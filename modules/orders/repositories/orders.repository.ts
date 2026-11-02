@@ -204,7 +204,35 @@ export class OrdersRepository {
     });
   }
 
-  /** Real order created from a payment request (paid or failed), linked via notes. */
+  /**
+   * Real order created from a payment request (paid or failed).
+   * Prefer the FK `payment_request_id`; fall back to the legacy notes marker.
+   */
+  async findLinkedToPaymentRequest(params: {
+    paymentRequestId: string;
+    paymentRequestRefId: string;
+  }): Promise<OrderEntity | null> {
+    const relations = {
+      user: true,
+      items: { product: { media: true }, variant: true },
+    } as const;
+    const orderOpts = { createdAt: 'DESC' as const, items: { createdAt: 'ASC' as const } };
+
+    const byFk = await this.repo.findOne({
+      where: { paymentRequestId: params.paymentRequestId },
+      relations,
+      order: orderOpts,
+    });
+    if (byFk) return byFk;
+
+    return this.repo.findOne({
+      where: { notes: ILike(`%payment request ${params.paymentRequestRefId}%`) },
+      relations,
+      order: orderOpts,
+    });
+  }
+
+  /** @deprecated Prefer findLinkedToPaymentRequest — notes-only lookup. */
   findLinkedToPaymentRequestRef(paymentRequestRefId: string): Promise<OrderEntity | null> {
     return this.repo.findOne({
       where: { notes: ILike(`%payment request ${paymentRequestRefId}%`) },
@@ -522,7 +550,10 @@ export class OrdersRepository {
         `NOT EXISTS (
           SELECT 1 FROM orders linked
           WHERE linked.deleted_at IS NULL
-            AND linked.notes ILIKE ('%payment request ' || pr.ref_id || '%')
+            AND (
+              linked.payment_request_id = pr.id
+              OR linked.notes ILIKE ('%payment request ' || pr.ref_id || '%')
+            )
         )`,
       ];
 

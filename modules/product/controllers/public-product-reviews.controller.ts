@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -14,7 +15,11 @@ import { SessionCookieGuard } from '@modules/auth/guards/session-cookie.guard';
 import { VerifiedUserGuard } from '@modules/auth/guards/verified-user.guard';
 import { CurrentSessionUser } from '@modules/auth/decorators/current-session-user.decorator';
 import { IUserSessionContext } from '@modules/auth/interfaces/session.interface';
-import { CreateProductReviewDto, PublicProductReviewQueryDto } from '../dto/product-review.dto';
+import {
+  CreateProductReviewDto,
+  PublicProductReviewQueryDto,
+  UpdateMyProductReviewDto,
+} from '../dto/product-review.dto';
 import { ProductReviewsService } from '../services/product-reviews.service';
 
 @ApiTags('Public Product Reviews')
@@ -34,7 +39,7 @@ export class PublicProductReviewsController {
 
   @ApiOperation({
     summary:
-      'Whether the current user can review this product/variant (ordered it and has not already reviewed the variant)',
+      'Whether the current user can create a review for this product, or edit their existing one',
   })
   @ResponseMessage('Review eligibility retrieved successfully')
   @UseGuards(OptionalSessionCookieGuard)
@@ -57,5 +62,20 @@ export class PublicProductReviewsController {
     @CurrentSessionUser() user: IUserSessionContext,
   ) {
     return this.productReviewsService.createForProductSlug(slug, dto, user);
+  }
+
+  @ApiOperation({
+    summary: 'Edit the signed-in customer’s existing review for this product',
+  })
+  @ResponseMessage('Review updated successfully and is pending approval')
+  @UseGuards(SessionCookieGuard, VerifiedUserGuard)
+  @Patch(':slug/reviews/:refId')
+  updateMyReview(
+    @Param('slug') slug: string,
+    @Param('refId') refId: string,
+    @Body() dto: UpdateMyProductReviewDto,
+    @CurrentSessionUser() user: IUserSessionContext,
+  ) {
+    return this.productReviewsService.updateMyReviewForProductSlug(slug, refId, dto, user);
   }
 }

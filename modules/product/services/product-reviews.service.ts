@@ -26,11 +26,14 @@ import {
   CreateProductReviewDto,
   ProductReviewQueryDto,
   PublicProductReviewQueryDto,
+  UpdateMyProductReviewDto,
   UpdateProductReviewStatusDto,
 } from '../dto/product-review.dto';
 import { ProductReviewStatus } from '../enums/product-review-status.enum';
 import {
+  IMyProductReviewSnapshot,
   IProductReview,
+  IProductReviewEligibility,
   IPublicProductReviewsResponse,
   IPublicProductReviewSummary,
   PublicProductReviewScope,
@@ -104,36 +107,21 @@ export class ProductReviewsService {
     slug: string,
     user?: IUserSessionContext,
     query?: PublicProductReviewQueryDto,
-  ): Promise<{ canReview: boolean }> {
+  ): Promise<IProductReviewEligibility> {
     if (!user?.isRegistered || !user.sub) {
-      return { canReview: false };
+      return { canReview: false, existingReview: null };
     }
 
-    const { product, variant } = await this.resolvePublishedProductContext(slug, query);
+    const { product } = await this.resolvePublishedProductContext(slug, query);
+    const existing = await this.reviewsRepository.findByUserIdAndProductId(user.sub, product.id);
+    const existingReview = existing ? this.mapMyReviewSnapshot(existing) : null;
 
-    const hasOrdered = variant
-      ? await this.ordersService.userHasOrderedProductVariant(
-          user.sub,
-          product.id,
-          variant.id,
-        )
-      : await this.ordersService.userHasOrderedProduct(user.sub, product.id);
-
-    if (!hasOrdered) {
-      return { canReview: false };
+    if (existingReview) {
+      return { canReview: false, existingReview };
     }
 
-    if (variant) {
-      const alreadyReviewed = await this.reviewsRepository.existsByUserIdAndVariantId(
-        user.sub,
-        variant.id,
-      );
-      if (alreadyReviewed) {
-        return { canReview: false };
-      }
-    }
-
-    return { canReview: true };
+    const hasOrdered = await this.ordersService.userHasOrderedProduct(user.sub, product.id);
+    return { canReview: hasOrdered, existingReview: null };
   }
 
   async createForProductSlug(
@@ -147,46 +135,22 @@ export class ProductReviewsService {
 
     const { product, variant } = await this.resolvePublishedProductContext(slug, dto);
 
-    const hasOrdered = variant
-      ? await this.ordersService.userHasOrderedProductVariant(
-          user.sub,
-          product.id,
-          variant.id,
-        )
-      : await this.ordersService.userHasOrderedProduct(user.sub, product.id);
-
+    const hasOrdered = await this.ordersService.userHasOrderedProduct(user.sub, product.id);
     if (!hasOrdered) {
-      throw new ForbiddenException(
-        variant
-          ? 'Only customers who ordered this variant can submit a review'
-          : 'Only customers who ordered this product can submit a review',
+      throw new ForbiddenException('Only customers who ordered this product can submit a review');
+    }
+
+    const alreadyReviewed = await this.reviewsRepository.existsByUserIdAndProductId(
+      user.sub,
+      product.id,
+    );
+    if (alreadyReviewed) {
+      throw new ConflictException(
+        'You have already submitted a review for this product. Edit your existing review instead.',
       );
     }
 
-    if (variant) {
-      const alreadyReviewed = await this.reviewsRepository.existsByUserIdAndVariantId(
-        user.sub,
-        variant.id,
-      );
-      if (alreadyReviewed) {
-        throw new ConflictException('You have already submitted a review for this variant');
-      }
-    }
-
-    const rating = Number(dto.rating);
-    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
-      throw new BadRequestException('Rating must be an integer between 1 and 5');
-    }
-
-    const reviewText = dto.review?.trim();
-    if (!reviewText) {
-      throw new BadRequestException('Review title is required');
-    }
-
-    const reviewDescription = dto.reviewDescription?.trim();
-    if (!reviewDescription) {
-      throw new BadRequestException('Review description is required');
-    }
+    const { rating, reviewText, reviewDescription } = this.parseReviewContent(dto);
 
     const customer = await this.usersRepository.findById(user.sub);
     const customerName =
@@ -229,13 +193,73 @@ export class ProductReviewsService {
         updatedBy: actor,
       });
     } catch (error) {
-      if (this.isUniqueUserVariantViolation(error)) {
-        throw new ConflictException('You have already submitted a review for this variant');
+      if (this.isUniqueUserProductViolation(error)) {
+        throw new ConflictException(
+          'You have already submitted a review for this product. Edit your existing review instead.',
+        );
       }
       throw error;
     }
 
     return mapProductReviewEntityToAdmin(entity, {
+      productName: product.name,
+      productImage: null,
+    });
+  }
+
+  async updateMyReviewForProductSlug(
+    slug: string,
+    refId: string,
+    dto: UpdateMyProductReviewDto,
+    user?: IUserSessionContext,
+  ): Promise<IProductReview> {
+    if (!user?.isRegistered || !user.sub) {
+      throw new ForbiddenException('Please sign in to edit your product review');
+    }
+
+    const { product, variant } = await this.resolvePublishedProductContext(slug, dto);
+    const existing = await this.reviewsRepository.findByRefId(refId);
+    if (!existing || existing.productId !== product.id) {
+      throw new NotFoundException(`Product review with refId ${refId} not found`);
+    }
+    if (existing.userId !== user.sub) {
+      throw new ForbiddenException('You can only edit your own review');
+    }
+
+    const { rating, reviewText, reviewDescription } = this.parseReviewContent(dto);
+    const actor = user.profile?.email ?? user.sub;
+    const contentChanged =
+      existing.rating !== rating ||
+      (existing.review ?? '') !== reviewText ||
+      (existing.reviewDescription ?? '') !== reviewDescription;
+
+    const updated = await this.reviewsRepository.updateByRefId(refId, {
+      rating,
+      review: reviewText,
+      reviewDescription,
+      ...(variant
+        ? { variantId: variant.id, variantSku: variant.sku }
+        : {}),
+      ...(contentChanged
+        ? {
+            status: ProductReviewStatus.PENDING,
+            moderatedBy: null,
+            moderatedAt: null,
+          }
+        : {}),
+      updatedBy: actor,
+    });
+
+    if (!updated) {
+      throw new NotFoundException(`Product review with refId ${refId} not found after update`);
+    }
+
+    await this.eventEmitter.emitAsync(
+      EVENTS.PRODUCT_UPDATED,
+      new ProductUpdatedEvent(updated.productRefId, 'updated'),
+    );
+
+    return mapProductReviewEntityToAdmin(updated, {
       productName: product.name,
       productImage: null,
     });
@@ -261,7 +285,41 @@ export class ProductReviewsService {
     });
   }
 
-  private isUniqueUserVariantViolation(error: unknown): boolean {
+  private parseReviewContent(dto: {
+    rating: number;
+    review: string;
+    reviewDescription: string;
+  }): { rating: number; reviewText: string; reviewDescription: string } {
+    const rating = Number(dto.rating);
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+      throw new BadRequestException('Rating must be an integer between 1 and 5');
+    }
+
+    const reviewText = dto.review?.trim();
+    if (!reviewText) {
+      throw new BadRequestException('Review title is required');
+    }
+
+    const reviewDescription = dto.reviewDescription?.trim();
+    if (!reviewDescription) {
+      throw new BadRequestException('Review description is required');
+    }
+
+    return { rating, reviewText, reviewDescription };
+  }
+
+  private mapMyReviewSnapshot(entity: ProductReviewEntity): IMyProductReviewSnapshot {
+    return {
+      refId: entity.refId,
+      rating: entity.rating,
+      review: entity.review,
+      reviewDescription: entity.reviewDescription ?? null,
+      status: entity.status,
+      variantId: entity.variantId ?? null,
+    };
+  }
+
+  private isUniqueUserProductViolation(error: unknown): boolean {
     const driver =
       error && typeof error === 'object' && 'driverError' in error
         ? (error as { driverError?: { code?: string; constraint?: string; message?: string } })
@@ -270,7 +328,10 @@ export class ProductReviewsService {
 
     if (driver?.code !== '23505') return false;
     const haystack = `${driver.constraint ?? ''} ${driver.message ?? ''}`;
-    return haystack.includes('UQ_product_reviews_user_variant_active');
+    return (
+      haystack.includes('UQ_product_reviews_user_product_active') ||
+      haystack.includes('UQ_product_reviews_user_variant_active')
+    );
   }
 
   async updateStatus(

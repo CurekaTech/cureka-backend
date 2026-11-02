@@ -144,6 +144,8 @@ export type AdminOrderResponse = OrderResponse & {
   paymentRequestRefId?: string;
   paymentRequestStatus?: PaymentRequestStatus;
   paymentLink?: string | null;
+  /** Gateway / tender on the payment request (`RAZORPAY` / `CASHFREE` / `COD` / …). */
+  paymentProvider?: string | null;
 };
 
 type OrderWithShipment = OrderEntity & {
@@ -554,6 +556,7 @@ export async function mapPaymentRequestToAdminOrderResponse(
     paymentRequestRefId: request.refId,
     paymentRequestStatus: request.status,
     paymentLink: request.paymentLink,
+    paymentProvider: request.paymentProvider ?? null,
   };
 }
 
@@ -567,5 +570,6 @@ export function withPaymentRequestOnAdminOrder(
     paymentRequestRefId: request.refId,
     paymentRequestStatus: request.status,
     paymentLink: request.paymentLink,
+    paymentProvider: request.paymentProvider ?? response.paymentProvider ?? null,
   };
 }

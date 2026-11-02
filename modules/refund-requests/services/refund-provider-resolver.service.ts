@@ -155,14 +155,22 @@ export class RefundProviderResolverService {
     orderMethod: OrderPaymentMethod,
   ): RefundPaymentProvider {
     const normalized = paymentProvider.trim().toUpperCase();
+    // Order tender wins over a mismatched payment-request provider (e.g. amount
+    // fallback matched another customer's PAID COD-like row).
+    if (orderMethod === OrderPaymentMethod.CASHFREE) return RefundPaymentProvider.CASHFREE;
+    if (orderMethod === OrderPaymentMethod.RAZORPAY) return RefundPaymentProvider.RAZORPAY;
+    if (orderMethod === OrderPaymentMethod.WALLET) return RefundPaymentProvider.WALLET;
+    if (
+      orderMethod === OrderPaymentMethod.GOKWIK_PREPAID ||
+      orderMethod === OrderPaymentMethod.GOKWIK_PARTIAL_COD
+    ) {
+      return RefundPaymentProvider.GOKWIK;
+    }
     if (normalized === 'GOKWIK') return RefundPaymentProvider.GOKWIK;
     if (normalized === 'RAZORPAY') return RefundPaymentProvider.RAZORPAY;
     if (normalized === 'CASHFREE') return RefundPaymentProvider.CASHFREE;
     if (normalized === 'COD') return RefundPaymentProvider.COD;
     if (normalized === 'WALLET') return RefundPaymentProvider.WALLET;
-    if (orderMethod === OrderPaymentMethod.CASHFREE) return RefundPaymentProvider.CASHFREE;
-    if (orderMethod === OrderPaymentMethod.RAZORPAY) return RefundPaymentProvider.RAZORPAY;
-    if (orderMethod === OrderPaymentMethod.WALLET) return RefundPaymentProvider.WALLET;
     return RefundPaymentProvider.OTHER;
   }
 

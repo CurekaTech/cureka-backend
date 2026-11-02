@@ -10,6 +10,7 @@ import { AuditService } from '@modules/master/services/audit.service';
 import { OrderEntity } from '@modules/orders/entities/order.entity';
 import { OrderPaymentMethod } from '@modules/orders/enums/order-payment-method.enum';
 import { parseMoney, toMoneyString } from '@modules/orders/utils/money.util';
+import { isPrepaidPaymentMethod } from '@modules/orders/utils/payment-method.util';
 import {
   buildPaginatedResult,
   buildPaginationOptions,
@@ -296,7 +297,7 @@ export class RefundRequestsService {
   ): Promise<IRefundRequestDetail> {
     const current = await this.requireRequest(idOrRefId);
     const order = await this.requireOrder(current.orderId);
-    const refundable = await this.amountService.calculateRefundableAmount(order, current.id);
+    const refundable = await this.getLiveRefundableBreakdown(order, current);
     const approvedAmount = dto.approvedAmount
       ? toMoneyString(parseMoney(dto.approvedAmount))
       : current.requestedAmount;
@@ -1063,15 +1064,46 @@ export class RefundRequestsService {
     return order;
   }
 
+  /**
+   * Return-linked refunds include COD / partial-COD collected cash in captured
+   * headroom (same as create). Cancellation / prepaid-only refunds do not.
+   */
+  private getLiveRefundableBreakdown(
+    order: OrderEntity,
+    refund: Pick<RefundRequestEntity, 'id' | 'returnRequestId'>,
+  ) {
+    return this.amountService.calculateRefundableAmount(order, refund.id, {
+      includeCodCollected: Boolean(refund.returnRequestId),
+    });
+  }
+
   private async toDetail(
     entity: RefundRequestEntity,
     _actor: RefundActor,
   ): Promise<IRefundRequestDetail> {
     const full = (await this.refundRequestsRepository.findById(entity.id)) ?? entity;
     const order = await this.requireOrder(full.orderId);
-    const refundable = await this.amountService.calculateRefundableAmount(order, full.id);
+    const refundable = await this.getLiveRefundableBreakdown(order, full);
     const payout = await this.payoutService.getByRefundRequestId(full.id);
     const detail = mapRefundRequestToDetail(full, refundable, buildAvailableActions(full.status));
+
+    // Prefer the live order tender — refund rows can snapshot COD when the
+    // order was mis-tagged or the provider resolver matched the wrong request.
+    let originalPaymentMethod = String(order.paymentMethod ?? full.originalPaymentMethod);
+    let paymentProvider = full.paymentProvider;
+    const storedLooksCod =
+      paymentProvider === RefundPaymentProvider.COD ||
+      String(full.originalPaymentMethod ?? '')
+        .trim()
+        .toUpperCase() === 'COD';
+    if (isPrepaidPaymentMethod(order.paymentMethod) && storedLooksCod) {
+      const resolution = await this.providerResolver.resolve(order);
+      originalPaymentMethod = String(
+        resolution.originalPaymentMethod || order.paymentMethod,
+      );
+      paymentProvider = resolution.paymentProvider;
+      await this.healMislabeledPrepaidRefund(full, resolution);
+    }
 
     let returnRefId: string | null = null;
     let settlementBank: IRefundRequestDetail['settlementBank'] = null;
@@ -1106,12 +1138,56 @@ export class RefundRequestsService {
 
     return {
       ...detail,
+      originalPaymentMethod,
+      paymentProvider,
+      orderStatus: String(order.orderStatus ?? ''),
+      orderPaymentStatus: String(order.paymentStatus ?? ''),
       returnRequestId: full.returnRequestId ?? null,
       returnRefId,
       settlementBank,
       amountAllocation: full.amountAllocation,
       codPayout: payout ? this.payoutService.toAdminView(payout) : null,
     };
+  }
+
+  /**
+   * Correct COD-mislabeled prepaid refunds before gateway initiate, when still
+   * in an early workflow status.
+   */
+  private async healMislabeledPrepaidRefund(
+    entity: RefundRequestEntity,
+    resolution: {
+      paymentProvider: RefundPaymentProvider;
+      originalPaymentMethod: string;
+      providerPaymentId: string | null;
+      paymentRequestId: string | null;
+    },
+  ): Promise<void> {
+    const healable: RefundRequestStatus[] = [
+      RefundRequestStatus.REQUESTED,
+      RefundRequestStatus.UNDER_REVIEW,
+      RefundRequestStatus.AWAITING_APPROVAL,
+      RefundRequestStatus.APPROVED,
+      RefundRequestStatus.FINANCE_PROCESSING,
+    ];
+    if (!healable.includes(entity.status)) {
+      return;
+    }
+    if (resolution.paymentProvider === RefundPaymentProvider.COD) {
+      return;
+    }
+
+    await this.refundRequestsRepository.updateById(entity.id, {
+      originalPaymentMethod: String(resolution.originalPaymentMethod),
+      paymentProvider: resolution.paymentProvider,
+      providerPaymentId: resolution.providerPaymentId ?? entity.providerPaymentId,
+      paymentRequestId: resolution.paymentRequestId ?? entity.paymentRequestId,
+      updatedBy: 'refund-detail-heal',
+    });
+    entity.originalPaymentMethod = String(resolution.originalPaymentMethod);
+    entity.paymentProvider = resolution.paymentProvider;
+    entity.providerPaymentId = resolution.providerPaymentId ?? entity.providerPaymentId;
+    entity.paymentRequestId = resolution.paymentRequestId ?? entity.paymentRequestId;
   }
 
   private buildAllocation(
