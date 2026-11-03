@@ -645,38 +645,39 @@ export class CreateDoctorConsultationTables1786030000000 implements MigrationInt
       )
     `);
 
-    // Seed permission codes for doctor/consultation admin modules
+    // Seed permission codes for doctor/consultation admin modules.
+    // ref_id must match REF_ID_PATTERN: 3 letters + 8/10 digits (e.g. PER2026900001).
     const permissions = [
-      ['PERDOC000001', 'View Doctors', 'doctors.read', 'doctors', 'read'],
-      ['PERDOC000002', 'Create Doctors', 'doctors.create', 'doctors', 'create'],
-      ['PERDOC000003', 'Update Doctors', 'doctors.update', 'doctors', 'update'],
-      ['PERDOC000004', 'Change Doctors Status', 'doctors.status', 'doctors', 'status'],
-      ['PERDOC000005', 'Delete Doctors', 'doctors.delete', 'doctors', 'delete'],
-      ['PERDOC000006', 'Approve Doctors', 'doctors.approve', 'doctors', 'approve'],
-      ['PERDOC000007', 'Reject Doctors', 'doctors.reject', 'doctors', 'reject'],
-      ['PERDOC000008', 'View Doctor Bank Details', 'doctors.bank.read', 'doctors', 'read'],
-      ['PERDOC000010', 'View Doctor Legal Documents', 'doctor_legal_documents.read', 'doctor_legal_documents', 'read'],
-      ['PERDOC000011', 'Create Doctor Legal Documents', 'doctor_legal_documents.create', 'doctor_legal_documents', 'create'],
-      ['PERDOC000012', 'Update Doctor Legal Documents', 'doctor_legal_documents.update', 'doctor_legal_documents', 'update'],
-      ['PERDOC000013', 'Publish Doctor Legal Documents', 'doctor_legal_documents.publish', 'doctor_legal_documents', 'update'],
-      ['PERDOC000020', 'View Doctor Specializations', 'doctor_specializations.read', 'doctor_specializations', 'read'],
-      ['PERDOC000021', 'Create Doctor Specializations', 'doctor_specializations.create', 'doctor_specializations', 'create'],
-      ['PERDOC000022', 'Update Doctor Specializations', 'doctor_specializations.update', 'doctor_specializations', 'update'],
-      ['PERDOC000023', 'Change Doctor Specializations Status', 'doctor_specializations.status', 'doctor_specializations', 'status'],
-      ['PERDOC000024', 'Delete Doctor Specializations', 'doctor_specializations.delete', 'doctor_specializations', 'delete'],
-      ['PERDOC000030', 'View Doctor Languages', 'doctor_languages.read', 'doctor_languages', 'read'],
-      ['PERDOC000031', 'Create Doctor Languages', 'doctor_languages.create', 'doctor_languages', 'create'],
-      ['PERDOC000032', 'Update Doctor Languages', 'doctor_languages.update', 'doctor_languages', 'update'],
-      ['PERDOC000033', 'Change Doctor Languages Status', 'doctor_languages.status', 'doctor_languages', 'status'],
-      ['PERDOC000034', 'Delete Doctor Languages', 'doctor_languages.delete', 'doctor_languages', 'delete'],
-      ['PERDOC000040', 'View Doctor Qualifications', 'doctor_qualifications.read', 'doctor_qualifications', 'read'],
-      ['PERDOC000041', 'Create Doctor Qualifications', 'doctor_qualifications.create', 'doctor_qualifications', 'create'],
-      ['PERDOC000042', 'Update Doctor Qualifications', 'doctor_qualifications.update', 'doctor_qualifications', 'update'],
-      ['PERDOC000043', 'Change Doctor Qualifications Status', 'doctor_qualifications.status', 'doctor_qualifications', 'status'],
-      ['PERDOC000044', 'Delete Doctor Qualifications', 'doctor_qualifications.delete', 'doctor_qualifications', 'delete'],
-      ['PERDOC000050', 'View Consultations', 'consultations.read', 'consultations', 'read'],
-      ['PERDOC000051', 'Update Consultations', 'consultations.update', 'consultations', 'update'],
-      ['PERDOC000052', 'Cancel Consultations', 'consultations.status', 'consultations', 'status'],
+      ['PER2026900001', 'View Doctors', 'doctors.read', 'doctors', 'read'],
+      ['PER2026900002', 'Create Doctors', 'doctors.create', 'doctors', 'create'],
+      ['PER2026900003', 'Update Doctors', 'doctors.update', 'doctors', 'update'],
+      ['PER2026900004', 'Change Doctors Status', 'doctors.status', 'doctors', 'status'],
+      ['PER2026900005', 'Delete Doctors', 'doctors.delete', 'doctors', 'delete'],
+      ['PER2026900006', 'Approve Doctors', 'doctors.approve', 'doctors', 'approve'],
+      ['PER2026900007', 'Reject Doctors', 'doctors.reject', 'doctors', 'reject'],
+      ['PER2026900008', 'View Doctor Bank Details', 'doctors.bank.read', 'doctors', 'read'],
+      ['PER2026900010', 'View Doctor Legal Documents', 'doctor_legal_documents.read', 'doctor_legal_documents', 'read'],
+      ['PER2026900011', 'Create Doctor Legal Documents', 'doctor_legal_documents.create', 'doctor_legal_documents', 'create'],
+      ['PER2026900012', 'Update Doctor Legal Documents', 'doctor_legal_documents.update', 'doctor_legal_documents', 'update'],
+      ['PER2026900013', 'Publish Doctor Legal Documents', 'doctor_legal_documents.publish', 'doctor_legal_documents', 'update'],
+      ['PER2026900020', 'View Doctor Specializations', 'doctor_specializations.read', 'doctor_specializations', 'read'],
+      ['PER2026900021', 'Create Doctor Specializations', 'doctor_specializations.create', 'doctor_specializations', 'create'],
+      ['PER2026900022', 'Update Doctor Specializations', 'doctor_specializations.update', 'doctor_specializations', 'update'],
+      ['PER2026900023', 'Change Doctor Specializations Status', 'doctor_specializations.status', 'doctor_specializations', 'status'],
+      ['PER2026900024', 'Delete Doctor Specializations', 'doctor_specializations.delete', 'doctor_specializations', 'delete'],
+      ['PER2026900030', 'View Doctor Languages', 'doctor_languages.read', 'doctor_languages', 'read'],
+      ['PER2026900031', 'Create Doctor Languages', 'doctor_languages.create', 'doctor_languages', 'create'],
+      ['PER2026900032', 'Update Doctor Languages', 'doctor_languages.update', 'doctor_languages', 'update'],
+      ['PER2026900033', 'Change Doctor Languages Status', 'doctor_languages.status', 'doctor_languages', 'status'],
+      ['PER2026900034', 'Delete Doctor Languages', 'doctor_languages.delete', 'doctor_languages', 'delete'],
+      ['PER2026900040', 'View Doctor Qualifications', 'doctor_qualifications.read', 'doctor_qualifications', 'read'],
+      ['PER2026900041', 'Create Doctor Qualifications', 'doctor_qualifications.create', 'doctor_qualifications', 'create'],
+      ['PER2026900042', 'Update Doctor Qualifications', 'doctor_qualifications.update', 'doctor_qualifications', 'update'],
+      ['PER2026900043', 'Change Doctor Qualifications Status', 'doctor_qualifications.status', 'doctor_qualifications', 'status'],
+      ['PER2026900044', 'Delete Doctor Qualifications', 'doctor_qualifications.delete', 'doctor_qualifications', 'delete'],
+      ['PER2026900050', 'View Consultations', 'consultations.read', 'consultations', 'read'],
+      ['PER2026900051', 'Update Consultations', 'consultations.update', 'consultations', 'update'],
+      ['PER2026900052', 'Cancel Consultations', 'consultations.status', 'consultations', 'status'],
     ] as const;
 
     for (const [refId, name, code, module, action] of permissions) {
@@ -712,20 +713,28 @@ export class CreateDoctorConsultationTables1786030000000 implements MigrationInt
         )
     `);
 
-    // Seed legal document shells + global follow-up policy
+    // Seed legal document shells + global follow-up policy (valid REF_ID_PATTERN)
     await queryRunner.query(`
       INSERT INTO "doctor_legal_documents" ("ref_id", "type", "title", "created_by")
-      VALUES
-        ('DLDTERM00000001', 'TERMS_AND_CONDITIONS', 'Doctor Terms & Conditions', 'system'),
-        ('DLDPRIV00000001', 'PRIVACY_POLICY', 'Doctor Privacy Policy', 'system')
-      ON CONFLICT DO NOTHING
+      SELECT v."ref_id", v."type"::doctor_legal_documents_type_enum, v."title", 'system'
+      FROM (VALUES
+        ('DLD2026900001', 'TERMS_AND_CONDITIONS', 'Doctor Terms & Conditions'),
+        ('DLD2026900002', 'PRIVACY_POLICY', 'Doctor Privacy Policy')
+      ) AS v("ref_id", "type", "title")
+      WHERE NOT EXISTS (
+        SELECT 1 FROM "doctor_legal_documents" d
+        WHERE d."type"::text = v."type" AND d."deleted_at" IS NULL
+      )
     `);
 
     await queryRunner.query(`
       INSERT INTO "consultation_follow_up_policies"
         ("ref_id", "is_global", "follow_up_allowed", "pricing_mode", "free_window_days", "created_by")
-      VALUES ('CFUPOL000000001', true, true, 'FREE', 7, 'system')
-      ON CONFLICT DO NOTHING
+      SELECT 'CFU2026900001', true, true, 'FREE', 7, 'system'
+      WHERE NOT EXISTS (
+        SELECT 1 FROM "consultation_follow_up_policies"
+        WHERE "is_global" = true AND "deleted_at" IS NULL
+      )
     `);
   }
 
