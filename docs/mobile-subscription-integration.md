@@ -31,7 +31,7 @@ Pricing on the PDP confirm sheet is **merchandise only**: variant selling price,
 ## 2. Rules the app must keep
 
 1. Show Subscribe only when the subscriptions module is on for the app **and** `GET /subscriptions/products/config` returns an enabled config with at least one frequency.
-2. Display only the frequencies that config returns. `BI_MONTHLY` means **every 2 months**, never twice a month. Do not hard-code test intervals (`MINUTES_2`, `MINUTES_5`, `HOURS_27`, and the other short tenures). Those appear only when the backend has test tenures enabled.
+2. Display only the frequencies that config returns. `BI_MONTHLY` means **every 2 months**, never twice a month. Do not hard-code test intervals (`MINUTES_2`, `MINUTES_5`, `HOURS_27`, `HOURS_48`, `HOURS_72`, and the other short tenures). Those appear only when the backend has test tenures enabled.
 3. Never calculate the charge on the device. Show `finalAmount` from the quote, then charge the amount the create response returns.
 4. One owned subscription per product variant. Owned means `ACTIVE`, `RENEWAL_PAYMENT_PENDING`, `PAST_DUE`, or `PAUSED`. The button becomes **Manage subscription** and opens that plan.
 5. `PENDING_PAYMENT` is not a subscription the customer owns. If the customer leaves checkout before payment, call abandon for that row. Do not abandon a Cashfree checkout that is still open.
