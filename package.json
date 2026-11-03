@@ -53,6 +53,7 @@
     "product:sku-fix": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-sku-fix.runner.ts",
     "product:sku-unique": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-sku-unique-index.runner.ts",
     "product:strip-sku-from-variant-slugs": "ts-node -r tsconfig-paths/register apps/api/database/scripts/strip-sku-from-variant-slugs.runner.ts",
+    "product:repair-live-variant-slugs": "ts-node -r tsconfig-paths/register apps/api/database/scripts/repair-live-variant-slugs.runner.ts",
     "product:return-allowed": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-return-allowed.runner.ts",
     "product:cod-blocking": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-cod-blocking.runner.ts",
     "product:cod-blocking:products": "ts-node -r tsconfig-paths/register apps/api/database/scripts/product-cod-blocking-products.runner.ts",

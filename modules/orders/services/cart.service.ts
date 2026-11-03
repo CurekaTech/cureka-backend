@@ -891,6 +891,7 @@ export class CartService {
           inStock: isAvailable && isVariantInStock(rawStock, variant),
           isAvailable,
           codAvailable: !!variant?.codAvailable,
+          estimatedDeliveryTime: variant?.estimatedDeliveryTime?.trim() || null,
           primaryImageUrl,
           productDetails: this.buildProductDetails(variant),
           categoryId: product?.categoryId ?? '',
