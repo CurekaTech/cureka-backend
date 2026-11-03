@@ -249,7 +249,7 @@ export class CreateDoctorConsultationTables1786030000000 implements MigrationInt
         "updated_by" character varying(255),
         "deleted_at" TIMESTAMPTZ,
         "doctor_id" uuid NOT NULL,
-        "pricing_type" "public"."doctor_consultation_configs_pricing_type_enum" NOT NULL DEFAULT 'PAID',
+        "pricing_type" "public"."doctor_consultation_configs_pricing_type_enum" NOT NULL DEFAULT 'FREE',
         "amount" numeric(12,2),
         "currency" character varying(3) NOT NULL DEFAULT 'INR',
         "duration_minutes" integer NOT NULL DEFAULT 30,

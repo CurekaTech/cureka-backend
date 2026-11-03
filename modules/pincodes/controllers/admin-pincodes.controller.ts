@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard, Roles, RolesGuard } from '@packages/auth';
 import { ResponseMessage } from '@packages/common';
 import { AdminUserRole } from '@modules/admin-users/enums/admin-user-role.enum';
-import { RequirePermissions } from '@modules/roles/decorators/permissions.decorator';
+import { RequireAnyPermission } from '@modules/roles/decorators/permissions.decorator';
 import { PermissionsGuard } from '@modules/roles/guards/permissions.guard';
 import { AdminPincodeSearchQueryDto } from '../dto/admin-pincode-search-query.dto';
 import { PincodesService } from '../services/pincodes.service';
@@ -22,7 +22,7 @@ export class AdminPincodesController {
       'One row per pincode. Search matches only pincode, city, and state. City is the representative district.',
   })
   @ResponseMessage('Pincodes retrieved successfully')
-  @RequirePermissions('products.read')
+  @RequireAnyPermission('products.read', 'doctors.read', 'doctors.create', 'doctors.update')
   @Get()
   search(@Query() query: AdminPincodeSearchQueryDto) {
     return this.pincodesService.searchAdmin(query);

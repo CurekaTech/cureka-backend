@@ -34,6 +34,11 @@ export type CartLineItem = {
   isAvailable: boolean;
   /** Variant-level COD eligibility (`product_variants.cod_available`). */
   codAvailable: boolean;
+  /**
+   * Variant delivery estimate text (`product_variants.estimated_delivery_time`),
+   * e.g. `2-3 Days`. Storefront converts this to calendar dates.
+   */
+  estimatedDeliveryTime?: string | null;
   primaryImageUrl: IStorageFileReferenceResponse | null;
   productDetails: CartLineItemProductDetail[];
   categoryId: string;

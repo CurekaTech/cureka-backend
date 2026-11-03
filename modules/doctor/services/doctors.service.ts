@@ -61,6 +61,9 @@ export class DoctorsService {
     if (dto.pricingType === DoctorPricingType.PAID && (dto.amount ?? 0) <= 0) {
       throw new BadRequestException('Paid consultations require a positive amount');
     }
+    if (dto.pricingType === DoctorPricingType.PAID && !dto.bankDetails) {
+      throw new BadRequestException('Bank details are required for paid consultations');
+    }
 
     const qualificationIds = await this.resolveQualificationIds(dto.qualificationRefIds);
     const specializationIds = await this.resolveSpecializationIds(dto.specializationRefIds);
@@ -99,7 +102,9 @@ export class DoctorsService {
       await this.syncMaps(manager, doctor.id, qualificationIds, specializationIds, languageIds);
       await this.syncClinics(manager, doctor.id, dto.clinics, actor);
       await this.upsertConsultationConfig(manager, doctor.id, dto, actor);
-      await this.upsertBankDetails(manager, doctor.id, dto, actor);
+      if (dto.pricingType === DoctorPricingType.PAID && dto.bankDetails) {
+        await this.upsertBankDetails(manager, doctor.id, dto, actor);
+      }
 
       return doctor.id;
     });
@@ -171,6 +176,13 @@ export class DoctorsService {
       }
       if (dto.bankDetails) {
         await this.upsertBankDetails(manager, existing.id, dto as CreateDoctorDto, actor);
+      } else if (dto.pricingType === DoctorPricingType.PAID) {
+        const hasBank = await manager.getRepository(DoctorBankDetailsEntity).exists({
+          where: { doctorId: existing.id },
+        });
+        if (!hasBank) {
+          throw new BadRequestException('Bank details are required for paid consultations');
+        }
       }
     });
 

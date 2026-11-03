@@ -19,7 +19,7 @@ export class DoctorConsultationConfigEntity extends BaseEntity {
     type: 'enum',
     enum: DoctorPricingType,
     enumName: 'doctor_consultation_configs_pricing_type_enum',
-    default: DoctorPricingType.PAID,
+    default: DoctorPricingType.FREE,
   })
   pricingType!: DoctorPricingType;
 

@@ -12,6 +12,11 @@ export class FixDoctorPermissionRefIds1786031000000 implements MigrationInterfac
   name = 'FixDoctorPermissionRefIds1786031000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`
+      ALTER TABLE "doctor_consultation_configs"
+      ALTER COLUMN "pricing_type" SET DEFAULT 'FREE'
+    `);
+
     const permissionMap: Array<[string, string]> = [
       ['PERDOC000001', 'PER2026900001'],
       ['PERDOC000002', 'PER2026900002'],
