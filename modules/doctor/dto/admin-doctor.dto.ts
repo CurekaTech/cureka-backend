@@ -13,6 +13,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { PaginationQueryDto } from '@packages/common';
@@ -144,14 +145,16 @@ export class CreateDoctorDto {
   @IsEnum(DoctorPricingType)
   pricingType!: DoctorPricingType;
 
-  @IsOptional()
+  @ValidateIf((dto: CreateDoctorDto) => dto.pricingType === DoctorPricingType.PAID)
   @IsNumber()
   @Min(0)
   amount?: number;
 
+  /** Required when pricingType is PAID; omit for FREE consultations. */
+  @ValidateIf((dto: CreateDoctorDto) => dto.pricingType === DoctorPricingType.PAID)
   @ValidateNested()
   @Type(() => DoctorBankDetailsDto)
-  bankDetails!: DoctorBankDetailsDto;
+  bankDetails?: DoctorBankDetailsDto;
 }
 
 export class UpdateDoctorDto implements Partial<CreateDoctorDto> {
@@ -217,11 +220,16 @@ export class UpdateDoctorDto implements Partial<CreateDoctorDto> {
   @IsEnum(DoctorPricingType)
   pricingType?: DoctorPricingType;
 
+  @ValidateIf(
+    (dto: UpdateDoctorDto) =>
+      dto.pricingType === DoctorPricingType.PAID || dto.amount !== undefined,
+  )
   @IsOptional()
   @IsNumber()
   @Min(0)
   amount?: number;
 
+  /** Optional; only applied when provided. Prefer when pricing is PAID. */
   @IsOptional()
   @ValidateNested()
   @Type(() => DoctorBankDetailsDto)
