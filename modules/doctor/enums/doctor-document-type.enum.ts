@@ -1,0 +1,6 @@
+export enum DoctorDocumentType {
+  CERTIFICATION = 'CERTIFICATION',
+  SUPPORTING = 'SUPPORTING',
+  IDENTITY = 'IDENTITY',
+  OTHER = 'OTHER',
+}

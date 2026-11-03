@@ -1,0 +1,4 @@
+export enum DoctorLegalDocumentType {
+  TERMS_AND_CONDITIONS = 'TERMS_AND_CONDITIONS',
+  PRIVACY_POLICY = 'PRIVACY_POLICY',
+}

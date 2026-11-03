@@ -1,0 +1,10 @@
+export enum ConsultationPaymentStatus {
+  NONE = 'NONE',
+  PENDING = 'PENDING',
+  PAID = 'PAID',
+  FAILED = 'FAILED',
+  EXPIRED = 'EXPIRED',
+  REFUND_PENDING = 'REFUND_PENDING',
+  REFUNDED = 'REFUNDED',
+  REFUND_FAILED = 'REFUND_FAILED',
+}

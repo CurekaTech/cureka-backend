@@ -258,6 +258,9 @@ export const envValidationSchema = Joi.object({
 
   /** Website + admin subscription/membership module. Default off. true only on techbv. */
   SUBSCRIPTIONS_MODULE_ENABLED: Joi.string().valid('true', 'false').default('false'),
+
+  /** Doctor + consultation module (admin Doctors menu, Doctor Panel, storefront booking). Default off. */
+  DOCTOR_CONSULTATION_MODULE_ENABLED: Joi.string().valid('true', 'false').default('false'),
   /** 30-minute, 1-hour, and 1-day tenures. Leave false outside TechBV. */
   SUBSCRIPTION_TEST_TENURES_ENABLED: Joi.string().valid('true', 'false').default('false'),
   SUBSCRIPTION_TIMEZONE: Joi.string().default('Asia/Kolkata'),

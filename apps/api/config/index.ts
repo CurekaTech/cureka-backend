@@ -7,6 +7,7 @@ export { ordersConfig } from './orders.config';
 export { returnsConfig } from './returns.config';
 export { productsConfig } from './products.config';
 export { subscriptionsConfig } from './subscriptions.config';
+export { doctorConsultationConfig } from './doctor-consultation.config';
 export { shipwayConfig } from './shipway.config';
 export { shiprocketConfig } from './shiprocket.config';
 export { gokwikConfig } from './gokwik.config';

@@ -22,6 +22,7 @@ import {
 } from '../utils/super-admin-session.util';
 import { isPromotionalOffersEnabled } from '@modules/promotional-offers/utils/promotional-offers-enabled.util';
 import { isSubscriptionsModuleEnabled } from '@modules/subscription/utils/subscriptions-module.util';
+import { isDoctorConsultationModuleEnabled } from '@modules/doctor/utils/doctor-consultation-module.util';
 import {
   expandScopedPermissionCodes,
   scopedMenuRequiredPermissions,
@@ -258,7 +259,13 @@ export class AdminAuthService {
     };
 
     const offersEnabled = isPromotionalOffersEnabled(this.configService);
-    const withModules = menuForSubscriptionsModule(isSubscriptionsModuleEnabled(this.configService));
+    const withSubscriptions = menuForSubscriptionsModule(
+      isSubscriptionsModuleEnabled(this.configService),
+    );
+    const withModules = menuForDoctorConsultationModule(
+      withSubscriptions,
+      isDoctorConsultationModuleEnabled(this.configService),
+    );
     const visible = offersEnabled
       ? withModules
       : withModules.map((item) =>
@@ -282,4 +289,9 @@ function menuForSubscriptionsModule(enabled: boolean): MenuItem[] {
       },
     ];
   });
+}
+
+function menuForDoctorConsultationModule(menu: MenuItem[], enabled: boolean): MenuItem[] {
+  if (enabled) return menu;
+  return menu.filter((item) => item.key !== 'doctors');
 }
