@@ -63,6 +63,38 @@ describe('AdminAuthService - Menu Filtering', () => {
       );
     });
 
+    it('hides the doctors module when DOCTOR_CONSULTATION_MODULE_ENABLED is false', async () => {
+      configGet.mockImplementation(
+        (key: string) => key === 'subscriptions.moduleEnabled',
+      );
+      adminUsersService.findEntityById.mockResolvedValue({
+        id: 'super-admin-id',
+        role: 'super_admin',
+        isActive: true,
+        roleRecord: null,
+      } as any);
+
+      const menu = await service.getMenuForUser('super-admin-id');
+      expect(menu.map((item) => item.key)).not.toContain('doctors');
+    });
+
+    it('includes the doctors module when DOCTOR_CONSULTATION_MODULE_ENABLED=true', async () => {
+      configGet.mockImplementation(
+        (key: string) =>
+          key === 'subscriptions.moduleEnabled' ||
+          key === 'doctorConsultation.moduleEnabled',
+      );
+      adminUsersService.findEntityById.mockResolvedValue({
+        id: 'super-admin-id',
+        role: 'super_admin',
+        isActive: true,
+        roleRecord: null,
+      } as any);
+
+      const menu = await service.getMenuForUser('super-admin-id');
+      expect(menu.map((item) => item.key)).toContain('doctors');
+    });
+
     it('includes the subscription module when SUBSCRIPTIONS_MODULE_ENABLED=true', async () => {
       configGet.mockImplementation(
         (key: string) => key === 'subscriptions.moduleEnabled',

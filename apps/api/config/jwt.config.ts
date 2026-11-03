@@ -8,4 +8,8 @@ export const jwtConfig = registerAs('jwt', () => ({
   accessExpiresIn: process.env['JWT_ACCESS_EXPIRES_IN'] ?? '15m',
   /** Long-lived refresh session (days) */
   refreshExpiresInDays: parseInt(process.env['JWT_REFRESH_EXPIRES_IN_DAYS'] ?? '90', 10),
+  /** Doctor portal access token */
+  doctorJwtExpiresIn: process.env['DOCTOR_JWT_EXPIRES_IN'] ?? '15m',
+  /** Doctor refresh session (days) */
+  doctorRefreshExpiresInDays: parseInt(process.env['DOCTOR_REFRESH_EXPIRES_IN_DAYS'] ?? '90', 10),
 }));

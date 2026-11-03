@@ -11,6 +11,7 @@ import {
   returnsConfig,
   productsConfig,
   subscriptionsConfig,
+  doctorConsultationConfig,
   shiprocketConfig,
   shipwayConfig,
   storageConfig,
@@ -58,6 +59,8 @@ import { GokwikModule } from '@modules/gokwik/gokwik.module';
 import { BobModule } from '@modules/bob/bob.module';
 import { NotificationsModule } from '@modules/notifications/notifications.module';
 import { VendorsModule } from '@modules/vendors/vendors.module';
+import { DoctorModule } from '@modules/doctor/doctor.module';
+import { ConsultationModule } from '@modules/consultation/consultation.module';
 import { DashboardModule } from '@modules/dashboard/dashboard.module';
 import { ReportsModule } from '@modules/reports/reports.module';
 import { SubscriptionModule } from '@modules/subscription/subscription.module';
@@ -84,6 +87,7 @@ import { PromotionalPagesModule } from '@modules/promotional-pages/promotional-p
         returnsConfig,
         productsConfig,
         subscriptionsConfig,
+        doctorConsultationConfig,
         shipwayConfig,
         shiprocketConfig,
         unicommerceOrderConfig,
@@ -148,6 +152,8 @@ import { PromotionalPagesModule } from '@modules/promotional-pages/promotional-p
     BobModule,
     NotificationsModule,
     VendorsModule,
+    DoctorModule,
+    ConsultationModule,
     DashboardModule,
     ReportsModule,
     SubscriptionModule,
