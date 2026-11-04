@@ -46,6 +46,7 @@ export const EVENTS = {
   ATTRIBUTE_UPDATED: 'cache.attribute.updated',
   CATEGORY_UPDATED: 'cache.category.updated',
   PRODUCT_UPDATED: 'cache.product.updated',
+  PROMOTIONAL_PAGE_UPDATED: 'cache.promotional-page.updated',
   BRAND_UPDATED: 'cache.brand.updated',
   HEALTH_CONCERN_UPDATED: 'cache.health-concern.updated',
   BANNER_UPDATED: 'cache.banner.updated',

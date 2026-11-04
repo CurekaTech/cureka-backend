@@ -72,6 +72,9 @@ export class DoctorLegalDocumentsService {
 
     await this.versionsRepo.save(
       this.versionsRepo.create({
+        refId: await generateUniqueRefId('dlv', (candidate) =>
+          this.versionsRepo.exists({ where: { refId: candidate } }),
+        ),
         documentId: document.id,
         versionNumber: 1,
         contentHtml: dto.contentHtml,
@@ -103,6 +106,9 @@ export class DoctorLegalDocumentsService {
 
     return this.versionsRepo.save(
       this.versionsRepo.create({
+        refId: await generateUniqueRefId('dlv', (candidate) =>
+          this.versionsRepo.exists({ where: { refId: candidate } }),
+        ),
         documentId: document.id,
         versionNumber,
         contentHtml: dto.contentHtml,
@@ -210,6 +216,9 @@ export class DoctorLegalDocumentsService {
 
       await this.acceptancesRepo.save(
         this.acceptancesRepo.create({
+          refId: await generateUniqueRefId('dla', (candidate) =>
+            this.acceptancesRepo.exists({ where: { refId: candidate } }),
+          ),
           doctorId,
           documentId: version.documentId,
           versionId: version.id,

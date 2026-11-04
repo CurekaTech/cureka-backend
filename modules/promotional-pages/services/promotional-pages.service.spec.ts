@@ -126,6 +126,7 @@ describe('PromotionalPagesService', () => {
       references as unknown as PromotionalPageReferenceService,
       auditService as unknown as AuditService,
       storageUrlEnricher as unknown as StorageUrlEnricher,
+      { emit: jest.fn() } as never,
     );
   });
 
