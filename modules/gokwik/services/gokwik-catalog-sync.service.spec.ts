@@ -1,9 +1,8 @@
 import { ConfigService } from '@nestjs/config';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
-import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { ProductType } from '@modules/product/enums/product-type.enum';
-import { PromotionalPageType } from '@modules/promotional-pages/enums/promotional-page-type.enum';
+import { PromotionalPageStatus } from '@modules/promotional-pages/enums/promotional-page-status.enum';
 import { PromotionalPageEntity } from '@modules/promotional-pages/entities/promotional-page.entity';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { DataSource } from 'typeorm';
@@ -39,23 +38,6 @@ const product = {
   tagMappings: [],
 };
 
-function queryBuilder(rows: { promotionType: PromotionalPageType }[]) {
-  const builder = {
-    select: jest.fn(),
-    distinct: jest.fn(),
-    where: jest.fn(),
-    andWhere: jest.fn(),
-    setParameters: jest.fn(),
-    getRawMany: jest.fn(async () => rows),
-  };
-  builder.select.mockReturnValue(builder);
-  builder.distinct.mockReturnValue(builder);
-  builder.where.mockReturnValue(builder);
-  builder.andWhere.mockReturnValue(builder);
-  builder.setParameters.mockReturnValue(builder);
-  return builder;
-}
-
 function collectionQueryBuilder() {
   const builder = {
     select: jest.fn(),
@@ -80,25 +62,28 @@ function collectionQueryBuilder() {
   return builder;
 }
 
-function createService(promotionRows: { promotionType: PromotionalPageType }[]) {
-  const promotionQuery = queryBuilder(promotionRows);
+function createService(options?: { category?: object | null; page?: object | null }) {
   const collectionQuery = collectionQueryBuilder();
+  const categoryFindOne = jest.fn(async () =>
+    options && 'category' in options
+      ? options.category
+      : {
+          id: 'category-id',
+          refId: 'CAT2026000001',
+          slug: 'skin-care',
+          name: 'Skin Care',
+          updatedAt: new Date('2026-06-01T00:00:00.000Z'),
+          deletedAt: null,
+        },
+  );
+  const pageFindOne = jest.fn(async () => options?.page ?? null);
   const dataSource = {
     getRepository: jest.fn((entity: unknown) => {
       if (entity === PromotionalPageEntity) {
-        return { createQueryBuilder: jest.fn(() => promotionQuery) };
+        return { findOne: pageFindOne };
       }
       if (entity === CategoryEntity) {
-        return {
-          findOne: jest.fn(async () => ({
-            id: 'category-id',
-            refId: 'CAT2026000001',
-            slug: 'skin-care',
-            name: 'Skin Care',
-            updatedAt: new Date('2026-06-01T00:00:00.000Z'),
-            deletedAt: null,
-          })),
-        };
+        return { findOne: categoryFindOne };
       }
       return {
         findOne: jest.fn(async () => product),
@@ -109,6 +94,10 @@ function createService(promotionRows: { promotionType: PromotionalPageType }[]) 
   const apiService = {
     syncProducts: jest.fn(async (_payload: Record<string, unknown>) => ({ success: true })),
     syncCollections: jest.fn(async (_payload: Record<string, unknown>) => ({ success: true })),
+  };
+  const queueService = {
+    enqueueProductSync: jest.fn(async () => undefined),
+    enqueueCollectionSync: jest.fn(async () => undefined),
   };
   const configService = {
     get: jest.fn((key: string) => {
@@ -124,7 +113,7 @@ function createService(promotionRows: { promotionType: PromotionalPageType }[]) 
     configService as unknown as ConfigService,
     apiService as unknown as GokwikApiService,
     { markSyncState: jest.fn(async () => undefined) } as unknown as GokwikRepository,
-    {} as GokwikQueueService,
+    queueService as unknown as GokwikQueueService,
     { toReference: jest.fn(async () => ({ url: 'https://cdn.test/cream.png' })) } as unknown as StorageUrlEnricher,
     {
       runExclusive: async (
@@ -132,7 +121,7 @@ function createService(promotionRows: { promotionType: PromotionalPageType }[]) 
       ) => work(async () => undefined),
     } as unknown as GokwikCollectionLockService,
   );
-  return { service, apiService, promotionQuery, collectionQuery };
+  return { service, apiService, collectionQuery, queueService, pageFindOne };
 }
 
 const existingProductFields = [
@@ -148,66 +137,25 @@ const existingProductFields = [
   'images',
 ];
 
-describe('GokwikCatalogSyncService promotion type', () => {
-  it('adds promotionType for a product on a non-default promotion', async () => {
-    const { service, apiService } = createService([
-      { promotionType: PromotionalPageType.MONTH_END },
-    ]);
-
-    await service.syncProduct('product-id');
-
-    const payload = apiService.syncProducts.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(payload.promotionType).toBe('month-end');
-    expect(payload.id).toBe('product-id');
-    expect(payload.handle).toBe('evion-cream');
-    expect(payload.variants).toEqual([
-      expect.objectContaining({ id: 'variant-id', sku: 'EVION-20', price: 99 }),
-    ]);
-    for (const field of existingProductFields) {
-      expect(payload).toHaveProperty(field);
-    }
-  });
-
-  it('leaves the product payload unchanged for the default promotion type', async () => {
-    const { service, apiService } = createService([]);
+describe('GokwikCatalogSyncService', () => {
+  it('does not send promotionType on product sync', async () => {
+    const { service, apiService } = createService();
 
     await service.syncProduct('product-id');
 
     const payload = apiService.syncProducts.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(payload).not.toHaveProperty('promotionType');
+    expect(payload.id).toBe('product-id');
     expect(Object.keys(payload).sort()).toEqual([...existingProductFields].sort());
   });
 
-  it('leaves the product payload unchanged when the product has no promotion', async () => {
-    const { service, apiService } = createService([]);
-
-    await service.syncProduct('product-id');
-
-    expect(apiService.syncProducts.mock.calls[0]?.[0]).not.toHaveProperty('promotionType');
-  });
-
-  it('omits promotionType when non-default promotion types disagree', async () => {
-    const { service, apiService } = createService([
-      { promotionType: PromotionalPageType.MONTH_END },
-      { promotionType: 'seasonal' as PromotionalPageType },
-    ]);
-
-    await service.syncProduct('product-id');
-
-    expect(apiService.syncProducts.mock.calls[0]?.[0]).not.toHaveProperty('promotionType');
-  });
-
-  it('does not add promotionType to the collection sync payload', async () => {
-    const { service, apiService, collectionQuery } = createService([
-      { promotionType: PromotionalPageType.MONTH_END },
-    ]);
+  it('syncs a category collection with live product_ids and then enqueues those products', async () => {
+    const { service, apiService, collectionQuery, queueService } = createService();
 
     await service.syncCollection('category-id');
 
     expect(collectionQuery.select).toHaveBeenCalledWith('product.id', 'id');
-    expect(collectionQuery.distinct).toHaveBeenCalledWith(true);
     expect(collectionQuery.where).toHaveBeenCalledWith(PRODUCT_MATCHES_CATEGORY_ENTITY_SQL);
-    expect(collectionQuery.setParameter).toHaveBeenCalledWith('categoryId', 'category-id');
     expect(collectionQuery.andWhere).toHaveBeenCalledWith('product.status = :published', {
       published: ProductStatus.PUBLISHED,
     });
@@ -217,13 +165,47 @@ describe('GokwikCatalogSyncService promotion type', () => {
         catalogProductTypes: [ProductType.SIMPLE, ProductType.VARIABLE, ProductType.BUNDLE],
       },
     );
-    expect(collectionQuery.orderBy).toHaveBeenCalledWith('product.id', 'ASC');
     expect(apiService.syncCollections).toHaveBeenCalledWith({
       id: 'category-id',
       handle: 'skin-care',
       title: 'Skin Care',
+      name: 'Skin Care',
       product_ids: ['product-a', 'product-b', 'product-c'],
       updated_at: '2026-06-01T00:00:00.000Z',
+      is_deleted: false,
     });
+    expect(queueService.enqueueProductSync).toHaveBeenCalledWith('product-a');
+    expect(queueService.enqueueProductSync).toHaveBeenCalledWith('product-b');
+    expect(queueService.enqueueProductSync).toHaveBeenCalledWith('product-c');
+  });
+
+  it('syncs a promotional page as a GoKwik collection after member products', async () => {
+    const page = {
+      id: 'promo-page-id',
+      refId: 'MON2026000001',
+      slug: 'monthendoffer',
+      name: 'Month End Offer',
+      status: PromotionalPageStatus.PUBLISHED,
+      updatedAt: new Date('2026-06-01T00:00:00.000Z'),
+      deletedAt: null,
+    };
+    const { service, apiService, queueService } = createService({
+      category: null,
+      page,
+    });
+
+    await service.syncCollection('promo-page-id');
+
+    expect(apiService.syncProducts).toHaveBeenCalled();
+    expect(apiService.syncCollections).toHaveBeenCalledWith({
+      id: 'promo-page-id',
+      handle: 'monthendoffer',
+      title: 'Month End Offer',
+      name: 'Month End Offer',
+      product_ids: ['product-a', 'product-b', 'product-c'],
+      updated_at: '2026-06-01T00:00:00.000Z',
+      is_deleted: false,
+    });
+    expect(queueService.enqueueProductSync).toHaveBeenCalled();
   });
 });

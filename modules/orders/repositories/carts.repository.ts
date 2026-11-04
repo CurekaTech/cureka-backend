@@ -10,6 +10,7 @@ import {
   AbandonedCartNotifyCandidate,
 } from '../interfaces/abandoned-cart.interface';
 import { CART_CUSTOMER_ACTIVITY_SQL } from '../utils/cart-activity.util';
+import { parseCartLookupId } from '../utils/cart-lookup-id.util';
 
 const LAST_ACTIVITY_SQL = CART_CUSTOMER_ACTIVITY_SQL;
 const TOTAL_AMOUNT_SQL =
@@ -46,9 +47,14 @@ export class CartsRepository {
   }
 
   findActiveById(id: string, manager?: EntityManager): Promise<CartEntity | null> {
+    const parsed = parseCartLookupId(id);
+    if (!parsed) return Promise.resolve(null);
+    if (parsed.kind === 'refId') {
+      return this.findActiveByRefId(parsed.value, manager);
+    }
     const repository = manager ? manager.getRepository(CartEntity) : this.repo;
     return repository.findOne({
-      where: { id, isActive: true },
+      where: { id: parsed.value, isActive: true },
       relations: this.activeCartRelations,
       order: { items: { createdAt: 'ASC' } },
     });
@@ -56,8 +62,13 @@ export class CartsRepository {
 
   /** Lookup by id regardless of isActive (used by GoKwik session_key checks). */
   findById(id: string, manager?: EntityManager): Promise<CartEntity | null> {
+    const parsed = parseCartLookupId(id);
+    if (!parsed) return Promise.resolve(null);
     const repository = manager ? manager.getRepository(CartEntity) : this.repo;
-    return repository.findOne({ where: { id } });
+    if (parsed.kind === 'refId') {
+      return repository.findOne({ where: { refId: ILike(parsed.value) } });
+    }
+    return repository.findOne({ where: { id: parsed.value } });
   }
 
   create(data: Partial<CartEntity>, manager?: EntityManager): Promise<CartEntity> {

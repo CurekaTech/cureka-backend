@@ -1,12 +1,15 @@
-import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { VerifiedUserGuard } from '@modules/auth/guards/verified-user.guard';
 import { RawResponse } from '@packages/common';
-import { GokwikGetCartDto } from '../dto/gokwik-get-cart.dto';
+import { GokwikGetCartDto, GokwikGetCartQueryDto } from '../dto/gokwik-get-cart.dto';
 import {
   GokwikDiscountDto,
   GokwikSetShippingAddressDto,
 } from '../dto/gokwik-cart-actions.dto';
-import { GokwikCartOwnerGuard } from '../guards/gokwik-cart-owner.guard';
+import {
+  GokwikCartOwnerGuard,
+  GokwikCartOwnerRequest,
+} from '../guards/gokwik-cart-owner.guard';
 import { GokwikCheckoutAuthGuard } from '../guards/gokwik-checkout-auth.guard';
 import { GokwikGetCartSuccessResponse } from '../interfaces/gokwik-cart.interface';
 import { GokwikCartService } from '../services/gokwik-cart.service';
@@ -25,15 +28,36 @@ export class GokwikCartController {
   @Post('get-cart')
   @HttpCode(HttpStatus.OK)
   @RawResponse()
-  getCart(@Body() dto: GokwikGetCartDto): Promise<GokwikGetCartSuccessResponse> {
-    return this.gokwikCartService.getCart(dto.cart_id);
+  getCart(
+    @Body() dto: GokwikGetCartDto,
+    @Req() request: GokwikCartOwnerRequest,
+  ): Promise<GokwikGetCartSuccessResponse> {
+    return this.gokwikCartService.getCart(request.gokwikResolvedCartId ?? dto.cart_id ?? '');
+  }
+
+  /** GoKwik checkout-red RestClient uses GET against the configured merchant Get Cart URL. */
+  @Get('get-cart')
+  @HttpCode(HttpStatus.OK)
+  @RawResponse()
+  getCartViaGet(
+    @Query() query: GokwikGetCartQueryDto,
+    @Req() request: GokwikCartOwnerRequest,
+  ): Promise<GokwikGetCartSuccessResponse> {
+    return this.gokwikCartService.getCart(
+      request.gokwikResolvedCartId ?? query.cart_id ?? query.cartId ?? '',
+    );
   }
 
   @Post('remove-out-of-stock-items')
   @HttpCode(HttpStatus.OK)
   @RawResponse()
-  removeOutOfStockItems(@Body() dto: GokwikGetCartDto): Promise<GokwikGetCartSuccessResponse> {
-    return this.gokwikCartService.removeOutOfStockItems(dto.cart_id);
+  removeOutOfStockItems(
+    @Body() dto: GokwikGetCartDto,
+    @Req() request: GokwikCartOwnerRequest,
+  ): Promise<GokwikGetCartSuccessResponse> {
+    return this.gokwikCartService.removeOutOfStockItems(
+      request.gokwikResolvedCartId ?? dto.cart_id ?? '',
+    );
   }
 
   @Post('set-shipping-address')
@@ -48,8 +72,10 @@ export class GokwikCartController {
   @Post('get-all-discount')
   @HttpCode(HttpStatus.OK)
   @RawResponse()
-  getAllDiscount(@Body() dto: GokwikGetCartDto) {
-    return this.gokwikCartService.getAvailableCoupons(dto.cart_id);
+  getAllDiscount(@Body() dto: GokwikGetCartDto, @Req() request: GokwikCartOwnerRequest) {
+    return this.gokwikCartService.getAvailableCoupons(
+      request.gokwikResolvedCartId ?? dto.cart_id ?? '',
+    );
   }
 
   @Post('apply-discount')

@@ -117,6 +117,7 @@ export class CreateDoctorDto {
   registrationNumber?: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(0)
   yearsExperience?: number;
@@ -146,6 +147,7 @@ export class CreateDoctorDto {
   pricingType!: DoctorPricingType;
 
   @ValidateIf((dto: CreateDoctorDto) => dto.pricingType === DoctorPricingType.PAID)
+  @Type(() => Number)
   @IsNumber()
   @Min(0)
   amount?: number;
@@ -188,6 +190,7 @@ export class UpdateDoctorDto implements Partial<CreateDoctorDto> {
   registrationNumber?: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(0)
   yearsExperience?: number;
@@ -225,6 +228,7 @@ export class UpdateDoctorDto implements Partial<CreateDoctorDto> {
       dto.pricingType === DoctorPricingType.PAID || dto.amount !== undefined,
   )
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   @Min(0)
   amount?: number;

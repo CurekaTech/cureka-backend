@@ -1,7 +1,19 @@
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class GokwikGetCartDto {
-  @IsNotEmpty()
+  /** Optional when the GoKwik checkout token already binds a cart. */
+  @IsOptional()
   @IsString()
-  cart_id!: string;
+  @IsNotEmpty()
+  cart_id?: string;
+}
+
+export class GokwikGetCartQueryDto {
+  @IsOptional()
+  @IsString()
+  cart_id?: string;
+
+  @IsOptional()
+  @IsString()
+  cartId?: string;
 }

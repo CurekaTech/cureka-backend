@@ -1,8 +1,9 @@
 import { PromotionalPageType } from '@modules/promotional-pages/enums/promotional-page-type.enum';
 
 /**
- * Sync Product (`POST /v3/product/update-product-details`) does not document this
- * property. The key matches the promotional page field. The value is the stored enum.
+ * GoKwik Sync Product (`POST /v3/product/update-product-details`) ignores this
+ * field. Collection coupons must use collection `product_ids` plus a product-level
+ * sync. Kept only for historical payload tests.
  */
 export const GOKWIK_PRODUCT_PROMOTION_TYPE_FIELD = 'promotionType';
 

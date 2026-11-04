@@ -39,6 +39,7 @@ import {
   encryptBankAccountNumber,
   maskAccountLast4,
 } from '../utils/bank-crypto.util';
+import { generateEntityRefId } from '../utils/entity-ref-id.util';
 import { toSlug } from '../utils/slug.util';
 
 @Injectable()
@@ -326,15 +327,33 @@ export class DoctorsService {
   ): Promise<void> {
     const qualRepo = manager.getRepository(DoctorQualificationMapEntity);
     for (const qualificationId of qualificationIds) {
-      await qualRepo.save(qualRepo.create({ doctorId, qualificationId }));
+      await qualRepo.save(
+        qualRepo.create({
+          refId: await generateEntityRefId(qualRepo, 'dqm'),
+          doctorId,
+          qualificationId,
+        }),
+      );
     }
     const specRepo = manager.getRepository(DoctorSpecializationMapEntity);
     for (const specializationId of specializationIds) {
-      await specRepo.save(specRepo.create({ doctorId, specializationId }));
+      await specRepo.save(
+        specRepo.create({
+          refId: await generateEntityRefId(specRepo, 'dsm'),
+          doctorId,
+          specializationId,
+        }),
+      );
     }
     const langRepo = manager.getRepository(DoctorLanguageMapEntity);
     for (const languageId of languageIds) {
-      await langRepo.save(langRepo.create({ doctorId, languageId }));
+      await langRepo.save(
+        langRepo.create({
+          refId: await generateEntityRefId(langRepo, 'dlm'),
+          doctorId,
+          languageId,
+        }),
+      );
     }
   }
 
@@ -350,8 +369,16 @@ export class DoctorsService {
   ): Promise<void> {
     const repo = manager.getRepository(entityClass);
     await repo.delete({ doctorId });
+    const prefix =
+      foreignKey === 'qualificationId' ? 'dqm' : foreignKey === 'specializationId' ? 'dsm' : 'dlm';
     for (const fkId of ids) {
-      await repo.save(repo.create({ doctorId, [foreignKey]: fkId }));
+      await repo.save(
+        repo.create({
+          refId: await generateEntityRefId(repo, prefix),
+          doctorId,
+          [foreignKey]: fkId,
+        }),
+      );
     }
   }
 
@@ -366,6 +393,7 @@ export class DoctorsService {
     for (const [index, clinic] of clinics.entries()) {
       await repo.save(
         repo.create({
+          refId: await generateEntityRefId(repo, 'dcl'),
           doctorId,
           name: clinic.name.trim(),
           addressLine1: clinic.addressLine1.trim(),
@@ -396,6 +424,7 @@ export class DoctorsService {
     if (!row) {
       await repo.save(
         repo.create({
+          refId: await generateEntityRefId(repo, 'dcc'),
           doctorId,
           pricingType: dto.pricingType,
           amount,
@@ -425,6 +454,7 @@ export class DoctorsService {
     if (!row) {
       await repo.save(
         repo.create({
+          refId: await generateEntityRefId(repo, 'dbk'),
           doctorId,
           accountHolderName: dto.bankDetails.accountHolderName.trim(),
           accountNumberEncrypted: encrypted,

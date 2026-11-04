@@ -14,6 +14,7 @@ describe('DoctorSlotsService', () => {
       find: jest.fn(),
       save: jest.fn(),
       create: jest.fn((v) => v),
+      exists: jest.fn().mockResolvedValue(false),
       createQueryBuilder: jest.fn(),
     } as unknown as jest.Mocked<Repository<DoctorSlotEntity>>;
 

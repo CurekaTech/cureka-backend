@@ -4,7 +4,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryFailedError } from 'typeorm';
+import { CacheDomainAction, EVENTS, PromotionalPageUpdatedEvent } from '@packages/events';
 import {
   buildPaginatedResult,
   buildPaginationOptions,
@@ -62,6 +64,7 @@ export class PromotionalPagesService {
     private readonly references: PromotionalPageReferenceService,
     private readonly auditService: AuditService,
     private readonly storageUrlEnricher: StorageUrlEnricher,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async create(dto: CreatePromotionalPageDto, actor: string): Promise<IAdminPromotionalPage> {
@@ -109,6 +112,7 @@ export class PromotionalPagesService {
     }
 
     const page = await this.requireByRefId(saved.refId);
+    this.emitCatalogSync(page, 'created');
     await this.audit(page, 'create', actor, {
       slug: page.slug,
       status: page.status,
@@ -231,6 +235,7 @@ export class PromotionalPagesService {
     }
 
     const page = await this.requireByRefId(refId);
+    this.emitCatalogSync(page, dto.status !== undefined ? 'status_updated' : 'updated');
     await this.audit(page, dto.status !== undefined ? this.statusAuditAction(page.status) : 'update', actor, {
       slug: page.slug,
       status: page.status,
@@ -257,6 +262,7 @@ export class PromotionalPagesService {
     await this.references.assertCatalogRefs(collectCatalogRefs(sections, [], null));
     await this.pagesRepository.replaceChildren(current.id, sections, targets);
     const page = await this.requireByRefId(refId);
+    this.emitCatalogSync(page, 'updated');
     await this.audit(page, 'sections_update', actor, {
       sectionCount: sections.length,
       sortOrder: sections.map((section) => section.sortOrder),
@@ -338,6 +344,7 @@ export class PromotionalPagesService {
 
     await this.pagesRepository.updateByRefId(refId, { status, updatedBy: actor });
     const page = await this.requireByRefId(refId);
+    this.emitCatalogSync(page, 'status_updated');
     await this.audit(page, this.statusAuditAction(status), actor, {
       from: current.status,
       to: status,
@@ -351,6 +358,7 @@ export class PromotionalPagesService {
       status: PromotionalPageStatus.ARCHIVED,
       updatedBy: actor,
     });
+    this.emitCatalogSync(current, 'deleted');
     await this.audit(current, 'archive', actor, { slug: current.slug });
     await this.pagesRepository.softDeleteByRefId(refId);
     return { refId };
@@ -619,6 +627,16 @@ export class PromotionalPagesService {
       blogRefIds: refs.blogRefIds,
       couponRefId: refs.couponRefId,
     };
+  }
+
+  private emitCatalogSync(
+    page: Pick<PromotionalPageEntity, 'id' | 'refId'>,
+    action: CacheDomainAction,
+  ): void {
+    this.eventEmitter.emit(
+      EVENTS.PROMOTIONAL_PAGE_UPDATED,
+      new PromotionalPageUpdatedEvent(page.refId, page.id, action),
+    );
   }
 
   private statusAuditAction(status: PromotionalPageStatus): string {

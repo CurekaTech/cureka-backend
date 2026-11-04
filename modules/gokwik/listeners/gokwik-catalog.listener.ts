@@ -3,7 +3,12 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { ConfigService } from '@nestjs/config';
 import { CategoryEntity } from '@modules/master/entities/category.entity';
 import { ProductEntity } from '@modules/product/entities/product.entity';
-import { CategoryUpdatedEvent, EVENTS, ProductUpdatedEvent } from '@packages/events';
+import {
+  CategoryUpdatedEvent,
+  EVENTS,
+  ProductUpdatedEvent,
+  PromotionalPageUpdatedEvent,
+} from '@packages/events';
 import { DataSource } from 'typeorm';
 import { GokwikQueueService } from '../services/gokwik-queue.service';
 
@@ -52,5 +57,17 @@ export class GokwikCatalogListener {
       withDeleted: true,
     });
     if (category) await this.queueService.enqueueCollectionSync(category.id);
+  }
+
+  @OnEvent(EVENTS.PROMOTIONAL_PAGE_UPDATED)
+  async onPromotionalPageUpdated(event: PromotionalPageUpdatedEvent): Promise<void> {
+    if (!this.configService.get<boolean>('gokwik.catalogSyncEnabled')) {
+      this.logger.debug(
+        { refId: event.refId },
+        'Skipping GoKwik promotional collection sync — GOKWIK_CATALOG_SYNC_ENABLED is not true',
+      );
+      return;
+    }
+    await this.queueService.enqueueCollectionSync(event.pageId);
   }
 }

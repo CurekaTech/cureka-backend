@@ -17,6 +17,7 @@ import {
   DoctorAvailabilityRuleDto,
   SetDoctorAvailabilityDto,
 } from '../dto/doctor-availability.dto';
+import { generateEntityRefId } from '../utils/entity-ref-id.util';
 
 const DEFAULT_HOLD_MINUTES = 15;
 
@@ -86,6 +87,7 @@ export class DoctorSlotsService {
             try {
               const saved = await this.slotsRepo.save(
                 this.slotsRepo.create({
+                  refId: await generateEntityRefId(this.slotsRepo, 'dsl'),
                   doctorId,
                   clinicId,
                   startAt: new Date(slotStart),
@@ -166,7 +168,10 @@ export class DoctorSlotsService {
     for (const rule of dto.rules) {
       rows.push(
         await this.availabilityRepo.save(
-          this.availabilityRepo.create(this.mapAvailabilityRule(doctorId, dto.clinicId, rule, actor)),
+          this.availabilityRepo.create({
+            refId: await generateEntityRefId(this.availabilityRepo, 'dav'),
+            ...this.mapAvailabilityRule(doctorId, dto.clinicId, rule, actor),
+          }),
         ),
       );
     }
