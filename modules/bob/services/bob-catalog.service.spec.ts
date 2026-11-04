@@ -6,7 +6,6 @@ import { ProductVariantEntity } from '@modules/product/entities/product-variant.
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
-import { ProductVariantsRepository } from '@modules/product/repositories/product-variants.repository';
 import { ProductsService } from '@modules/product/services/products.service';
 import { StorageService } from '@packages/storage';
 import { BobCatalogService } from './bob-catalog.service';
@@ -59,12 +58,12 @@ describe('GET /api/v1/bob/categories/:categoryId/products', () => {
     findWithTagsById: jest.Mock;
     findPublishedRefIdsForBobCatalog: jest.Mock;
   };
-  let productVariantsRepository: { findById: jest.Mock };
   let productsService: { replaceTags: jest.Mock };
   let resolver: {
     findPublishedByBobId: jest.Mock;
     findPublishedByBobIds: jest.Mock;
     findIdByBobIdentifier: jest.Mock;
+    findActiveVariantByBobId: jest.Mock;
   };
   let service: BobCatalogService;
 
@@ -86,17 +85,16 @@ describe('GET /api/v1/bob/categories/:categoryId/products', () => {
       findWithTagsById: jest.fn(),
       findPublishedRefIdsForBobCatalog: jest.fn().mockResolvedValue({ refIds: [], total: 0 }),
     };
-    productVariantsRepository = { findById: jest.fn() };
     productsService = { replaceTags: jest.fn().mockResolvedValue(undefined) };
     resolver = {
       findPublishedByBobId: jest.fn(),
       findPublishedByBobIds: jest.fn().mockResolvedValue([]),
       findIdByBobIdentifier: jest.fn(),
+      findActiveVariantByBobId: jest.fn(),
     };
     service = new BobCatalogService(
       categoriesRepository as unknown as CategoriesRepository,
       productsRepository as unknown as ProductsRepository,
-      productVariantsRepository as unknown as ProductVariantsRepository,
       productsService as unknown as ProductsService,
       { toFileReferenceResponses: jest.fn().mockResolvedValue([]) } as unknown as StorageService,
       { get: jest.fn().mockReturnValue('https://www.cureka.com') } as unknown as ConfigService,
@@ -318,7 +316,7 @@ describe('GET /api/v1/bob/categories/:categoryId/products', () => {
     });
     productsRepository.findPublishedByRefIds.mockResolvedValue([row]);
     productsRepository.findPublishedById.mockResolvedValue(row);
-    productVariantsRepository.findById.mockResolvedValue(variant);
+    resolver.findActiveVariantByBobId.mockResolvedValue(variant);
     resolver.findPublishedByBobId.mockResolvedValue(row);
     resolver.findPublishedByBobIds.mockResolvedValue([row]);
 
@@ -356,17 +354,29 @@ describe('GET /api/v1/bob/categories/:categoryId/products', () => {
   });
 
   it('keeps variant lookup on the variant UUID', async () => {
-    productVariantsRepository.findById.mockResolvedValue(product().variants[0]);
+    resolver.findActiveVariantByBobId.mockResolvedValue(product().variants[0]);
     productsRepository.findPublishedById.mockResolvedValue(product());
 
     const result = await service.getVariant(VARIANT_UUID);
 
+    expect(resolver.findActiveVariantByBobId).toHaveBeenCalledWith(VARIANT_UUID);
+    expect(result.id).toBe(VARIANT_UUID);
+    expect(result.product.id).toBe(217301);
+  });
+
+  it('loads a variant by the numeric catalogue id BOB stores', async () => {
+    resolver.findActiveVariantByBobId.mockResolvedValue(product().variants[0]);
+    productsRepository.findPublishedById.mockResolvedValue(product());
+
+    const result = await service.getVariant('101047');
+
+    expect(resolver.findActiveVariantByBobId).toHaveBeenCalledWith('101047');
     expect(result.id).toBe(VARIANT_UUID);
     expect(result.product.id).toBe(217301);
   });
 
   it('rejects a variant whose product has no catalogue id', async () => {
-    productVariantsRepository.findById.mockResolvedValue(product().variants[0]);
+    resolver.findActiveVariantByBobId.mockResolvedValue(product().variants[0]);
     productsRepository.findPublishedById.mockResolvedValue(product({ externalProductId: '  ' }));
 
     await expect(service.getVariant(VARIANT_UUID)).rejects.toBeInstanceOf(NotFoundException);

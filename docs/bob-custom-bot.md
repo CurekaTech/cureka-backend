@@ -97,15 +97,15 @@ Auth: `x-guest-id`. Responses are **raw** (no Cureka `{ success, data }` envelop
 | `GET` | `/bob/categories` | Category list |
 | `GET` | `/bob/categories/:categoryId/products` | Products in a category (UUID or refId) |
 | `GET` | `/bob/products` | Published products and variants. No query returns the full catalogue. Optional `?search=` (or `?q=`), `?page=&limit=` (limit max 100), `?ids=id1,id2` |
-| `GET` | `/bob/products/:productId` | One product + variants/options (UUID or refId) |
-| `GET` | `/bob/variants/:variantId` | One variant |
+| `GET` | `/bob/products/:productId` | One product + variants/options (UUID, refId, or catalogue number) |
+| `GET` | `/bob/variants/:variantId` | One variant (Cureka variant UUID, variant `externalProductId`, or a single-variant product catalogue number such as `101047`) |
 | `PUT` | `/bob/products/:productId` | Replace product tags `{ "tags": ["..."] }` |
 
 ### 2. Checkout (WhatsApp cart → Cureka order)
 
 | Method | Path | What happens in Cureka |
 |---|---|---|
-| `POST` | `/bob/create-order` | **Draft only.** Status `pending`. Not a real order. No stock / Shipway / UniCommerce. Returns `{ "OrderId": "<uuid>", "status": "pending" }` |
+| `POST` | `/bob/create-order` | **Draft only.** Status `pending`. `cart[].variant.id` may be the variant UUID **or** the numeric catalogue id from `GET /bob/products` / `GET /bob/variants/:id`. Returns `{ "OrderId": "<uuid>", "status": "pending" }` |
 | `POST` | `/bob/place-order` | Turns the draft into **PROCESSING**. COD: `{ "OrderId", "paymentPending": true }`. Prepaid: `{ "OrderId", "paymentId": "..." }`. Then fulfillment + `/orders-create`. |
 
 ### 3. Brand / “where is my order”
@@ -137,7 +137,9 @@ This is **not** [Send a Template `/wabiz/send`](https://resources.businessonbot.
 | Field | Catalog (`GET /bob/products`) | Order notify (`/orders-create` line items) |
 |---|---|---|
 | `product.id` | Woo / catalogue number (`64762`) | Same catalogue number |
-| `variant.id` | Cureka variant UUID | Same variant UUID |
+| `variant.id` | Cureka variant UUID (`variants[].id`) | Same variant UUID |
+
+`POST /bob/create-order` also accepts the numeric catalogue id (`product.id`, for example `101047`) on `cart[].id` and `cart[].variant.id`. That value is resolved to the internal variant UUID before it is written to Postgres. Do not send that numeric id into a UUID column yourself.
 
 Do not put old Woo ids in Smart Automation as **variant** ids unless that id is actually `variants[].id`. Pick the product from the BOB catalog (numeric `product.id`) or use the UUID from `GET /bob/variants/:variantId`.
 | Order cancelled (website, admin, or bot `/bob/cancel-order`) | `POST /orders-cancelled` | Cancel |

@@ -54,7 +54,11 @@ export class BobUpdateProductTagsDto {
   tags!: string[];
 }
 
+const toIdString = ({ value }: { value: unknown }) =>
+  value == null || value === '' ? value : String(value);
+
 export class BobCreateOrderVariantDto {
+  @Transform(toIdString)
   @IsNotEmpty()
   @IsString()
   id!: string;
@@ -75,6 +79,7 @@ export class BobCreateOrderVariantDto {
 }
 
 export class BobCreateOrderCartItemDto {
+  @Transform(toIdString)
   @IsNotEmpty()
   @IsString()
   id!: string;

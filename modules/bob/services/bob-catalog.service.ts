@@ -3,7 +3,6 @@ import { ConfigService } from '@nestjs/config';
 import { CategoriesRepository } from '@modules/master/repositories/categories.repository';
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
-import { ProductVariantsRepository } from '@modules/product/repositories/product-variants.repository';
 import { ProductsService } from '@modules/product/services/products.service';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { StorageService } from '@packages/storage';
@@ -37,7 +36,6 @@ export class BobCatalogService {
   constructor(
     private readonly categoriesRepository: CategoriesRepository,
     private readonly productsRepository: ProductsRepository,
-    private readonly productVariantsRepository: ProductVariantsRepository,
     private readonly productsService: ProductsService,
     private readonly storageService: StorageService,
     private readonly configService: ConfigService,
@@ -130,7 +128,7 @@ export class BobCatalogService {
   }
 
   async getVariant(variantId: string): Promise<BobVariantDetail> {
-    const variant = await this.productVariantsRepository.findById(variantId);
+    const variant = await this.bobProductResolver.findActiveVariantByBobId(variantId);
     if (!variant || variant.status !== VariantStatus.ACTIVE || variant.deletedAt) {
       throw new NotFoundException('Bad Request!!');
     }

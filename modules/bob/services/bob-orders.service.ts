@@ -3,12 +3,12 @@ import { UserAddressType } from '@modules/users/enums/user-address-type.enum';
 import { UserAddressesService } from '@modules/users/services/user-addresses.service';
 import { UsersService } from '@modules/users/services/users.service';
 import { UsersRepository } from '@modules/users/repositories/users.repository';
-import { ProductVariantsRepository } from '@modules/product/repositories/product-variants.repository';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
 import { OrdersService } from '@modules/orders/services/orders.service';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { parseMoneyAmount, toBobIndianMobile } from '../utils/bob.util';
 import { BobCreateOrderDto, BobPlaceOrderDto } from '../dto/bob.dto';
+import { BobProductResolver } from './bob-product-resolver.service';
 
 @Injectable()
 export class BobOrdersService {
@@ -19,8 +19,8 @@ export class BobOrdersService {
     private readonly usersService: UsersService,
     private readonly usersRepository: UsersRepository,
     private readonly userAddressesService: UserAddressesService,
-    private readonly productVariantsRepository: ProductVariantsRepository,
     private readonly productsRepository: ProductsRepository,
+    private readonly bobProductResolver: BobProductResolver,
   ) {}
 
   async createDraft(dto: BobCreateOrderDto): Promise<{ OrderId: string; status: 'pending' }> {
@@ -74,7 +74,7 @@ export class BobOrdersService {
       unitPrice: number;
     }> = [];
     for (const line of dto.cart) {
-      const variant = await this.productVariantsRepository.findById(line.variant.id);
+      const variant = await this.bobProductResolver.findActiveVariantByBobId(line.variant.id);
       if (!variant?.productId || variant.status !== VariantStatus.ACTIVE || variant.deletedAt) {
         this.logger.warn({ variantId: line.variant.id }, '[BOB order] variant not found');
         throw new BadRequestException(`SKU not found: ${line.variant.id}`);
