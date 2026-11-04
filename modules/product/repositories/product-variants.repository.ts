@@ -867,6 +867,17 @@ export class ProductVariantsRepository {
     });
   }
 
+  async findByExternalProductId(externalProductId: string): Promise<ProductVariantEntity | null> {
+    const id = externalProductId.trim();
+    if (!id) {
+      return null;
+    }
+    return this.repo.findOne({
+      where: { externalProductId: id, status: VariantStatus.ACTIVE },
+      relations: ['attributeValues', 'attributeValues.attribute'],
+    });
+  }
+
   async softDeleteById(variantId: string): Promise<void> {
     await this.repo.softDelete(variantId);
   }

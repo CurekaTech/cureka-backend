@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ProductEntity } from '@modules/product/entities/product.entity';
+import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { ProductsRepository } from '@modules/product/repositories/products.repository';
+import { ProductVariantsRepository } from '@modules/product/repositories/product-variants.repository';
+import { VariantStatus } from '@modules/product/enums/variant-status.enum';
 import { In, Repository } from 'typeorm';
 import { bobCatalogueProductId } from '../utils/bob-product-id.util';
 import { isUuid } from '../utils/bob.util';
@@ -16,6 +19,7 @@ import { isUuid } from '../utils/bob.util';
 export class BobProductResolver {
   constructor(
     private readonly productsRepository: ProductsRepository,
+    private readonly productVariantsRepository: ProductVariantsRepository,
     @InjectRepository(ProductEntity)
     private readonly products: Repository<ProductEntity>,
   ) {}
@@ -97,6 +101,41 @@ export class BobProductResolver {
       select: ['id', 'externalProductId'],
     });
     return byExternal && bobCatalogueProductId(byExternal) ? byExternal.id : null;
+  }
+
+  /**
+   * BOB cart and GET /variants accept the variant UUID or the numeric catalogue
+   * id published on products. Never query product_variants.id with a non-UUID.
+   */
+  async findActiveVariantByBobId(identifier: string): Promise<ProductVariantEntity | null> {
+    const id = identifier.trim();
+    if (!id) {
+      return null;
+    }
+
+    if (isUuid(id)) {
+      return this.activeVariantOrNull(await this.productVariantsRepository.findById(id));
+    }
+
+    const byExternal = await this.productVariantsRepository.findByExternalProductId(id);
+    if (byExternal) {
+      return this.activeVariantOrNull(byExternal);
+    }
+
+    const product = await this.findPublishedByBobId(id);
+    const variants = (product?.variants ?? []).filter(
+      (variant) => variant.status === VariantStatus.ACTIVE && !variant.deletedAt,
+    );
+    return variants.length === 1 ? variants[0] : null;
+  }
+
+  private activeVariantOrNull(
+    variant: ProductVariantEntity | null,
+  ): ProductVariantEntity | null {
+    if (!variant?.productId || variant.status !== VariantStatus.ACTIVE || variant.deletedAt) {
+      return null;
+    }
+    return variant;
   }
 
   private async findExistingRefIds(refIds: string[]): Promise<Set<string>> {
