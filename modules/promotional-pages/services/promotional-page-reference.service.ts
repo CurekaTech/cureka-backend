@@ -29,7 +29,12 @@ import {
   IPublicPromotionalSection,
   IPublicPromotionalTargets,
 } from '../interfaces/promotional-page.interface';
-import { CatalogRefSets, DEFAULT_COLLECTION_LIMIT, compareSortOrder } from '../utils/promotional-page-content.util';
+import {
+  CatalogRefSets,
+  DEFAULT_COLLECTION_LIMIT,
+  MAX_COLLECTION_LIMIT,
+  compareSortOrder,
+} from '../utils/promotional-page-content.util';
 
 @Injectable()
 export class PromotionalPageReferenceService {
@@ -182,14 +187,21 @@ export class PromotionalPageReferenceService {
 
     if (section.type === PromotionalSectionType.PRODUCT_COLLECTION) {
       const mode = section.config?.selectionMode ?? 'manual';
-      const limit = section.config?.maxItems ?? DEFAULT_COLLECTION_LIMIT;
+      const isGrid = section.config?.layout === 'grid';
+      // Grid landings should list every selected/available product (capped only by MAX).
+      // Carousel still honours maxItems, defaulting to DEFAULT_COLLECTION_LIMIT.
+      const limit = isGrid
+        ? MAX_COLLECTION_LIMIT
+        : (section.config?.maxItems ?? DEFAULT_COLLECTION_LIMIT);
       const hideOutOfStock = section.config?.hideOutOfStock === true;
       if (mode === 'manual') {
         products = items
           .map((item) => catalogs.productCards.get(item.targetRefId))
           .filter((card): card is IPublicStorefrontProductCard => Boolean(card))
-          .filter((card) => !hideOutOfStock || !card.outOfStock)
-          .slice(0, limit);
+          .filter((card) => !hideOutOfStock || !card.outOfStock);
+        if (!isGrid) {
+          products = products.slice(0, limit);
+        }
       } else if (mode === 'brand' && section.config?.brandRefId) {
         products = await this.loadProductsForBrand(section.config.brandRefId, limit, hideOutOfStock);
       } else if (mode === 'category' && section.config?.categoryRefId) {

@@ -435,10 +435,10 @@ describe('promotional section validation', () => {
       normalizeSections([
         {
           type: PromotionalSectionType.PRODUCT_COLLECTION,
-          items: Array.from({ length: 51 }, (_, index) => productItem(index + 1)),
+          items: Array.from({ length: 501 }, (_, index) => productItem(index + 1)),
         },
       ]),
-    ).toThrow(/at most 50 products/);
+    ).toThrow(/at most 500 products/);
   });
 
   it('requires a product, layout, and selection mode to publish a manual collection', () => {
