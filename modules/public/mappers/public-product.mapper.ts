@@ -794,6 +794,7 @@ export const toPublicStorefrontProductDetail = (
   pricing: detail.pricing,
   isFreeDelivery: detail.isFreeDelivery,
   codMinOrderAmount: detail.codMinOrderAmount,
+  codMaxOrderAmount: detail.codMaxOrderAmount,
   attributes: detail.attributes,
   variants: detail.variants.map(toPublicStorefrontProductVariant),
   offers: [],
@@ -886,6 +887,7 @@ export const mapProductEntityToPublicDetail = (entity: ProductEntity): IPublicPr
   // Computed live in PublicProductsService.enrichDetail from admin settings.
   isFreeDelivery: false,
   codMinOrderAmount: 0,
+  codMaxOrderAmount: 0,
   attributes: (entity.attributeMappings ?? []).map((mapping) => ({
     refId: mapping.attribute?.refId ?? '',
     name: mapping.attribute?.name ?? '',

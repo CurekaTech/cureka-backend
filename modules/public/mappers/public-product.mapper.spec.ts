@@ -155,6 +155,7 @@ describe('toPublicStorefrontProductDetail', () => {
       },
       isFreeDelivery: true,
       codMinOrderAmount: 500,
+      codMaxOrderAmount: 10000,
       attributes: [{ refId: 'ATTR1', name: 'Pack' }],
       variants: [
         {

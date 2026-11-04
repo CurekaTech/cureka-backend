@@ -1056,7 +1056,7 @@ export class PublicProductsService {
       variants,
     });
 
-    const { isFreeDelivery, codMinOrderAmount } =
+    const { isFreeDelivery, codMinOrderAmount, codMaxOrderAmount } =
       await this.resolveCheckoutBadgeHints(merged);
     const banners = await this.resolvePdpBanners(product);
     const subscriptionsModuleEnabled = isSubscriptionsModuleEnabled(this.configService);
@@ -1090,6 +1090,7 @@ export class PublicProductsService {
       ...merged,
       isFreeDelivery,
       codMinOrderAmount,
+      codMaxOrderAmount,
       banners,
       subscriptionEnabled: Boolean(selectedSubscriptionConfig),
       subscriptionConfig: selectedSubscriptionConfig,
@@ -1126,11 +1127,15 @@ export class PublicProductsService {
   }
 
   /**
-   * PDP badge hints from cart/checkout admin settings (free delivery + COD min).
+   * PDP badge hints from cart/checkout admin settings (free delivery + COD min/max).
    */
   private async resolveCheckoutBadgeHints(
     product: IPublicProductDetail,
-  ): Promise<{ isFreeDelivery: boolean; codMinOrderAmount: number }> {
+  ): Promise<{
+    isFreeDelivery: boolean;
+    codMinOrderAmount: number;
+    codMaxOrderAmount: number;
+  }> {
     const [checkoutSettings, shippingSlabs] = await Promise.all([
       this.cartCheckoutAdminSettingsService.resolveAmounts(),
       this.cartCheckoutAdminSettingsService.resolveShippingSlabs(),
@@ -1141,6 +1146,8 @@ export class PublicProductsService {
     );
     const codMinOrderAmount =
       this.cartCheckoutAdminSettingsService.getCodMinOrderAmount(checkoutSettings);
+    const codMaxOrderAmount =
+      this.cartCheckoutAdminSettingsService.getCodMaxOrderAmount(checkoutSettings);
 
     const selectedVariant = product.selectedVariantId
       ? product.variants.find((variant) => variant.id === product.selectedVariantId)
@@ -1152,6 +1159,7 @@ export class PublicProductsService {
     return {
       isFreeDelivery: sellingPrice >= threshold,
       codMinOrderAmount,
+      codMaxOrderAmount,
     };
   }
 

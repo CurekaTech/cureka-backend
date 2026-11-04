@@ -276,6 +276,7 @@ export interface IPublicStorefrontProductDetail {
   pricing: IPublicProductPriceSummary;
   isFreeDelivery: boolean;
   codMinOrderAmount: number;
+  codMaxOrderAmount: number;
   attributes: Array<{ refId: string; name: string }>;
   variants: IPublicStorefrontProductVariant[];
   offers: Array<{ id: string; offerType: string; customerMessage: string }>;
@@ -452,6 +453,11 @@ export interface IPublicProductDetail {
    * when the product supports COD but selling price is below the threshold.
    */
   codMinOrderAmount: number;
+  /**
+   * Admin `cod_max_order_amount` — used on PDP to show “No COD Available”
+   * when selling price is above the threshold.
+   */
+  codMaxOrderAmount: number;
   /** Set when product detail is loaded via a variant slug URL. */
   selectedVariantId?: string | null;
   selectedVariantSlug?: string | null;

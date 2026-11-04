@@ -7,7 +7,8 @@ import { PromotionalSectionType } from '../enums/promotional-section-type.enum';
 import { PromotionalTargetType } from '../enums/promotional-target-type.enum';
 
 export const DEFAULT_COLLECTION_LIMIT = 12;
-export const MAX_COLLECTION_LIMIT = 50;
+/** Hard cap for product collections (grid sections show all selected items up to this). */
+export const MAX_COLLECTION_LIMIT = 500;
 export const SECTION_TITLE_MAX = 100;
 export const SECTION_SUBTITLE_MAX = 200;
 export const SECTION_HEADING_MAX = 100;
