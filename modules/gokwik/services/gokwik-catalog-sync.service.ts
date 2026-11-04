@@ -9,6 +9,7 @@ import { PromotionalTargetType } from '@modules/promotional-pages/enums/promotio
 import { PromotionalPageEntity } from '@modules/promotional-pages/entities/promotional-page.entity';
 import { StorageUrlEnricher } from '@modules/uploads/services/storage-url.enricher';
 import { PRODUCT_MATCHES_CATEGORY_ENTITY_SQL } from '@modules/product/utils/product-category-hierarchies.util';
+import { isCartUuid } from '@modules/orders/utils/cart-lookup-id.util';
 import { DataSource, IsNull } from 'typeorm';
 import { GokwikRepository } from '../repositories/gokwik.repository';
 import {
@@ -162,15 +163,22 @@ export class GokwikCatalogSyncService {
     | { kind: 'promotional_page'; page: PromotionalPageEntity }
   > {
     const trimmed = idOrSlug.trim();
-    const category = await this.dataSource.getRepository(CategoryEntity).findOne({
-      where: { id: trimmed },
-      withDeleted: true,
-    });
-    if (category) return { kind: 'category', category };
+    if (isCartUuid(trimmed)) {
+      const category = await this.dataSource.getRepository(CategoryEntity).findOne({
+        where: { id: trimmed },
+        withDeleted: true,
+      });
+      if (category) return { kind: 'category', category };
+
+      const pageById = await this.dataSource.getRepository(PromotionalPageEntity).findOne({
+        where: { id: trimmed },
+        withDeleted: true,
+      });
+      if (pageById) return { kind: 'promotional_page', page: pageById };
+    }
 
     const pageRepo = this.dataSource.getRepository(PromotionalPageEntity);
     const page =
-      (await pageRepo.findOne({ where: { id: trimmed }, withDeleted: true })) ??
       (await pageRepo.findOne({ where: { slug: trimmed }, withDeleted: true })) ??
       (await pageRepo.findOne({ where: { refId: trimmed.toUpperCase() }, withDeleted: true }));
     if (page) return { kind: 'promotional_page', page };
