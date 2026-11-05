@@ -602,7 +602,19 @@ async function main(): Promise<void> {
          ) AS samples(sample)`,
       [SQL_INDICATOR],
     );
-    console.log(`[regex] PostgreSQL pattern probe: ${JSON.stringify(regexProbe.rows)}`);
+    const probePreview = regexProbe.rows.map((row) => ({
+      sample: [...String(row.sample ?? '')]
+        .map((char) => {
+          const code = char.codePointAt(0) ?? 0;
+          if (code < 32 || (code >= 0x7f && code <= 0x9f)) {
+            return `U+${code.toString(16).toUpperCase().padStart(4, '0')}`;
+          }
+          return char;
+        })
+        .join(''),
+      matches: row.matches,
+    }));
+    console.log(`[regex] PostgreSQL pattern probe: ${JSON.stringify(probePreview)}`);
 
     let updated = 0;
     let candidateCount = 0;
