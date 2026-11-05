@@ -16270,7 +16270,7 @@
                     }
                   ]
                 },
-                "description": "Lightweight product variant search for payment request creation wizard\n\nProducts retrieved successfully\n\nAuth: admin",
+                "description": "Lightweight product variant search for payment request creation wizard.\n\nEach product and variant includes `codAvailable` (website COD flag; bundles are derived from child variants).\n\nProducts retrieved successfully\n\nAuth: admin",
                 "auth": {
                   "type": "bearer",
                   "bearer": [
