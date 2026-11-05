@@ -220,9 +220,9 @@ function regexCharClass(chars: string): string {
 const C0_EXCEPT_WHITESPACE = Array.from({ length: 32 }, (_, code) =>
   code === 0x09 || code === 0x0a || code === 0x0d ? '' : String.fromCharCode(code),
 ).join('');
+const C0_EXCEPT_WHITESPACE_AND_NUL = C0_EXCEPT_WHITESPACE.replace('\u0000', '');
 const C1_CHARS = Array.from({ length: 32 }, (_, index) => String.fromCharCode(0x80 + index)).join('');
 const INVISIBLE_FORMAT = '\u200B\u200E\u200F\u202A\u202B\u202C\u202D\u202E\u2060\uFEFF';
-const CONTROL_CLASS = regexCharClass(`${C0_EXCEPT_WHITESPACE}\u007F${C1_CHARS}`);
 const STRAY_LEAD_FOLLOWER = ' \t,.;:!?)]}\'"';
 const STRAY_LEAD_PATTERNS = ['Â', 'Ã'].flatMap((lead) =>
   [...STRAY_LEAD_FOLLOWER, ''].map((follower) => `${lead}${follower}`).filter((item) => item.length === 2),
@@ -241,12 +241,17 @@ const DETECTOR_SOURCES = [
   ]),
 ].sort((left, right) => right.length - left.length);
 
-const DETECTOR_BODY = [
-  ...DETECTOR_SOURCES.map(escapeRegex),
-  CONTROL_CLASS,
-  '[ÂÃ]$',
-  'º\\s*[CFcf]',
-].join('|');
+function detectorBody(controlClass: string): string {
+  return [
+    ...DETECTOR_SOURCES.map(escapeRegex),
+    controlClass,
+    '[ÂÃ]$',
+    'º\\s*[CFcf]',
+  ].join('|');
+}
+
+const SQL_CONTROL_CLASS = regexCharClass(`${C0_EXCEPT_WHITESPACE_AND_NUL}\u007F${C1_CHARS}`);
+const JS_CONTROL_CLASS = regexCharClass(`${C0_EXCEPT_WHITESPACE}\u007F${C1_CHARS}`);
 
 export function assertNoNulCodePoint(value: string, label: string): string {
   const index = value.indexOf('\u0000');
@@ -259,11 +264,11 @@ export function assertNoNulCodePoint(value: string, label: string): string {
 }
 
 export const SQL_INDICATOR = assertNoNulCodePoint(
-  `(${detectorBody(SQL_C0_DEL_CLASS)})`,
+  `(${detectorBody(SQL_CONTROL_CLASS)})`,
   'SQL_INDICATOR',
 );
-export const JS_INDICATOR = new RegExp(detectorBody(JS_C0_DEL_CLASS), 'u');
-const JS_INDICATOR_GLOBAL = new RegExp(detectorBody(JS_C0_DEL_CLASS), 'gu');
+export const JS_INDICATOR = new RegExp(detectorBody(JS_CONTROL_CLASS), 'u');
+const JS_INDICATOR_GLOBAL = new RegExp(detectorBody(JS_CONTROL_CLASS), 'gu');
 
 function applyExactMaps(value: string): string {
   let current = value;
