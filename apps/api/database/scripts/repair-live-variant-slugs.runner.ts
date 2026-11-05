@@ -209,14 +209,43 @@ const proposePageUrl = (
   return origin ? `${origin}${rebuiltPath}` : rebuiltPath;
 };
 
+const isUniqueViolation = (error: unknown): boolean => {
+  const driver =
+    error && typeof error === 'object' && 'driverError' in error
+      ? (error as { driverError?: { code?: string; constraint?: string } }).driverError
+      : (error as { code?: string; constraint?: string } | null);
+  return (
+    driver?.code === '23505' ||
+    `${driver?.constraint ?? ''}`.includes('UQ_product_variants_slug_active')
+  );
+};
+
 /**
- * Matches products.repository.isSlugTakenGlobally for published rows, excluding
- * this product id and this variant id (parent + siblings may share the slug).
+ * Matches UQ_product_variants_slug_active: any non-deleted variant slug, including
+ * siblings and unpublished products. Also flags another published product slug.
  */
 const isCleanSlugTakenByOtherLiveProduct = async (
   slug: string,
   exclude: { productId: string; variantId: string },
 ): Promise<{ taken: boolean; detail?: string }> => {
+  const variantHit = await AppDataSource.getRepository(ProductVariantEntity)
+    .createQueryBuilder('variant')
+    .innerJoin('variant.product', 'product')
+    .select('variant.id', 'variantId')
+    .addSelect('variant.sku', 'sku')
+    .addSelect('product.refId', 'productRefId')
+    .where('variant.slug = :slug', { slug })
+    .andWhere('variant.deletedAt IS NULL')
+    .andWhere('variant.id != :variantId', { variantId: exclude.variantId })
+    .getRawOne<{ variantId: string; sku: string; productRefId: string }>();
+
+  if (variantHit) {
+    return {
+      taken: true,
+      detail: `active variant sku=${variantHit.sku} on product ${variantHit.productRefId} owns slug "${slug}"`,
+    };
+  }
+
   const productHit = await AppDataSource.getRepository(ProductEntity)
     .createQueryBuilder('product')
     .select('product.refId', 'refId')
@@ -231,27 +260,6 @@ const isCleanSlugTakenByOtherLiveProduct = async (
     return {
       taken: true,
       detail: `live product ${productHit.refId} owns slug "${slug}"`,
-    };
-  }
-
-  const variantHit = await AppDataSource.getRepository(ProductVariantEntity)
-    .createQueryBuilder('variant')
-    .innerJoin('variant.product', 'product')
-    .select('variant.id', 'variantId')
-    .addSelect('variant.sku', 'sku')
-    .addSelect('product.refId', 'productRefId')
-    .where('variant.slug = :slug', { slug })
-    .andWhere('variant.deletedAt IS NULL')
-    .andWhere('product.deletedAt IS NULL')
-    .andWhere('product.status = :published', { published: ProductStatus.PUBLISHED })
-    .andWhere('variant.id != :variantId', { variantId: exclude.variantId })
-    .andWhere('product.id != :productId', { productId: exclude.productId })
-    .getRawOne<{ variantId: string; sku: string; productRefId: string }>();
-
-  if (variantHit) {
-    return {
-      taken: true,
-      detail: `live variant sku=${variantHit.sku} on product ${variantHit.productRefId} owns slug "${slug}"`,
     };
   }
 
@@ -350,6 +358,7 @@ const main = async (): Promise<void> => {
     const candidates: CandidateRow[] = [];
     const skips: SkipRow[] = [];
     const productStemClaim = new Map<string, string>();
+    const claimedVariantSlugs = new Set<string>();
 
     for (const row of rows) {
       if (!row.productId || !row.variantId) {
@@ -459,6 +468,20 @@ const main = async (): Promise<void> => {
       }
 
       if (proposedVariantSlug.toLowerCase() !== variantSlug.toLowerCase()) {
+        const claimedKey = proposedVariantSlug.toLowerCase();
+        if (claimedVariantSlugs.has(claimedKey)) {
+          stats.skippedCollision += 1;
+          skips.push({
+            variantId: row.variantId,
+            productRefId: row.productRefId,
+            sku: row.variantSku,
+            currentSlug: variantSlug,
+            proposedSlug: proposedVariantSlug,
+            reason: 'genuine_collision',
+            detail: `this run already assigned slug "${proposedVariantSlug}"`,
+          });
+          continue;
+        }
         const collision = await isCleanSlugTakenByOtherLiveProduct(proposedVariantSlug, {
           productId: row.productId,
           variantId: row.variantId,
@@ -476,6 +499,7 @@ const main = async (): Promise<void> => {
           });
           continue;
         }
+        claimedVariantSlugs.add(claimedKey);
       }
 
       const oldLeaves = [variantSlug, productSlug, pageLeaf].filter(
@@ -594,75 +618,84 @@ const main = async (): Promise<void> => {
       return;
     }
 
-    await AppDataSource.transaction(async (manager) => {
-      const updatedProducts = new Set<string>();
-      for (const item of candidates) {
-        try {
-          const recheckSlug =
-            item.proposedSlug.toLowerCase() !== item.currentSlug.toLowerCase()
-              ? item.proposedSlug
-              : item.proposedProductSlug.toLowerCase() !== item.currentProductSlug.toLowerCase()
-                ? item.proposedProductSlug
-                : null;
-          if (recheckSlug) {
-            const recheck = await isCleanSlugTakenByOtherLiveProduct(recheckSlug, {
-              productId: item.productId,
-              variantId: item.variantId,
-            });
-            if (recheck.taken) {
-              stats.skippedCollision += 1;
-              stats.eligible -= 1;
-              console.warn(
-                `[repair-live-variant-slugs] skip at write time ${item.productRefId} ${item.sku}: ${recheck.detail}`,
-              );
-              continue;
-            }
-          }
-
-          if (
-            !updatedProducts.has(item.productId) &&
-            item.proposedProductSlug.toLowerCase() !== item.currentProductSlug.toLowerCase()
-          ) {
-            await manager.getRepository(ProductEntity).update(
-              { id: item.productId },
-              {
-                slug: item.proposedProductSlug,
-                ...(item.proposedProductSingleUrl
-                  ? { singleProductUrl: item.proposedProductSingleUrl }
-                  : {}),
-              },
+    const updatedProducts = new Set<string>();
+    const variantRepo = AppDataSource.getRepository(ProductVariantEntity);
+    const productRepo = AppDataSource.getRepository(ProductEntity);
+    for (const item of candidates) {
+      try {
+        const recheckSlug =
+          item.proposedSlug.toLowerCase() !== item.currentSlug.toLowerCase()
+            ? item.proposedSlug
+            : item.proposedProductSlug.toLowerCase() !== item.currentProductSlug.toLowerCase()
+              ? item.proposedProductSlug
+              : null;
+        if (recheckSlug) {
+          const recheck = await isCleanSlugTakenByOtherLiveProduct(recheckSlug, {
+            productId: item.productId,
+            variantId: item.variantId,
+          });
+          if (recheck.taken) {
+            stats.skippedCollision += 1;
+            stats.eligible -= 1;
+            console.warn(
+              `[repair-live-variant-slugs] skip at write time ${item.productRefId} ${item.sku}: ${recheck.detail}`,
             );
-            updatedProducts.add(item.productId);
+            continue;
           }
+        }
 
-          await manager.getRepository(ProductVariantEntity).update(
-            { id: item.variantId },
+        if (
+          !updatedProducts.has(item.productId) &&
+          item.proposedProductSlug.toLowerCase() !== item.currentProductSlug.toLowerCase()
+        ) {
+          await productRepo.update(
+            { id: item.productId },
             {
-              ...(item.proposedSlug.toLowerCase() !== item.currentSlug.toLowerCase()
-                ? { slug: item.proposedSlug }
-                : {}),
-              ...(item.proposedPageUrl ? { productPageUrl: item.proposedPageUrl } : {}),
-              ...(item.proposedVariantSingleUrl
-                ? { singleProductUrl: item.proposedVariantSingleUrl }
+              slug: item.proposedProductSlug,
+              ...(item.proposedProductSingleUrl
+                ? { singleProductUrl: item.proposedProductSingleUrl }
                 : {}),
             },
           );
-          stats.updated += 1;
-          console.log(
-            `[repair-live-variant-slugs] updated ${item.productRefId} ${item.sku}: ` +
-              `product ${item.currentProductSlug} → ${item.proposedProductSlug}; ` +
-              `variant ${item.currentSlug} → ${item.proposedSlug}`,
-          );
-        } catch (error) {
-          stats.errors += 1;
-          console.error(
-            `[repair-live-variant-slugs] error updating ${item.productRefId} ${item.sku}:`,
-            error instanceof Error ? error.message : error,
-          );
-          throw error;
+          updatedProducts.add(item.productId);
         }
+
+        await variantRepo.update(
+          { id: item.variantId },
+          {
+            ...(item.proposedSlug.toLowerCase() !== item.currentSlug.toLowerCase()
+              ? { slug: item.proposedSlug }
+              : {}),
+            ...(item.proposedPageUrl ? { productPageUrl: item.proposedPageUrl } : {}),
+            ...(item.proposedVariantSingleUrl
+              ? { singleProductUrl: item.proposedVariantSingleUrl }
+              : {}),
+          },
+        );
+        stats.updated += 1;
+        console.log(
+          `[repair-live-variant-slugs] updated ${item.productRefId} ${item.sku}: ` +
+            `product ${item.currentProductSlug} → ${item.proposedProductSlug}; ` +
+            `variant ${item.currentSlug} → ${item.proposedSlug}`,
+        );
+      } catch (error) {
+        if (isUniqueViolation(error)) {
+          stats.skippedCollision += 1;
+          stats.eligible -= 1;
+          console.warn(
+            `[repair-live-variant-slugs] skip unique collision ${item.productRefId} ${item.sku}: ` +
+              `${item.currentSlug} ↛ ${item.proposedSlug}`,
+          );
+          continue;
+        }
+        stats.errors += 1;
+        console.error(
+          `[repair-live-variant-slugs] error updating ${item.productRefId} ${item.sku}:`,
+          error instanceof Error ? error.message : error,
+        );
+        throw error;
       }
-    });
+    }
 
     const cacheTargets = [
       ...new Map(
