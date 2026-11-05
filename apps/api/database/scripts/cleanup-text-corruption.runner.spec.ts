@@ -286,7 +286,10 @@ describe('text corruption cleanup helpers', () => {
     it('never puts a literal U+0000 in the SQL regex while still detecting C0/C1 in memory', () => {
       expect(SQL_INDICATOR.includes('\u0000')).toBe(false);
       expect(Buffer.from(SQL_INDICATOR, 'utf8').includes(0)).toBe(false);
-      expect(SQL_INDICATOR).toContain('\\x01-\\x08');
+      expect(SQL_INDICATOR).toContain('\u0001');
+      expect(SQL_INDICATOR).toContain('\u0007');
+      expect(SQL_INDICATOR).toContain('\u007F');
+      expect(SQL_INDICATOR).not.toMatch(/\\x[0-9A-Fa-f]/);
       expect(() => assertSqlBindValues([SQL_INDICATOR, ['Â°', 'beep\u0007']], 'regex probe')).not.toThrow();
       expect(() => assertSqlBindValues(['prefix\u0000suffix'], 'regex probe')).toThrow(/U\+0000/);
 
@@ -824,8 +827,15 @@ describe('SQL bind guard and optional PostgreSQL probe', () => {
     try {
       assertSqlBindValues([SQL_INDICATOR], 'pg-probe');
       const probe = await client.query(
-        'SELECT sample, sample ~ $1 AS matches FROM unnest($2::text[]) AS samples(sample)',
-        [SQL_INDICATOR, ['Â°', 'ordinary text', 'beep\u0007', 'beep\u009D', 'Ã¢â‚¬â„¢']],
+        `SELECT sample, sample ~ $1 AS matches
+           FROM (VALUES
+             ('Â°'),
+             ('ordinary text'),
+             ('beep' || chr(7)),
+             ('beep' || chr(157)),
+             ('Ã¢â‚¬â„¢')
+           ) AS samples(sample)`,
+        [SQL_INDICATOR],
       );
       const bySample = Object.fromEntries(
         probe.rows.map((row) => [String(row['sample']), row['matches']]),
