@@ -690,10 +690,9 @@ const main = async (): Promise<void> => {
         }
         stats.errors += 1;
         console.error(
-          `[repair-live-variant-slugs] error updating ${item.productRefId} ${item.sku}:`,
+          `[repair-live-variant-slugs] skip error ${item.productRefId} ${item.sku}:`,
           error instanceof Error ? error.message : error,
         );
-        throw error;
       }
     }
 
