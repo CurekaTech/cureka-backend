@@ -485,6 +485,8 @@ describe('user-variant unique migration', () => {
     expect(source).toContain('"user_id" IS NOT NULL');
     expect(source).toContain('"variant_id" IS NOT NULL');
     expect(source).toContain('"deleted_at" IS NULL');
+    expect(source).toContain('PARTITION BY user_id, variant_id');
+    expect(source).toContain('ranked.rn > 1');
   });
 });
 
