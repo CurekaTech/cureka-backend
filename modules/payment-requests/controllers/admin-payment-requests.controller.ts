@@ -33,7 +33,11 @@ import { PaymentRequestsService } from '../services/payment-requests.service';
 export class AdminPaymentRequestsController {
   constructor(private readonly paymentRequestsService: PaymentRequestsService) {}
 
-  @ApiOperation({ summary: 'Lightweight product variant search for payment request creation wizard' })
+  @ApiOperation({
+    summary: 'Lightweight product variant search for payment request creation wizard',
+    description:
+      'Returns published products grouped with active variants. Each product and variant includes `codAvailable` (website COD flag; bundles are derived from child variants).',
+  })
   @ResponseMessage('Products retrieved successfully')
   @Roles(AdminUserRole.SUPER_ADMIN, AdminUserRole.ADMIN, AdminUserRole.MODERATOR, 'telecaller')
   @RequirePermissions('payment-request.read')

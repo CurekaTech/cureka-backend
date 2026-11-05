@@ -10,9 +10,15 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { DataSource, In } from 'typeorm';
 import { buildPaginatedResult, generateUniqueRefId, getSalableStockQuantity, isVariantInStock } from '@packages/common';
+import { ProductBundleEntity } from '@modules/product/entities/product-bundle.entity';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { ProductStatus } from '@modules/product/enums/product-status.enum';
+import { ProductType } from '@modules/product/enums/product-type.enum';
 import { VariantStatus } from '@modules/product/enums/variant-status.enum';
+import {
+  buildBundleCodMap,
+  groupAdminProductSearchVariants,
+} from '../utils/admin-product-search.util';
 import { ProductSubscriptionFrequency } from '@modules/subscription/enums/product-subscription-frequency.enum';
 import { UsersRepository } from '@modules/users/repositories/users.repository';
 import { UsersService } from '@modules/users/services/users.service';
@@ -2323,23 +2329,9 @@ export class PaymentRequestsService {
 
   /**
    * Lightweight product + variant search for the payment-request creation wizard.
-   * Returns products grouped with their active variants (id, sku, price, stock, attribute label).
+   * Returns products grouped with their active variants (id, sku, price, stock, attribute label, COD flag).
    */
   async searchProducts(search: string, limit = 20) {
-    type ProductVariantResult = {
-      variantId: string;
-      sku: string;
-      mrp: string;
-      sellingPrice: string;
-      stock: number;
-      attributeLabel: string | null;
-    };
-    type ProductResult = {
-      productId: string;
-      productName: string;
-      variants: ProductVariantResult[];
-    };
-
     const variants = await this.dataSource
       .getRepository(ProductVariantEntity)
       .createQueryBuilder('variant')
@@ -2356,30 +2348,40 @@ export class PaymentRequestsService {
       .limit(limit)
       .getMany();
 
-    // Group variants by product
-    const productMap = new Map<string, ProductResult>();
-    const result: ProductResult[] = [];
+    const bundleProductIds = [
+      ...new Set(
+        variants
+          .filter((variant) => variant.product?.productType === ProductType.BUNDLE)
+          .map((variant) => variant.productId),
+      ),
+    ];
+    const bundleRows =
+      bundleProductIds.length > 0
+        ? await this.dataSource.getRepository(ProductBundleEntity).find({
+            where: { parentProductId: In(bundleProductIds) },
+            relations: { childVariant: true },
+          })
+        : [];
+    const bundleCodByProductId = buildBundleCodMap(bundleProductIds, bundleRows);
 
-    for (const v of variants) {
-      if (!productMap.has(v.productId)) {
-        const entry: ProductResult = { productId: v.productId, productName: v.product.name, variants: [] };
-        productMap.set(v.productId, entry);
-        result.push(entry);
-      }
-      const attrLabel = v.attributeValues?.length
-        ? v.attributeValues.map((av) => av.value).join(' / ')
-        : null;
-      productMap.get(v.productId)!.variants.push({
-        variantId: v.id,
-        sku: v.sku,
-        mrp: v.mrp,
-        sellingPrice: v.sellingPrice,
-        stock: getSalableStockQuantity(v.stock, 1, v),
-        attributeLabel: attrLabel,
-      });
-    }
-
-    return result;
+    return groupAdminProductSearchVariants(
+      variants.map((variant) => ({
+        variantId: variant.id,
+        productId: variant.productId,
+        productName: variant.product.name,
+        productType: variant.product.productType,
+        productCodAvailable: variant.product.codAvailable === true,
+        sku: variant.sku,
+        mrp: variant.mrp,
+        sellingPrice: variant.sellingPrice,
+        stock: getSalableStockQuantity(variant.stock, 1, variant),
+        attributeLabel: variant.attributeValues?.length
+          ? variant.attributeValues.map((av) => av.value).join(' / ')
+          : null,
+        variantCodAvailable: variant.codAvailable === true,
+      })),
+      bundleCodByProductId,
+    );
   }
 
   private async resolveAdminCreateAddressId(
