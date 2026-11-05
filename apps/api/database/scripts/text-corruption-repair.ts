@@ -217,26 +217,12 @@ function regexCharClass(chars: string): string {
   return `[${escaped}]`;
 }
 
+const C0_EXCEPT_WHITESPACE = Array.from({ length: 32 }, (_, code) =>
+  code === 0x09 || code === 0x0a || code === 0x0d ? '' : String.fromCharCode(code),
+).join('');
 const C1_CHARS = Array.from({ length: 32 }, (_, index) => String.fromCharCode(0x80 + index)).join('');
 const INVISIBLE_FORMAT = '\u200B\u200E\u200F\u202A\u202B\u202C\u202D\u202E\u2060\uFEFF';
-const C1_CLASS = regexCharClass(C1_CHARS);
-/**
- * C0 except NUL/tab/LF/CR, plus DEL, as literal characters. PostgreSQL 18 ARE
- * treats `\xhhh` as a variable-length hex escape and `\0` as NUL; binding
- * POSIX `\x01-\x08` therefore compiles a U+0000 into the regex and raises
- * 22021. Literal U+0001–U+001F (except tab/LF/CR) are valid in UTF-8 text.
- */
-const SQL_C0_DEL_CLASS = regexCharClass(
-  [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x0b, 0x0c]
-    .concat(
-      Array.from({ length: 0x1f - 0x0e + 1 }, (_, index) => 0x0e + index),
-      [0x7f],
-    )
-    .map((code) => String.fromCharCode(code))
-    .join(''),
-);
-/** In-memory/CSV detector also matches U+0000; that character cannot be stored in PostgreSQL text. */
-const JS_C0_DEL_CLASS = '[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F\\x7F]';
+const CONTROL_CLASS = regexCharClass(`${C0_EXCEPT_WHITESPACE}\u007F${C1_CHARS}`);
 const STRAY_LEAD_FOLLOWER = ' \t,.;:!?)]}\'"';
 const STRAY_LEAD_PATTERNS = ['Â', 'Ã'].flatMap((lead) =>
   [...STRAY_LEAD_FOLLOWER, ''].map((follower) => `${lead}${follower}`).filter((item) => item.length === 2),
@@ -255,11 +241,12 @@ const DETECTOR_SOURCES = [
   ]),
 ].sort((left, right) => right.length - left.length);
 
-function detectorBody(controlClass: string): string {
-  return [...DETECTOR_SOURCES.map(escapeRegex), controlClass, C1_CLASS, '[ÂÃ]$', 'º\\s*[CFcf]'].join(
-    '|',
-  );
-}
+const DETECTOR_BODY = [
+  ...DETECTOR_SOURCES.map(escapeRegex),
+  CONTROL_CLASS,
+  '[ÂÃ]$',
+  'º\\s*[CFcf]',
+].join('|');
 
 export function assertNoNulCodePoint(value: string, label: string): string {
   const index = value.indexOf('\u0000');

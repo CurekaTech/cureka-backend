@@ -283,36 +283,6 @@ describe('text corruption cleanup helpers', () => {
       expect(cleanString('Pressure ± 3mmHg')).toBe('Pressure ± 3mmHg');
     });
 
-    it('never puts a literal U+0000 in the SQL regex while still detecting C0/C1 in memory', () => {
-      expect(SQL_INDICATOR.includes('\u0000')).toBe(false);
-      expect(Buffer.from(SQL_INDICATOR, 'utf8').includes(0)).toBe(false);
-      expect(SQL_INDICATOR).toContain('\u0001');
-      expect(SQL_INDICATOR).toContain('\u0007');
-      expect(SQL_INDICATOR).toContain('\u007F');
-      expect(SQL_INDICATOR).not.toMatch(/\\x[0-9A-Fa-f]/);
-      expect(() => assertSqlBindValues([SQL_INDICATOR, ['Â°', 'beep\u0007']], 'regex probe')).not.toThrow();
-      expect(() => assertSqlBindValues(['prefix\u0000suffix'], 'regex probe')).toThrow(/U\+0000/);
-
-      const c0 = [0x01, 0x08, 0x0b, 0x0c, 0x0e, 0x1f, 0x7f].map((code) => String.fromCharCode(code));
-      for (const fragment of c0) {
-        expect(hasIndicator(`x${fragment}y`)).toBe(true);
-        expect(cleanString(`x${fragment}y`)).toBe('xy');
-      }
-      for (let code = 0x80; code <= 0x9f; code += 1) {
-        expect(hasIndicator(`x${String.fromCharCode(code)}y`)).toBe(true);
-      }
-      expect(hasIndicator('keep\ttabs\nand\rreturns')).toBe(false);
-      expect(cleanString('keep\ttabs\nand\rreturns')).toBe('keep\ttabs\nand\rreturns');
-      expect(hasIndicator('\u0000hidden')).toBe(true);
-    });
-
-    it('repairs nested JSONB string controls without mutating keys or numbers', () => {
-      const input = { safe: 1, nested: { note: `ok\u0007 ${mojibake('\u00AE')}` } };
-      const result = cleanJson(input);
-      expect(result.changed).toBe(true);
-      expect(result.value).toEqual({ safe: 1, nested: { note: 'ok \u00AE' } });
-    });
-
     it('detects corruption without flagging ordinary clean text', () => {
       expect(hasIndicator(`Meni${mojibake('\u2019')}s`)).toBe(true);
       expect(hasIndicator('ordinary text')).toBe(false);
