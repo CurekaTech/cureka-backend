@@ -22,7 +22,10 @@ import {
 } from '../utils/super-admin-session.util';
 import { isPromotionalOffersEnabled } from '@modules/promotional-offers/utils/promotional-offers-enabled.util';
 import { isSubscriptionsModuleEnabled } from '@modules/subscription/utils/subscriptions-module.util';
-import { isDoctorConsultationModuleEnabled } from '@modules/doctor/utils/doctor-consultation-module.util';
+import {
+  HIDE_DOCTORS_FROM_ADMIN_MENU,
+  isDoctorConsultationModuleEnabled,
+} from '@modules/doctor/utils/doctor-consultation-module.util';
 import {
   expandScopedPermissionCodes,
   scopedMenuRequiredPermissions,
@@ -264,7 +267,7 @@ export class AdminAuthService {
     );
     const withModules = menuForDoctorConsultationModule(
       withSubscriptions,
-      isDoctorConsultationModuleEnabled(this.configService),
+      !HIDE_DOCTORS_FROM_ADMIN_MENU && isDoctorConsultationModuleEnabled(this.configService),
     );
     const visible = offersEnabled
       ? withModules

@@ -78,7 +78,7 @@ describe('AdminAuthService - Menu Filtering', () => {
       expect(menu.map((item) => item.key)).not.toContain('doctors');
     });
 
-    it('includes the doctors module when DOCTOR_CONSULTATION_MODULE_ENABLED=true', async () => {
+    it('hides the doctors module while HIDE_DOCTORS_FROM_ADMIN_MENU is true', async () => {
       configGet.mockImplementation(
         (key: string) =>
           key === 'subscriptions.moduleEnabled' ||
@@ -92,7 +92,7 @@ describe('AdminAuthService - Menu Filtering', () => {
       } as any);
 
       const menu = await service.getMenuForUser('super-admin-id');
-      expect(menu.map((item) => item.key)).toContain('doctors');
+      expect(menu.map((item) => item.key)).not.toContain('doctors');
     });
 
     it('includes the subscription module when SUBSCRIPTIONS_MODULE_ENABLED=true', async () => {
