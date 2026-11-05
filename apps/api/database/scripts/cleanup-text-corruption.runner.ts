@@ -590,14 +590,17 @@ async function main(): Promise<void> {
       `[identity] current_database=${identity.rows[0]?.database_name}; PostgreSQL ${serverVersion.rows[0]?.server_version ?? 'version unavailable'}; server address=${identity.rows[0]?.server_address ?? 'local socket'}`,
     );
     reviewItems.length = 0;
-    const regexProbeValues: unknown[] = [
-      SQL_INDICATOR,
-      ['Ã¢â‚¬â„¢', 'Â°', 'ï¿½', 'ðŸ', 'ordinary text', 'beep\u0007', 'beep\u009D'],
-    ];
-    assertSqlBindValues(regexProbeValues, 'regex probe');
+    assertSqlBindValues([SQL_INDICATOR], 'regex probe');
     const regexProbe = await client.query<{ sample: string; matches: boolean }>(
-      'SELECT sample, sample ~ $1 AS matches FROM unnest($2::text[]) AS samples(sample)',
-      regexProbeValues,
+      `SELECT sample, sample ~ $1 AS matches
+         FROM (VALUES
+           ('Â°'),
+           ('ordinary text'),
+           ('beep' || chr(7)),
+           ('beep' || chr(157)),
+           ('Ã¢â‚¬â„¢')
+         ) AS samples(sample)`,
+      [SQL_INDICATOR],
     );
     console.log(`[regex] PostgreSQL pattern probe: ${JSON.stringify(regexProbe.rows)}`);
 
