@@ -1,3 +1,7 @@
+import {
+  normalizeCashfreePaymentSessionId,
+  rewriteCashfreeHostedCheckoutUrl,
+} from '@modules/payment-requests/utils/cashfree-checkout-url.util';
 import type { CreateSubscriptionPaymentLinkResult } from '../services/subscription-payment-link.service';
 
 export type SubscriptionCheckoutExtras = {
@@ -39,17 +43,18 @@ export function checkoutExtrasFromLink(
 
 export function paymentSessionIdFromLink(paymentLink: string | null): string | null {
   if (!paymentLink) return null;
+  const rewritten = rewriteCashfreeHostedCheckoutUrl(paymentLink) ?? paymentLink;
   try {
-    const url = new URL(paymentLink);
+    const url = new URL(rewritten);
     const fromQuery =
       url.searchParams.get('subscription_session_id') ||
       url.searchParams.get('payment_session_id') ||
       url.searchParams.get('session_id');
-    if (fromQuery) return fromQuery;
+    if (fromQuery) return normalizeCashfreePaymentSessionId(fromQuery);
     const parts = url.pathname.split('/').filter(Boolean);
     const orderIndex = parts.indexOf('order');
     if (orderIndex >= 0 && parts[orderIndex + 1]) {
-      return decodeURIComponent(parts[orderIndex + 1]);
+      return normalizeCashfreePaymentSessionId(decodeURIComponent(parts[orderIndex + 1]));
     }
   } catch {
     return null;

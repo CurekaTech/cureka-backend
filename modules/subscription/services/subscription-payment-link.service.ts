@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { cashfreeHostedCheckoutUrl } from '@modules/payment-requests/utils/cashfree-checkout-url.util';
 import { CashfreePaymentService } from '@modules/payment-requests/services/cashfree-payment.service';
 import { PaymentGatewayResolverService } from '@modules/payment-requests/services/payment-gateway-resolver.service';
 import { RazorpayPaymentLinksService } from '@modules/payment-requests/services/razorpay-payment-links.service';
@@ -175,10 +176,7 @@ export class SubscriptionPaymentLinkService {
     }
 
     const environment = this.cashfreeService.getEnv() === 'production' ? 'production' : 'sandbox';
-    const paymentLink =
-      environment === 'production'
-        ? `https://payments.cashfree.com/order/${paymentSessionId}`
-        : `https://sandbox.cashfree.com/pg/view/checkout?payment_session_id=${paymentSessionId}`;
+    const paymentLink = cashfreeHostedCheckoutUrl(paymentSessionId, environment);
 
     return {
       paymentLink,

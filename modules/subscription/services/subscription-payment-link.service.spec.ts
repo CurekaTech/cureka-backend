@@ -45,6 +45,18 @@ describe('SubscriptionPaymentLinkService preferred gateway', () => {
       order_id: 'order_cf',
       payment_session_id: 'session_cf',
     });
+    cashfreeService.getEnv.mockReturnValue('sandbox');
+  });
+
+  it('uses Cashfree hosted checkout query URLs in production', async () => {
+    cashfreeService.getEnv.mockReturnValue('production');
+    const result = await service.createPaymentLink({
+      ...baseInput,
+      preferredGateway: 'CASHFREE',
+    });
+    expect(result.paymentLink).toBe(
+      'https://payments.cashfree.com/pg/view/checkout?payment_session_id=session_cf',
+    );
   });
 
   it('creates a Cashfree session when preferredGateway is CASHFREE even if admin is Razorpay', async () => {

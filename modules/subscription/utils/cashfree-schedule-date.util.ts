@@ -110,6 +110,19 @@ export function resolveCashfreeChargeSchedule(params: {
   };
 }
 
+/** Next slot Cashfree will accept when the intended debit is same-day or already past. */
+export function nextLegalCashfreeChargeDate(params: {
+  now?: Date;
+  method?: string | null;
+}): Date {
+  const now = params.now ?? new Date();
+  const method = normalizeCashfreeChargeMethod(params.method);
+  if (method === 'card' || method === 'enach') {
+    return nextCashfreeCardScheduleDate(now);
+  }
+  return nextCashfreeUpiScheduleDate(now);
+}
+
 /** Earliest safe Cashfree card/eNACH schedule when advance scheduling is off. */
 export function nextCashfreeCardScheduleDate(now = new Date()): Date {
   const parts = getZonedParts(now, KOLKATA);
