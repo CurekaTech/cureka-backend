@@ -70,6 +70,8 @@ export class CashfreePaymentService {
     };
     returnUrl: string;
     orderTags?: Record<string, string>;
+    /** ISO-8601. Cashfree default expiry is minutes, not our 72h Pay-early window. */
+    orderExpiryTime?: string;
   }): Promise<Record<string, any>> {
     this.logger.log(
       {
@@ -108,6 +110,7 @@ export class CashfreePaymentService {
       ...(payload.orderTags && Object.keys(payload.orderTags).length
         ? { order_tags: payload.orderTags }
         : {}),
+      ...(payload.orderExpiryTime ? { order_expiry_time: payload.orderExpiryTime } : {}),
     };
 
     const url = `${this.baseUrl}/orders`;

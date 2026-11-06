@@ -869,10 +869,19 @@ export class ProductSubscriptionsService {
         payment.gatewayOrderId !== mandate?.authorizationOrderId,
     );
     if (existing?.paymentLink) {
-      return this.mapOwned(sub, {
-        paymentLink: existing.paymentLink,
-        razorpayOrderId: existing.gatewayOrderId ?? null,
-      });
+      if (!this.isStaleCashfreeCheckout(existing)) {
+        return this.mapOwned(sub, {
+          paymentLink: existing.paymentLink,
+          razorpayOrderId: existing.gatewayOrderId ?? null,
+        });
+      }
+      const refreshed = await this.refreshCashfreeCheckoutSession(sub, existing, userId);
+      if (refreshed?.paymentLink) {
+        return this.mapOwned(sub, {
+          paymentLink: refreshed.paymentLink,
+          razorpayOrderId: refreshed.gatewayOrderId ?? null,
+        });
+      }
     }
     const gate = await this.blockRetryWhileGatewayChargeIsOpen(fresh, sub.id);
     if (gate === 'settled') return this.getMine(userId, sub.id);
@@ -3845,7 +3854,8 @@ export class ProductSubscriptionsService {
       existingPayment &&
       existingPayment.status === SubscriptionPaymentStatus.LINK_GENERATED &&
       existingPayment.attemptKind !== SubscriptionPaymentAttemptKind.AUTOPAY &&
-      (existingPayment.paymentLink || existingPayment.gatewayOrderId)
+      (existingPayment.paymentLink || existingPayment.gatewayOrderId) &&
+      !this.isStaleCashfreeCheckout(existingPayment)
     ) {
       return {
         paymentLink: existingPayment.paymentLink,
@@ -3883,7 +3893,8 @@ export class ProductSubscriptionsService {
     if (
       payment.status === SubscriptionPaymentStatus.LINK_GENERATED &&
       payment.attemptKind !== SubscriptionPaymentAttemptKind.AUTOPAY &&
-      (payment.paymentLink || payment.gatewayOrderId)
+      (payment.paymentLink || payment.gatewayOrderId) &&
+      !this.isStaleCashfreeCheckout(payment)
     ) {
       await this.billingCycleService.updateById(cycle.id, {
         status: SubscriptionBillingCycleStatus.LINK_GENERATED,
@@ -3906,7 +3917,7 @@ export class ProductSubscriptionsService {
     const persistedGateway = (sub.paymentGateway ?? '').toUpperCase();
     const link = await this.paymentLinkService.createPaymentLink({
       amount,
-      referenceId: payment.refId,
+      referenceId: this.nextCashfreeOrderId(payment.refId),
       preferredGateway:
         persistedGateway === 'RAZORPAY' || persistedGateway === 'CASHFREE'
           ? persistedGateway
@@ -3992,6 +4003,66 @@ export class ProductSubscriptionsService {
       currency: open?.currency ?? null,
       environment: paymentLink?.includes('sandbox') ? 'sandbox' : 'production',
     });
+  }
+
+  /** Cashfree sessions expire in minutes unless we set order_expiry_time. Old /order/ URLs also 404. */
+  private isStaleCashfreeCheckout(payment: {
+    paymentGateway?: string | null;
+    paymentLink?: string | null;
+    createdAt?: Date | string;
+    refId?: string;
+    amount?: string;
+    id?: string;
+  }): boolean {
+    const gateway = (payment.paymentGateway ?? '').toUpperCase();
+    if (gateway && gateway !== 'CASHFREE') return false;
+    const link = payment.paymentLink ?? '';
+    if (link.includes('/order/')) return true;
+    const createdAt = payment.createdAt ? new Date(payment.createdAt) : null;
+    if (!createdAt || Number.isNaN(createdAt.getTime())) return false;
+    return Date.now() - createdAt.getTime() > 30 * 60 * 1000;
+  }
+
+  private nextCashfreeOrderId(refId: string): string {
+    return `${refId}-${Date.now()}`.slice(0, 45);
+  }
+
+  private async refreshCashfreeCheckoutSession(
+    sub: UserProductSubscriptionEntity,
+    payment: { id: string; refId: string; amount: string; billingCycleRef?: string },
+    actor: string,
+  ): Promise<Awaited<ReturnType<SubscriptionPaymentLinkService['createPaymentLink']>> | null> {
+    const user = await this.usersRepository.findById(sub.userId);
+    const persistedGateway = (sub.paymentGateway ?? '').toUpperCase();
+    const link = await this.paymentLinkService.createPaymentLink({
+      amount: payment.amount,
+      referenceId: this.nextCashfreeOrderId(payment.refId),
+      preferredGateway:
+        persistedGateway === 'RAZORPAY' || persistedGateway === 'CASHFREE'
+          ? persistedGateway
+          : null,
+      customer: {
+        id: sub.userId,
+        name: [user?.firstName, user?.lastName].filter(Boolean).join(' ') || undefined,
+        email: user?.email,
+        phone: user?.mobileNumber ?? '',
+      },
+      notes: buildSubscriptionGatewayNotes({
+        paymentPurpose: SUBSCRIPTION_PAYMENT_PURPOSE.PRODUCT_SUBSCRIPTION,
+        billingCycleRef: payment.billingCycleRef ?? '',
+        subscriptionId: sub.id,
+        subscriptionPaymentId: payment.id,
+        userId: sub.userId,
+        productId: sub.productId,
+      }),
+    });
+    await this.paymentsService.attachPaymentLink(payment.id, {
+      paymentLink: link.paymentLink ?? '',
+      gatewayOrderId: link.gatewayOrderId,
+      paymentGateway: link.paymentGateway,
+      actor,
+    });
+    return link;
   }
 
   private async mapOwned(

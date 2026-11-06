@@ -153,6 +153,13 @@ export class SubscriptionPaymentLinkService {
       if (input.notes[key]) orderTags[key] = input.notes[key];
     }
 
+    const expiryHours = Number(
+      this.configService.get<number>('subscriptions.paymentLinkExpiryHours') ?? 72,
+    );
+    const orderExpiryTime = new Date(
+      Date.now() + Math.max(1, expiryHours) * 60 * 60 * 1000,
+    ).toISOString();
+
     const order = await this.cashfreeService.createOrder({
       orderId: input.referenceId.slice(0, 45),
       amount,
@@ -165,6 +172,7 @@ export class SubscriptionPaymentLinkService {
       },
       returnUrl,
       orderTags,
+      orderExpiryTime,
     });
 
     const paymentSessionId = String(order['payment_session_id'] ?? '');
