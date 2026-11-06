@@ -1,43 +1,55 @@
 /**
  * Repair live slugs / product_page_url leaves that incorrectly received a
- * trailing `-2` because the parent product's own slug was treated as a global
- * collision (fixed in isSlugTakenGlobally / resolveUniqueVariantSlug).
+ * trailing uniqueness `-2` because the parent product's own slug was treated
+ * as a global collision (fixed in isSlugTakenGlobally / resolveUniqueVariantSlug).
  *
- * Patterns repaired:
+ * Safe patterns:
  *   product.slug = xyz-face-wash
  *   variant.slug = xyz-face-wash-2   →  xyz-face-wash
  *
- *   product.slug = xyz-face-wash-2   →  xyz-face-wash  (when stem is free)
- *   variant.slug = xyz-face-wash-2   →  xyz-face-wash
- *   product_page_url leaf …/xyz-face-wash-2 → …/xyz-face-wash
+ *   product.slug = xyz-face-wash-2   →  xyz-face-wash
+ *   only when generateProductSlug(product.name) is xyz-face-wash (stem is the name).
  *
- * Only published products + non-deleted active variants. Clean slug must pass
- * the same live uniqueness rules as isSlugTakenGlobally (parent product and
- * sibling variants of the same product are allowed to share the slug).
+ * NOT repaired (semantic / original URLs):
+ *   regaliz-...-pack-of-2  stays  (name already contains "pack of 2")
  *
  * SAFE BY DEFAULT — dry-run unless --apply is passed.
  *
  * Usage:
  *   npm run product:repair-live-variant-slugs
- *   npm run product:repair-live-variant-slugs -- --slug=pure-nutrition-omega-3-5-6-7-9-1630-mg-30-softgels-2
- *   npm run product:repair-live-variant-slugs -- --apply --slug=pure-nutrition-omega-3-5-6-7-9-1630-mg-30-softgels-2
+ *   npm run product:repair-live-variant-slugs -- --apply --slug=...
  *
- * After apply:
+ * Rollback (wrongly stripped pack-of-2 etc.):
+ *   npm run product:repair-live-variant-slugs -- --rollback
+ *   npm run product:repair-live-variant-slugs -- --rollback --apply
+ *   npm run product:repair-live-variant-slugs -- --rollback --from=reports/repair-live-variant-slugs/apply-….json --apply
+ *
+ * After apply or rollback:
  *   npm run typesense:reindex
  *   npm run cache:invalidate-products
  *   npm run sitemap:generate
  */
 import 'reflect-metadata';
+import { mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { join } from 'path';
+import { SelectQueryBuilder } from 'typeorm';
 import { AppDataSource } from '../data-source';
 import { ProductVariantEntity } from '../../../../modules/product/entities/product-variant.entity';
 import { ProductEntity } from '../../../../modules/product/entities/product.entity';
 import { ProductStatus } from '../../../../modules/product/enums/product-status.enum';
 import { VariantStatus } from '../../../../modules/product/enums/variant-status.enum';
-import { APP_CONSTANTS } from '../../../../packages/common/src/app.constants';
 import { invalidateProductCache } from './product-cleanup.redis';
+import {
+  classifyMinusTwo,
+  classifySemanticMinusTwoRestore,
+  pathLeaf,
+  proposePageUrl,
+} from './repair-live-variant-slugs.util';
 
 interface CliOptions {
   apply: boolean;
+  rollback: boolean;
+  from?: string;
   limit?: number;
   sku?: string;
   productRefId?: string;
@@ -47,6 +59,7 @@ interface CliOptions {
 
 type SkipReason =
   | 'not_false_minus_2'
+  | 'semantic_name_minus_2'
   | 'clean_slug_empty'
   | 'genuine_collision'
   | 'missing_relationship'
@@ -96,17 +109,30 @@ interface SkipRow {
   detail?: string;
 }
 
-const maxSlugLength = (): number => APP_CONSTANTS.PRODUCT_URL_SLUG_MAX_LENGTH;
+interface ChangelogFile {
+  generatedAt: string;
+  mode: 'repair' | 'rollback';
+  rows: CandidateRow[];
+}
+
+const changelogDir = (): string => join(process.cwd(), 'reports', 'repair-live-variant-slugs');
 
 const printUsage = (): void => {
   console.log(`
-product:repair-live-variant-slugs — Remove unnecessary -2 from live slugs and page URLs
+product:repair-live-variant-slugs — Remove false uniqueness -2 (not pack-of-2 names)
 
   Dry-run:  npm run product:repair-live-variant-slugs
   Apply:    npm run product:repair-live-variant-slugs -- --apply
 
+Rollback wrongly stripped original URLs (name still ends with pack of 2, etc.):
+  Dry-run:  npm run product:repair-live-variant-slugs -- --rollback
+  Apply:    npm run product:repair-live-variant-slugs -- --rollback --apply
+  From log: npm run product:repair-live-variant-slugs -- --rollback --from=<changelog.json> --apply
+
 Options:
   --apply              Persist changes (default: dry-run)
+  --rollback           Restore semantic -2 URLs (or reverse a changelog)
+  --from <path>        Changelog JSON written on a previous --apply
   --limit <n>          Process at most N eligible repairs
   --sku <value>        Only this exact variant SKU
   --product-ref <id>   Only variants of this product refId
@@ -116,7 +142,7 @@ Options:
 };
 
 const parseCli = (argv: string[]): CliOptions => {
-  const options: CliOptions = { apply: false, help: false };
+  const options: CliOptions = { apply: false, rollback: false, help: false };
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -125,6 +151,13 @@ const parseCli = (argv: string[]): CliOptions => {
       options.help = true;
     } else if (arg === '--apply') {
       options.apply = true;
+    } else if (arg === '--rollback') {
+      options.rollback = true;
+    } else if (arg.startsWith('--from=')) {
+      options.from = arg.slice('--from='.length).trim() || undefined;
+    } else if (arg === '--from' && next) {
+      options.from = next.trim() || undefined;
+      index += 1;
     } else if (arg.startsWith('--limit=')) {
       const n = Number(arg.slice('--limit='.length));
       if (Number.isFinite(n) && n > 0) options.limit = Math.trunc(n);
@@ -151,62 +184,6 @@ const parseCli = (argv: string[]): CliOptions => {
   }
 
   return options;
-};
-
-/** Strip a uniqueness suffix `-2` only (not `-12`). */
-export const stripTrailingMinusTwo = (slug: string): string | null => {
-  const trimmed = String(slug ?? '').trim();
-  if (trimmed.length < 3 || !trimmed.toLowerCase().endsWith('-2')) return null;
-  const stem = trimmed.slice(0, -2);
-  return stem.trim() ? stem : null;
-};
-
-const pathLeaf = (value: string | null | undefined): string | null => {
-  const raw = value?.trim();
-  if (!raw) return null;
-  let path = raw;
-  try {
-    if (/^https?:\/\//i.test(raw)) path = new URL(raw).pathname;
-  } catch {
-    // keep path
-  }
-  const parts = path.replace(/\/+$/, '').split('/').filter(Boolean);
-  return parts.length ? parts[parts.length - 1] : null;
-};
-
-/** Rewrite a URL/path leaf when it matches any of the old slugs. */
-const proposePageUrl = (
-  pageUrl: string | null | undefined,
-  oldLeaves: string[],
-  proposedSlug: string,
-): string | null => {
-  const raw = pageUrl?.trim();
-  if (!raw) return null;
-
-  const trailingSlash = raw.endsWith('/');
-  let path = raw;
-  let origin = '';
-  try {
-    if (/^https?:\/\//i.test(raw)) {
-      const parsed = new URL(raw);
-      path = parsed.pathname;
-      origin = `${parsed.origin}`;
-    }
-  } catch {
-    // keep path as-is
-  }
-  if (!path.startsWith('/')) path = `/${path}`;
-
-  const parts = path.replace(/\/+$/, '').split('/').filter(Boolean);
-  if (!parts.length) return null;
-
-  const leaf = parts[parts.length - 1];
-  const old = new Set(oldLeaves.map((item) => item.trim().toLowerCase()).filter(Boolean));
-  if (!old.has(leaf.toLowerCase())) return null;
-
-  parts[parts.length - 1] = proposedSlug.slice(0, maxSlugLength());
-  const rebuiltPath = `/${parts.join('/')}${trailingSlash ? '/' : ''}`;
-  return origin ? `${origin}${rebuiltPath}` : rebuiltPath;
 };
 
 const isUniqueViolation = (error: unknown): boolean => {
@@ -266,6 +243,277 @@ const isCleanSlugTakenByOtherLiveProduct = async (
   return { taken: false };
 };
 
+const writeChangelog = (mode: ChangelogFile['mode'], rows: CandidateRow[]): string => {
+  mkdirSync(changelogDir(), { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const path = join(changelogDir(), `${mode}-${stamp}.json`);
+  const payload: ChangelogFile = { generatedAt: new Date().toISOString(), mode, rows };
+  writeFileSync(path, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+  return path;
+};
+
+const loadChangelog = (path: string): CandidateRow[] => {
+  const parsed = JSON.parse(readFileSync(path, 'utf8')) as ChangelogFile | CandidateRow[];
+  const rows = Array.isArray(parsed) ? parsed : parsed.rows;
+  if (!Array.isArray(rows)) {
+    throw new Error(`Invalid changelog: ${path}`);
+  }
+  return rows.map((row) => ({
+    ...row,
+    currentProductSlug: row.proposedProductSlug,
+    proposedProductSlug: row.currentProductSlug,
+    currentSlug: row.proposedSlug,
+    proposedSlug: row.currentSlug,
+    currentPageUrl: row.proposedPageUrl ?? row.currentPageUrl,
+    proposedPageUrl: row.currentPageUrl,
+    currentVariantSingleUrl: row.proposedVariantSingleUrl ?? row.currentVariantSingleUrl,
+    proposedVariantSingleUrl: row.currentVariantSingleUrl,
+    currentProductSingleUrl: row.proposedProductSingleUrl ?? row.currentProductSingleUrl,
+    proposedProductSingleUrl: row.currentProductSingleUrl,
+  }));
+};
+
+const applyFilters = (
+  qb: SelectQueryBuilder<ProductVariantEntity>,
+  options: CliOptions,
+): void => {
+  if (options.sku) {
+    qb.andWhere('variant.sku = :sku', { sku: options.sku });
+  }
+  if (options.productRefId) {
+    qb.andWhere('product.refId = :productRefId', {
+      productRefId: options.productRefId,
+    });
+  }
+  if (options.slug) {
+    const slug = options.slug.trim().toLowerCase();
+    qb.andWhere(
+      `(LOWER(variant.slug) = :slug OR LOWER(product.slug) = :slug
+        OR LOWER(COALESCE(variant.product_page_url, '')) LIKE :slugLeaf
+        OR LOWER(COALESCE(variant.product_page_url, '')) LIKE :slugLeafSlash
+        OR LOWER(COALESCE(variant.single_product_url, '')) LIKE :slugLeaf
+        OR LOWER(COALESCE(product.single_product_url, '')) LIKE :slugLeaf)`,
+      {
+        slug,
+        slugLeaf: `%/${slug}`,
+        slugLeafSlash: `%/${slug}/`,
+      },
+    );
+  }
+};
+
+const scanLiveRows = async (options: CliOptions, forRestore: boolean): Promise<ScanRow[]> => {
+  const qb = AppDataSource.getRepository(ProductVariantEntity)
+    .createQueryBuilder('variant')
+    .innerJoin(ProductEntity, 'product', 'product.id = variant.productId')
+    .select('variant.id', 'variantId')
+    .addSelect('variant.sku', 'variantSku')
+    .addSelect('variant.slug', 'variantSlug')
+    .addSelect('variant.displayName', 'variantDisplayName')
+    .addSelect('variant.productPageUrl', 'variantPageUrl')
+    .addSelect('variant.singleProductUrl', 'variantSingleUrl')
+    .addSelect('variant.status', 'variantStatus')
+    .addSelect('product.id', 'productId')
+    .addSelect('product.refId', 'productRefId')
+    .addSelect('product.name', 'productName')
+    .addSelect('product.slug', 'productSlug')
+    .addSelect('product.singleProductUrl', 'productSingleUrl')
+    .where('variant.deletedAt IS NULL')
+    .andWhere('product.deletedAt IS NULL')
+    .andWhere('product.status = :published', { published: ProductStatus.PUBLISHED })
+    .andWhere('variant.status = :active', { active: VariantStatus.ACTIVE })
+    .andWhere("variant.slug IS NOT NULL AND TRIM(variant.slug) <> ''")
+    .andWhere("product.slug IS NOT NULL AND TRIM(product.slug) <> ''")
+    .orderBy('product.refId', 'ASC')
+    .addOrderBy('variant.sku', 'ASC');
+
+  if (!forRestore) {
+    qb.andWhere(
+      `(LOWER(variant.slug) LIKE '%-2' OR LOWER(product.slug) LIKE '%-2'
+        OR LOWER(COALESCE(variant.product_page_url, '')) LIKE '%-2'
+        OR LOWER(COALESCE(variant.product_page_url, '')) LIKE '%-2/'
+        OR LOWER(COALESCE(variant.single_product_url, '')) LIKE '%-2'
+        OR LOWER(COALESCE(variant.single_product_url, '')) LIKE '%-2/'
+        OR LOWER(COALESCE(product.single_product_url, '')) LIKE '%-2'
+        OR LOWER(COALESCE(product.single_product_url, '')) LIKE '%-2/')`,
+    );
+  }
+
+  applyFilters(qb, options);
+  return (await qb.getRawMany()) as ScanRow[];
+};
+
+const toCandidate = (
+  row: ScanRow,
+  proposedProductSlug: string,
+  proposedVariantSlug: string,
+): CandidateRow | null => {
+  const productSlug = String(row.productSlug ?? '').trim();
+  const variantSlug = String(row.variantSlug ?? '').trim();
+  const pageLeaf = pathLeaf(row.variantPageUrl);
+  const oldLeaves = [variantSlug, productSlug, pageLeaf].filter(
+    (item): item is string => Boolean(item),
+  );
+  const proposedPageUrl = proposePageUrl(row.variantPageUrl, oldLeaves, proposedVariantSlug);
+  const proposedVariantSingleUrl = proposePageUrl(
+    row.variantSingleUrl,
+    oldLeaves,
+    proposedVariantSlug,
+  );
+  const proposedProductSingleUrl = proposePageUrl(
+    row.productSingleUrl,
+    oldLeaves,
+    proposedProductSlug,
+  );
+
+  const slugChanged =
+    proposedProductSlug.toLowerCase() !== productSlug.toLowerCase() ||
+    proposedVariantSlug.toLowerCase() !== variantSlug.toLowerCase();
+  const urlChanged = Boolean(
+    proposedPageUrl || proposedVariantSingleUrl || proposedProductSingleUrl,
+  );
+  if (!slugChanged && !urlChanged) return null;
+
+  return {
+    variantId: row.variantId,
+    productId: row.productId,
+    productRefId: row.productRefId,
+    productName: row.productName,
+    currentProductSlug: productSlug,
+    proposedProductSlug,
+    sku: row.variantSku,
+    variantName: row.variantDisplayName,
+    currentSlug: variantSlug,
+    proposedSlug: proposedVariantSlug,
+    currentPageUrl: row.variantPageUrl,
+    proposedPageUrl,
+    currentVariantSingleUrl: row.variantSingleUrl,
+    proposedVariantSingleUrl,
+    currentProductSingleUrl: row.productSingleUrl,
+    proposedProductSingleUrl,
+  };
+};
+
+const printPreview = (candidates: CandidateRow[]): void => {
+  const preview = candidates.slice(0, 40);
+  if (!preview.length) return;
+  console.log('\n--- Eligible repairs ---');
+  for (const item of preview) {
+    console.log(
+      `  product=${item.productRefId} | sku=${item.sku}\n` +
+        `    name: ${item.productName}` +
+        (item.variantName ? ` / ${item.variantName}` : '') +
+        `\n    product slug: ${item.currentProductSlug}  →  ${item.proposedProductSlug}` +
+        `\n    variant slug: ${item.currentSlug}  →  ${item.proposedSlug}` +
+        (item.proposedPageUrl
+          ? `\n    page: ${item.currentPageUrl}  →  ${item.proposedPageUrl}`
+          : item.currentPageUrl
+            ? `\n    page: ${item.currentPageUrl} (leaf unchanged)`
+            : '\n    page: (null)'),
+    );
+  }
+  if (candidates.length > preview.length) {
+    console.log(`  … ${candidates.length - preview.length} more eligible`);
+  }
+};
+
+const persistCandidates = async (
+  candidates: CandidateRow[],
+  stats: { eligible: number; updated: number; skippedCollision: number; errors: number },
+): Promise<void> => {
+  const updatedProducts = new Set<string>();
+  const variantRepo = AppDataSource.getRepository(ProductVariantEntity);
+  const productRepo = AppDataSource.getRepository(ProductEntity);
+  for (const item of candidates) {
+    try {
+      const recheckSlug =
+        item.proposedSlug.toLowerCase() !== item.currentSlug.toLowerCase()
+          ? item.proposedSlug
+          : item.proposedProductSlug.toLowerCase() !== item.currentProductSlug.toLowerCase()
+            ? item.proposedProductSlug
+            : null;
+      if (recheckSlug) {
+        const recheck = await isCleanSlugTakenByOtherLiveProduct(recheckSlug, {
+          productId: item.productId,
+          variantId: item.variantId,
+        });
+        if (recheck.taken) {
+          stats.skippedCollision += 1;
+          stats.eligible -= 1;
+          console.warn(
+            `[repair-live-variant-slugs] skip at write time ${item.productRefId} ${item.sku}: ${recheck.detail}`,
+          );
+          continue;
+        }
+      }
+
+      if (
+        !updatedProducts.has(item.productId) &&
+        item.proposedProductSlug.toLowerCase() !== item.currentProductSlug.toLowerCase()
+      ) {
+        await productRepo.update(
+          { id: item.productId },
+          {
+            slug: item.proposedProductSlug,
+            ...(item.proposedProductSingleUrl
+              ? { singleProductUrl: item.proposedProductSingleUrl }
+              : {}),
+          },
+        );
+        updatedProducts.add(item.productId);
+      }
+
+      await variantRepo.update(
+        { id: item.variantId },
+        {
+          ...(item.proposedSlug.toLowerCase() !== item.currentSlug.toLowerCase()
+            ? { slug: item.proposedSlug }
+            : {}),
+          ...(item.proposedPageUrl ? { productPageUrl: item.proposedPageUrl } : {}),
+          ...(item.proposedVariantSingleUrl
+            ? { singleProductUrl: item.proposedVariantSingleUrl }
+            : {}),
+        },
+      );
+      stats.updated += 1;
+      console.log(
+        `[repair-live-variant-slugs] updated ${item.productRefId} ${item.sku}: ` +
+          `product ${item.currentProductSlug} → ${item.proposedProductSlug}; ` +
+          `variant ${item.currentSlug} → ${item.proposedSlug}`,
+      );
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        stats.skippedCollision += 1;
+        stats.eligible -= 1;
+        console.warn(
+          `[repair-live-variant-slugs] skip unique collision ${item.productRefId} ${item.sku}: ` +
+            `${item.currentSlug} ↛ ${item.proposedSlug}`,
+        );
+        continue;
+      }
+      stats.errors += 1;
+      console.error(
+        `[repair-live-variant-slugs] skip error ${item.productRefId} ${item.sku}:`,
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
+
+  const cacheTargets = [
+    ...new Map(
+      candidates.map((c) => [c.productRefId, { refId: c.productRefId, slug: c.proposedSlug }]),
+    ).values(),
+  ];
+  const oldSlugTargets = candidates.flatMap((c) => [
+    { refId: c.productRefId, slug: c.currentSlug },
+    { refId: c.productRefId, slug: c.currentProductSlug },
+  ]);
+  const cacheResult = await invalidateProductCache([...cacheTargets, ...oldSlugTargets], false);
+  console.log(
+    `[repair-live-variant-slugs] redis connected=${cacheResult.connected} keysDeleted=${cacheResult.keysDeleted}`,
+  );
+};
+
 const main = async (): Promise<void> => {
   const options = parseCli(process.argv.slice(2));
   if (options.help) {
@@ -274,11 +522,13 @@ const main = async (): Promise<void> => {
   }
 
   console.log(
-    `[repair-live-variant-slugs] mode=${options.apply ? 'APPLY' : 'DRY-RUN'}` +
+    `[repair-live-variant-slugs] mode=${options.rollback ? 'ROLLBACK' : 'REPAIR'} ` +
+      `${options.apply ? 'APPLY' : 'DRY-RUN'}` +
       `${options.limit ? ` limit=${options.limit}` : ''}` +
       `${options.sku ? ` sku=${options.sku}` : ''}` +
       `${options.productRefId ? ` productRef=${options.productRefId}` : ''}` +
-      `${options.slug ? ` slug=${options.slug}` : ''}`,
+      `${options.slug ? ` slug=${options.slug}` : ''}` +
+      `${options.from ? ` from=${options.from}` : ''}`,
   );
 
   await AppDataSource.initialize();
@@ -295,126 +545,142 @@ const main = async (): Promise<void> => {
   };
 
   try {
-    const qb = AppDataSource.getRepository(ProductVariantEntity)
-      .createQueryBuilder('variant')
-      .innerJoin(ProductEntity, 'product', 'product.id = variant.productId')
-      .select('variant.id', 'variantId')
-      .addSelect('variant.sku', 'variantSku')
-      .addSelect('variant.slug', 'variantSlug')
-      .addSelect('variant.displayName', 'variantDisplayName')
-      .addSelect('variant.productPageUrl', 'variantPageUrl')
-      .addSelect('variant.singleProductUrl', 'variantSingleUrl')
-      .addSelect('variant.status', 'variantStatus')
-      .addSelect('product.id', 'productId')
-      .addSelect('product.refId', 'productRefId')
-      .addSelect('product.name', 'productName')
-      .addSelect('product.slug', 'productSlug')
-      .addSelect('product.singleProductUrl', 'productSingleUrl')
-      .where('variant.deletedAt IS NULL')
-      .andWhere('product.deletedAt IS NULL')
-      .andWhere('product.status = :published', { published: ProductStatus.PUBLISHED })
-      .andWhere('variant.status = :active', { active: VariantStatus.ACTIVE })
-      .andWhere("variant.slug IS NOT NULL AND TRIM(variant.slug) <> ''")
-      .andWhere("product.slug IS NOT NULL AND TRIM(product.slug) <> ''")
-      .andWhere(
-        `(LOWER(variant.slug) LIKE '%-2' OR LOWER(product.slug) LIKE '%-2'
-          OR LOWER(COALESCE(variant.product_page_url, '')) LIKE '%-2'
-          OR LOWER(COALESCE(variant.product_page_url, '')) LIKE '%-2/'
-          OR LOWER(COALESCE(variant.single_product_url, '')) LIKE '%-2'
-          OR LOWER(COALESCE(variant.single_product_url, '')) LIKE '%-2/'
-          OR LOWER(COALESCE(product.single_product_url, '')) LIKE '%-2'
-          OR LOWER(COALESCE(product.single_product_url, '')) LIKE '%-2/')`,
-      )
-      .orderBy('product.refId', 'ASC')
-      .addOrderBy('variant.sku', 'ASC');
-
-    if (options.sku) {
-      qb.andWhere('variant.sku = :sku', { sku: options.sku });
-    }
-    if (options.productRefId) {
-      qb.andWhere('product.refId = :productRefId', {
-        productRefId: options.productRefId,
-      });
-    }
-    if (options.slug) {
-      const slug = options.slug.trim().toLowerCase();
-      qb.andWhere(
-        `(LOWER(variant.slug) = :slug OR LOWER(product.slug) = :slug
-          OR LOWER(COALESCE(variant.product_page_url, '')) LIKE :slugLeaf
-          OR LOWER(COALESCE(variant.product_page_url, '')) LIKE :slugLeafSlash
-          OR LOWER(COALESCE(variant.single_product_url, '')) LIKE :slugLeaf
-          OR LOWER(COALESCE(product.single_product_url, '')) LIKE :slugLeaf)`,
-        {
-          slug,
-          slugLeaf: `%/${slug}`,
-          slugLeafSlash: `%/${slug}/`,
-        },
-      );
-    }
-
-    const rows = (await qb.getRawMany()) as ScanRow[];
-    stats.scanned = rows.length;
-
     const candidates: CandidateRow[] = [];
     const skips: SkipRow[] = [];
     const productStemClaim = new Map<string, string>();
     const claimedVariantSlugs = new Set<string>();
 
-    for (const row of rows) {
-      if (!row.productId || !row.variantId) {
-        stats.skippedInvalid += 1;
-        skips.push({
-          variantId: row.variantId ?? '',
-          productRefId: row.productRefId ?? '',
-          sku: row.variantSku ?? '',
-          currentSlug: row.variantSlug ?? '',
-          proposedSlug: null,
-          reason: 'missing_relationship',
-          detail: 'Missing product or variant id',
-        });
-        continue;
-      }
-
-      const productSlug = String(row.productSlug ?? '').trim();
-      const variantSlug = String(row.variantSlug ?? '').trim();
-      const productStem = stripTrailingMinusTwo(productSlug);
-      const variantStem = stripTrailingMinusTwo(variantSlug);
-      const pageLeaf = pathLeaf(row.variantPageUrl);
-      const pageStem = pageLeaf ? stripTrailingMinusTwo(pageLeaf) : null;
-
-      const looksLikeFalseMinusTwo = Boolean(
-        (variantStem && variantStem.toLowerCase() === productSlug.toLowerCase()) ||
-          productStem ||
-          (pageStem &&
-            (pageLeaf?.toLowerCase() === variantSlug.toLowerCase() ||
-              pageLeaf?.toLowerCase() === productSlug.toLowerCase() ||
-              pageStem.toLowerCase() === productSlug.toLowerCase() ||
-              pageStem.toLowerCase() === variantStem?.toLowerCase())),
+    if (options.rollback && options.from) {
+      const reversed = loadChangelog(options.from);
+      stats.scanned = reversed.length;
+      stats.candidatesMinus2 = reversed.length;
+      candidates.push(
+        ...(options.limit ? reversed.slice(0, options.limit) : reversed),
       );
+    } else {
+      const rows = await scanLiveRows(options, Boolean(options.rollback));
+      stats.scanned = rows.length;
 
-      if (!looksLikeFalseMinusTwo) {
-        stats.skippedOther += 1;
-        skips.push({
-          variantId: row.variantId,
-          productRefId: row.productRefId,
-          sku: row.variantSku,
-          currentSlug: variantSlug,
-          proposedSlug: null,
-          reason: 'not_false_minus_2',
-          detail: `product=${productSlug} pageLeaf=${pageLeaf ?? '(none)'}`,
-        });
-        continue;
-      }
+      for (const row of rows) {
+        if (!row.productId || !row.variantId) {
+          stats.skippedInvalid += 1;
+          skips.push({
+            variantId: row.variantId ?? '',
+            productRefId: row.productRefId ?? '',
+            sku: row.variantSku ?? '',
+            currentSlug: row.variantSlug ?? '',
+            proposedSlug: null,
+            reason: 'missing_relationship',
+            detail: 'Missing product or variant id',
+          });
+          continue;
+        }
 
-      stats.candidatesMinus2 += 1;
+        const classified = options.rollback
+          ? (() => {
+              const restore = classifySemanticMinusTwoRestore({
+                productName: row.productName,
+                currentProductSlug: row.productSlug,
+                currentVariantSlug: row.variantSlug,
+              });
+              return {
+                repairProduct: restore.restore,
+                repairVariant: restore.restore && restore.restoreVariant,
+                proposedProductSlug: restore.restoreSlug,
+                proposedVariantSlug: restore.restore
+                  ? restore.restoreVariant
+                    ? restore.restoreSlug
+                    : String(row.variantSlug ?? '').trim()
+                  : String(row.variantSlug ?? '').trim(),
+                reason: restore.restore ? ('uniqueness_suffix_not_in_name' as const) : ('none' as const),
+              };
+            })()
+          : classifyMinusTwo({
+              productName: row.productName,
+              productSlug: row.productSlug,
+              variantSlug: row.variantSlug,
+            });
 
-      let proposedProductSlug = productSlug;
-      if (productStem) {
-        const claimed = productStemClaim.get(row.productId);
-        if (claimed) {
-          proposedProductSlug = claimed;
-        } else {
-          const collision = await isCleanSlugTakenByOtherLiveProduct(productStem, {
+        if (!classified.repairProduct && !classified.repairVariant) {
+          stats.skippedOther += 1;
+          skips.push({
+            variantId: row.variantId,
+            productRefId: row.productRefId,
+            sku: row.variantSku,
+            currentSlug: String(row.variantSlug ?? '').trim(),
+            proposedSlug: null,
+            reason:
+              classified.reason === 'semantic_name_minus_2'
+                ? 'semantic_name_minus_2'
+                : 'not_false_minus_2',
+            detail: `product=${row.productSlug} reason=${classified.reason}`,
+          });
+          continue;
+        }
+
+        stats.candidatesMinus2 += 1;
+
+        let proposedProductSlug = classified.proposedProductSlug;
+        if (classified.repairProduct) {
+          const claimed = productStemClaim.get(row.productId);
+          if (claimed) {
+            proposedProductSlug = claimed;
+          } else {
+            const collision = await isCleanSlugTakenByOtherLiveProduct(proposedProductSlug, {
+              productId: row.productId,
+              variantId: row.variantId,
+            });
+            if (collision.taken) {
+              stats.skippedCollision += 1;
+              skips.push({
+                variantId: row.variantId,
+                productRefId: row.productRefId,
+                sku: row.variantSku,
+                currentSlug: String(row.variantSlug ?? '').trim(),
+                proposedSlug: proposedProductSlug,
+                reason: 'genuine_collision',
+                detail: `product slug ${collision.detail}`,
+              });
+              continue;
+            }
+            productStemClaim.set(row.productId, proposedProductSlug);
+          }
+        }
+
+        const proposedVariantSlug = classified.repairVariant
+          ? proposedProductSlug
+          : classified.proposedVariantSlug;
+
+        if (!proposedVariantSlug) {
+          stats.skippedInvalid += 1;
+          skips.push({
+            variantId: row.variantId,
+            productRefId: row.productRefId,
+            sku: row.variantSku,
+            currentSlug: String(row.variantSlug ?? '').trim(),
+            proposedSlug: null,
+            reason: 'clean_slug_empty',
+          });
+          continue;
+        }
+
+        const variantSlug = String(row.variantSlug ?? '').trim();
+        if (proposedVariantSlug.toLowerCase() !== variantSlug.toLowerCase()) {
+          const claimedKey = proposedVariantSlug.toLowerCase();
+          if (claimedVariantSlugs.has(claimedKey)) {
+            stats.skippedCollision += 1;
+            skips.push({
+              variantId: row.variantId,
+              productRefId: row.productRefId,
+              sku: row.variantSku,
+              currentSlug: variantSlug,
+              proposedSlug: proposedVariantSlug,
+              reason: 'genuine_collision',
+              detail: `this run already assigned slug "${proposedVariantSlug}"`,
+            });
+            continue;
+          }
+          const collision = await isCleanSlugTakenByOtherLiveProduct(proposedVariantSlug, {
             productId: row.productId,
             variantId: row.variantId,
           });
@@ -425,142 +691,32 @@ const main = async (): Promise<void> => {
               productRefId: row.productRefId,
               sku: row.variantSku,
               currentSlug: variantSlug,
-              proposedSlug: productStem,
+              proposedSlug: proposedVariantSlug,
               reason: 'genuine_collision',
-              detail: `product slug ${collision.detail}`,
+              detail: collision.detail,
             });
             continue;
           }
-          proposedProductSlug = productStem.slice(0, maxSlugLength());
-          productStemClaim.set(row.productId, proposedProductSlug);
+          claimedVariantSlugs.add(claimedKey);
         }
-      }
 
-      let proposedVariantSlug = variantSlug;
-      if (
-        variantStem &&
-        (variantStem.toLowerCase() === productSlug.toLowerCase() ||
-          variantStem.toLowerCase() === proposedProductSlug.toLowerCase() ||
-          variantSlug.toLowerCase() === productSlug.toLowerCase())
-      ) {
-        proposedVariantSlug = proposedProductSlug;
-      } else if (variantSlug.toLowerCase() === `${productSlug.toLowerCase()}-2`) {
-        proposedVariantSlug = proposedProductSlug;
-      } else if (
-        variantSlug.toLowerCase() === productSlug.toLowerCase() &&
-        proposedProductSlug.toLowerCase() !== productSlug.toLowerCase()
-      ) {
-        proposedVariantSlug = proposedProductSlug;
-      }
-
-      proposedVariantSlug = proposedVariantSlug.slice(0, maxSlugLength());
-      if (!proposedVariantSlug) {
-        stats.skippedInvalid += 1;
-        skips.push({
-          variantId: row.variantId,
-          productRefId: row.productRefId,
-          sku: row.variantSku,
-          currentSlug: variantSlug,
-          proposedSlug: null,
-          reason: 'clean_slug_empty',
-        });
-        continue;
-      }
-
-      if (proposedVariantSlug.toLowerCase() !== variantSlug.toLowerCase()) {
-        const claimedKey = proposedVariantSlug.toLowerCase();
-        if (claimedVariantSlugs.has(claimedKey)) {
-          stats.skippedCollision += 1;
+        const candidate = toCandidate(row, proposedProductSlug, proposedVariantSlug);
+        if (!candidate) {
+          stats.skippedOther += 1;
           skips.push({
             variantId: row.variantId,
             productRefId: row.productRefId,
             sku: row.variantSku,
             currentSlug: variantSlug,
             proposedSlug: proposedVariantSlug,
-            reason: 'genuine_collision',
-            detail: `this run already assigned slug "${proposedVariantSlug}"`,
+            reason: 'unchanged',
           });
           continue;
         }
-        const collision = await isCleanSlugTakenByOtherLiveProduct(proposedVariantSlug, {
-          productId: row.productId,
-          variantId: row.variantId,
-        });
-        if (collision.taken) {
-          stats.skippedCollision += 1;
-          skips.push({
-            variantId: row.variantId,
-            productRefId: row.productRefId,
-            sku: row.variantSku,
-            currentSlug: variantSlug,
-            proposedSlug: proposedVariantSlug,
-            reason: 'genuine_collision',
-            detail: collision.detail,
-          });
-          continue;
-        }
-        claimedVariantSlugs.add(claimedKey);
+
+        candidates.push(candidate);
+        if (options.limit && candidates.length >= options.limit) break;
       }
-
-      const oldLeaves = [variantSlug, productSlug, pageLeaf].filter(
-        (item): item is string => Boolean(item),
-      );
-      const proposedPageUrl = proposePageUrl(
-        row.variantPageUrl,
-        oldLeaves,
-        proposedVariantSlug,
-      );
-      const proposedVariantSingleUrl = proposePageUrl(
-        row.variantSingleUrl,
-        oldLeaves,
-        proposedVariantSlug,
-      );
-      const proposedProductSingleUrl = proposePageUrl(
-        row.productSingleUrl,
-        oldLeaves,
-        proposedProductSlug,
-      );
-
-      const slugChanged =
-        proposedProductSlug.toLowerCase() !== productSlug.toLowerCase() ||
-        proposedVariantSlug.toLowerCase() !== variantSlug.toLowerCase();
-      const urlChanged = Boolean(
-        proposedPageUrl || proposedVariantSingleUrl || proposedProductSingleUrl,
-      );
-
-      if (!slugChanged && !urlChanged) {
-        stats.skippedOther += 1;
-        skips.push({
-          variantId: row.variantId,
-          productRefId: row.productRefId,
-          sku: row.variantSku,
-          currentSlug: variantSlug,
-          proposedSlug: proposedVariantSlug,
-          reason: 'unchanged',
-        });
-        continue;
-      }
-
-      candidates.push({
-        variantId: row.variantId,
-        productId: row.productId,
-        productRefId: row.productRefId,
-        productName: row.productName,
-        currentProductSlug: productSlug,
-        proposedProductSlug,
-        sku: row.variantSku,
-        variantName: row.variantDisplayName,
-        currentSlug: variantSlug,
-        proposedSlug: proposedVariantSlug,
-        currentPageUrl: row.variantPageUrl,
-        proposedPageUrl,
-        currentVariantSingleUrl: row.variantSingleUrl,
-        proposedVariantSingleUrl,
-        currentProductSingleUrl: row.productSingleUrl,
-        proposedProductSingleUrl,
-      });
-
-      if (options.limit && candidates.length >= options.limit) break;
     }
 
     stats.eligible = candidates.length;
@@ -572,27 +728,7 @@ const main = async (): Promise<void> => {
         `skippedInvalid=${stats.skippedInvalid} skippedOther=${stats.skippedOther}`,
     );
 
-    const preview = candidates.slice(0, 40);
-    if (preview.length) {
-      console.log('\n--- Eligible repairs ---');
-      for (const item of preview) {
-        console.log(
-          `  product=${item.productRefId} | sku=${item.sku}\n` +
-            `    name: ${item.productName}` +
-            (item.variantName ? ` / ${item.variantName}` : '') +
-            `\n    product slug: ${item.currentProductSlug}  →  ${item.proposedProductSlug}` +
-            `\n    variant slug: ${item.currentSlug}  →  ${item.proposedSlug}` +
-            (item.proposedPageUrl
-              ? `\n    page: ${item.currentPageUrl}  →  ${item.proposedPageUrl}`
-              : item.currentPageUrl
-                ? `\n    page: ${item.currentPageUrl} (leaf unchanged)`
-                : '\n    page: (null)'),
-        );
-      }
-      if (candidates.length > preview.length) {
-        console.log(`  … ${candidates.length - preview.length} more eligible`);
-      }
-    }
+    printPreview(candidates);
 
     const collisionSkips = skips.filter((s) => s.reason === 'genuine_collision').slice(0, 20);
     if (collisionSkips.length) {
@@ -605,10 +741,23 @@ const main = async (): Promise<void> => {
       }
     }
 
-    if (!options.apply) {
+    const semanticSkips = skips.filter((s) => s.reason === 'semantic_name_minus_2').length;
+    if (semanticSkips && !options.rollback) {
       console.log(
-        '\n[repair-live-variant-slugs] Dry-run only. Re-run with --apply to persist.\n' +
-          'Example: npm run product:repair-live-variant-slugs -- --apply --slug=pure-nutrition-omega-3-5-6-7-9-1630-mg-30-softgels-2\n',
+        `\n[repair-live-variant-slugs] left ${semanticSkips} semantic -2 URLs unchanged (pack-of-2 / name already ends with -2).`,
+      );
+    }
+
+    if (!options.apply) {
+      if (candidates.length) {
+        const previewPath = writeChangelog(options.rollback ? 'rollback' : 'repair', candidates);
+        console.log(`[repair-live-variant-slugs] wrote dry-run changelog ${previewPath}`);
+      }
+      console.log(
+        `\n[repair-live-variant-slugs] Dry-run only. Re-run with --apply to persist.\n` +
+          (options.rollback
+            ? 'Example: npm run product:repair-live-variant-slugs -- --rollback --apply\n'
+            : 'Example: npm run product:repair-live-variant-slugs -- --apply --slug=…\n'),
       );
       return;
     }
@@ -618,103 +767,10 @@ const main = async (): Promise<void> => {
       return;
     }
 
-    const updatedProducts = new Set<string>();
-    const variantRepo = AppDataSource.getRepository(ProductVariantEntity);
-    const productRepo = AppDataSource.getRepository(ProductEntity);
-    for (const item of candidates) {
-      try {
-        const recheckSlug =
-          item.proposedSlug.toLowerCase() !== item.currentSlug.toLowerCase()
-            ? item.proposedSlug
-            : item.proposedProductSlug.toLowerCase() !== item.currentProductSlug.toLowerCase()
-              ? item.proposedProductSlug
-              : null;
-        if (recheckSlug) {
-          const recheck = await isCleanSlugTakenByOtherLiveProduct(recheckSlug, {
-            productId: item.productId,
-            variantId: item.variantId,
-          });
-          if (recheck.taken) {
-            stats.skippedCollision += 1;
-            stats.eligible -= 1;
-            console.warn(
-              `[repair-live-variant-slugs] skip at write time ${item.productRefId} ${item.sku}: ${recheck.detail}`,
-            );
-            continue;
-          }
-        }
+    const changelogPath = writeChangelog(options.rollback ? 'rollback' : 'repair', candidates);
+    console.log(`[repair-live-variant-slugs] changelog ${changelogPath}`);
 
-        if (
-          !updatedProducts.has(item.productId) &&
-          item.proposedProductSlug.toLowerCase() !== item.currentProductSlug.toLowerCase()
-        ) {
-          await productRepo.update(
-            { id: item.productId },
-            {
-              slug: item.proposedProductSlug,
-              ...(item.proposedProductSingleUrl
-                ? { singleProductUrl: item.proposedProductSingleUrl }
-                : {}),
-            },
-          );
-          updatedProducts.add(item.productId);
-        }
-
-        await variantRepo.update(
-          { id: item.variantId },
-          {
-            ...(item.proposedSlug.toLowerCase() !== item.currentSlug.toLowerCase()
-              ? { slug: item.proposedSlug }
-              : {}),
-            ...(item.proposedPageUrl ? { productPageUrl: item.proposedPageUrl } : {}),
-            ...(item.proposedVariantSingleUrl
-              ? { singleProductUrl: item.proposedVariantSingleUrl }
-              : {}),
-          },
-        );
-        stats.updated += 1;
-        console.log(
-          `[repair-live-variant-slugs] updated ${item.productRefId} ${item.sku}: ` +
-            `product ${item.currentProductSlug} → ${item.proposedProductSlug}; ` +
-            `variant ${item.currentSlug} → ${item.proposedSlug}`,
-        );
-      } catch (error) {
-        if (isUniqueViolation(error)) {
-          stats.skippedCollision += 1;
-          stats.eligible -= 1;
-          console.warn(
-            `[repair-live-variant-slugs] skip unique collision ${item.productRefId} ${item.sku}: ` +
-              `${item.currentSlug} ↛ ${item.proposedSlug}`,
-          );
-          continue;
-        }
-        stats.errors += 1;
-        console.error(
-          `[repair-live-variant-slugs] skip error ${item.productRefId} ${item.sku}:`,
-          error instanceof Error ? error.message : error,
-        );
-      }
-    }
-
-    const cacheTargets = [
-      ...new Map(
-        candidates.map((c) => [
-          c.productRefId,
-          { refId: c.productRefId, slug: c.proposedSlug },
-        ]),
-      ).values(),
-    ];
-    const oldSlugTargets = candidates.flatMap((c) => [
-      { refId: c.productRefId, slug: c.currentSlug },
-      { refId: c.productRefId, slug: c.currentProductSlug },
-    ]);
-    const cacheResult = await invalidateProductCache(
-      [...cacheTargets, ...oldSlugTargets],
-      false,
-    );
-    console.log(
-      `[repair-live-variant-slugs] redis connected=${cacheResult.connected} keysDeleted=${cacheResult.keysDeleted}`,
-    );
+    await persistCandidates(candidates, stats);
 
     console.log(
       '\n[repair-live-variant-slugs] Done. Recommended next:\n' +

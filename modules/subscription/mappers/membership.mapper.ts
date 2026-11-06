@@ -8,6 +8,7 @@ import {
   IMembershipPlan,
   IUserMembership,
 } from '../interfaces/membership.interface';
+import { rewriteCashfreeHostedCheckoutUrl } from '@modules/payment-requests/utils/cashfree-checkout-url.util';
 import {
   paymentSessionIdFromLink,
   type SubscriptionCheckoutExtras,
@@ -82,7 +83,7 @@ export const mapUserMembershipToResponse = (
   cancellationReason: entity.cancellationReason,
   pausedAt: toIso(entity.pausedAt),
   termsAcceptedAt: toIso(entity.termsAcceptedAt),
-  paymentLink: extras?.paymentLink ?? null,
+  paymentLink: rewriteCashfreeHostedCheckoutUrl(extras?.paymentLink ?? null),
   razorpayOrderId: extras?.razorpayOrderId ?? null,
   keyId: extras?.keyId ?? null,
   amount: extras?.amount ?? null,
@@ -115,7 +116,7 @@ export const mapMembershipPaymentToResponse = (
   paymentGateway: entity.paymentGateway,
   gatewayOrderId: entity.gatewayOrderId,
   gatewayPaymentId: entity.gatewayPaymentId,
-  paymentLink: entity.paymentLink,
+  paymentLink: rewriteCashfreeHostedCheckoutUrl(entity.paymentLink),
   paymentSessionId: paymentSessionIdFromLink(entity.paymentLink),
   status: entity.status,
   billingDate: entity.billingDate.toISOString(),

@@ -829,7 +829,7 @@ describe('Product subscription Razorpay UPI renewal', () => {
     expect(ordersService.createOrderFromSubscription).not.toHaveBeenCalled();
   });
 
-  it('does not same-day CHARGE a due Cashfree cycle; it records MISSED_SCHEDULE and opens a payment link', async () => {
+  it('same-day Cashfree due cycle still AutoPay CHARGEs on the next legal T+1 slot', async () => {
     variantsRepository.findById.mockResolvedValue({ sellingPrice: '2.00' });
     membershipBenefits.getMemberDiscount.mockResolvedValue(null);
     pricingService.calculate.mockReturnValue({ finalAmount: '2.00' });
@@ -840,25 +840,13 @@ describe('Product subscription Razorpay UPI renewal', () => {
       amount: '2.00',
       status: SubscriptionPaymentStatus.PENDING,
     });
-    paymentLinkService.createPaymentLink.mockResolvedValue({
-      paymentLink: 'https://pay.example/missed',
-      gatewayOrderId: 'link_missed',
-      paymentGateway: 'CASHFREE',
-      currency: 'INR',
-    });
     billingCycleService.findBySubscriptionId.mockResolvedValue([]);
     billingCycleService.getOrCreate.mockResolvedValue({
       id: 'cycle-new',
       status: SubscriptionBillingCycleStatus.SCHEDULED,
       skipReason: null,
     });
-    billingCycleService.findById.mockResolvedValue({
-      id: 'cycle-new',
-      status: SubscriptionBillingCycleStatus.SCHEDULED,
-      skipReason: null,
-    });
-    billingCycleService.updateById.mockImplementation(async () => undefined);
-    historyRepository.append.mockImplementation(async () => ({ id: 'hist-1' }));
+    charge.mockResolvedValue({ accepted: true, pending: true, gatewayOrderId: 'pay_cf' });
     mandateService.resolveChargeProvider.mockReturnValue(SubscriptionMandateProvider.CASHFREE);
     subscriptionsRepository.findById.mockResolvedValue(
       subscription({ paymentGateway: 'CASHFREE', autopayReady: true }),
@@ -875,83 +863,9 @@ describe('Product subscription Razorpay UPI renewal', () => {
 
     await renew('sub-1');
 
-    expect(charge).not.toHaveBeenCalled();
-    expect(billingCycleService.updateById).toHaveBeenCalledWith(
-      'cycle-new',
-      expect.objectContaining({ skipReason: 'MISSED_SCHEDULE' }),
-    );
-    expect(paymentLinkService.createPaymentLink).toHaveBeenCalledWith(
-      expect.objectContaining({ preferredGateway: 'CASHFREE' }),
-    );
-    expect(historyRepository.append).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: SubscriptionHistoryAction.SKIPPED,
-        reason: 'MISSED_SCHEDULE',
-      }),
-    );
-
-    // Second tick must not spam history / rewrite MISSED_SCHEDULE.
-    jest.clearAllMocks();
-    lockService.withLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => fn());
-    lockService.withDbLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => fn());
-    billingCycleService.claimStatus.mockResolvedValue(true);
-    billingCycleService.updateById.mockImplementation(async () => undefined);
-    historyRepository.append.mockImplementation(async () => ({ id: 'hist-1' }));
-    paymentsService.findBySubscriptionId.mockResolvedValue([]);
-    paymentsService.findById.mockResolvedValue({
-      id: 'pay-row-1',
-      status: SubscriptionPaymentStatus.LINK_GENERATED,
-      paymentLink: 'https://pay.example/missed',
-    });
-    paymentsService.upsertPendingCycle.mockResolvedValue({
-      id: 'pay-row-1',
-      refId: 'spay-1',
-      amount: '2.00',
-      status: SubscriptionPaymentStatus.LINK_GENERATED,
-      paymentLink: 'https://pay.example/missed',
-    });
-    paymentsService.attachCycleMetadata.mockResolvedValue(undefined);
-    subscriptionsRepository.updateById.mockResolvedValue(undefined);
-    billingCycleService.getOrCreate.mockResolvedValue({
-      id: 'cycle-new',
-      status: SubscriptionBillingCycleStatus.SCHEDULED,
-      skipReason: 'MISSED_SCHEDULE',
-      paymentId: 'pay-row-1',
-    });
-    billingCycleService.findById.mockResolvedValue({
-      id: 'cycle-new',
-      status: SubscriptionBillingCycleStatus.SCHEDULED,
-      skipReason: 'MISSED_SCHEDULE',
-    });
-    billingCycleService.findBySubscriptionId.mockResolvedValue([
-      {
-        id: 'cycle-new',
-        status: SubscriptionBillingCycleStatus.SCHEDULED,
-        skipReason: 'MISSED_SCHEDULE',
-        paymentId: 'pay-row-1',
-      },
-    ]);
-    mandateService.resolveChargeProvider.mockReturnValue(SubscriptionMandateProvider.CASHFREE);
-    mandateService.canPresentAsAutopay.mockReturnValue(true);
-    subscriptionsRepository.findById.mockResolvedValue(
-      subscription({ paymentGateway: 'CASHFREE', autopayReady: true }),
-    );
-    mandateService.getForSubscription.mockResolvedValue({
-      id: 'man-1',
-      provider: SubscriptionMandateProvider.CASHFREE,
-      authorizationOrderId: 'sub_sub-1',
-      gatewaySubscriptionId: '391162116',
-      maxAmount: '2500.00',
-      consentEvidence: { method: 'upi' },
-    });
-
-    await renew('sub-1');
-
-    expect(historyRepository.append).not.toHaveBeenCalled();
-    expect(billingCycleService.updateById).not.toHaveBeenCalledWith(
-      'cycle-new',
-      expect.objectContaining({ skipReason: 'MISSED_SCHEDULE' }),
-    );
+    expect(charge).toHaveBeenCalledTimes(1);
+    expect(charge.mock.calls[0][0].scheduleDate.getTime()).toBeGreaterThan(Date.now());
+    expect(paymentLinkService.createPaymentLink).not.toHaveBeenCalled();
   });
 
   it('keeps the legacy due-date Cashfree schedule when advance charging is rolled back', async () => {
@@ -1169,17 +1083,25 @@ describe('Product subscription Razorpay UPI renewal', () => {
     );
   });
 
-  it('does not raise a Cashfree UPI CHARGE after the 21:00 IST cutoff on D-1', async () => {
+  it('after the 21:00 IST T+1 cutoff still CHARGEs Cashfree UPI on the next legal slot', async () => {
     const intended = new Date('2026-11-25T18:30:00.000Z');
     const asOf = new Date('2026-11-25T16:00:00.000Z'); // 25 Nov 21:30 IST
     variantsRepository.findById.mockResolvedValue({ sellingPrice: '2.00' });
     membershipBenefits.getMemberDiscount.mockResolvedValue(null);
     pricingService.calculate.mockReturnValue({ finalAmount: '2.00' });
+    usersRepository.findById.mockResolvedValue({ email: 'a@example.com', mobileNumber: '9999999999' });
+    paymentsService.upsertPendingCycle.mockResolvedValue({
+      id: 'pay-row-1',
+      refId: 'spay-1',
+      amount: '2.00',
+      status: SubscriptionPaymentStatus.PENDING,
+    });
     billingCycleService.findBySubscriptionId.mockResolvedValue([]);
     billingCycleService.getOrCreate.mockResolvedValue({
       id: 'cycle-new',
       status: SubscriptionBillingCycleStatus.SCHEDULED,
     });
+    charge.mockResolvedValue({ accepted: true, pending: true, gatewayOrderId: 'pay_cf' });
     mandateService.resolveChargeProvider.mockReturnValue(SubscriptionMandateProvider.CASHFREE);
     subscriptionsRepository.findById.mockResolvedValue(
       subscription({
@@ -1191,14 +1113,16 @@ describe('Product subscription Razorpay UPI renewal', () => {
     mandateService.getForSubscription.mockResolvedValue({
       id: 'man-1',
       provider: SubscriptionMandateProvider.CASHFREE,
+      authorizationOrderId: 'sub_sub-1',
       maxAmount: '2500.00',
       consentEvidence: { method: 'upi' },
     });
 
     await presentCashfree('sub-1', asOf);
 
-    expect(charge).not.toHaveBeenCalled();
-    expect(billingCycleService.updateById).toHaveBeenCalledWith(
+    expect(charge).toHaveBeenCalledTimes(1);
+    expect(charge.mock.calls[0][0].scheduleDate.getTime()).toBeGreaterThan(asOf.getTime());
+    expect(billingCycleService.updateById).not.toHaveBeenCalledWith(
       'cycle-new',
       expect.objectContaining({ skipReason: 'MISSED_SCHEDULE' }),
     );

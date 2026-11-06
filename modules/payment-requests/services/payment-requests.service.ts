@@ -61,6 +61,7 @@ import { CheckoutCancelPaymentDto } from '../dto/checkout-cancel.dto';
 import { CheckoutVerifyPaymentDto } from '../dto/checkout-verify.dto';
 import { parseIndianMobileNumber, normalizeMobileNumber } from '@modules/auth/utils/mobile-number.util';
 import { RazorpayPaymentLinksService } from './razorpay-payment-links.service';
+import { cashfreeHostedCheckoutUrl } from '../utils/cashfree-checkout-url.util';
 import { CashfreePaymentService } from './cashfree-payment.service';
 import { PaymentGatewayResolverService } from './payment-gateway-resolver.service';
 import { canTransitionPaymentRequestStatus } from '../utils/payment-request-status-transition.util';
@@ -181,7 +182,10 @@ export class PaymentRequestsService {
         await this.paymentRequestsRepository.updateById(paymentRequest.id, {
           providerReferenceId: cfOrderId,
           paymentReference: cfOrderId,
-          paymentLink: `https://payments.cashfree.com/order/${paymentSessionId}`,
+          paymentLink: cashfreeHostedCheckoutUrl(
+            paymentSessionId,
+            this.cashfreeService.getEnv() === 'production' ? 'production' : 'sandbox',
+          ),
           paymentProvider: 'CASHFREE',
           status: PaymentRequestStatus.LINK_GENERATED,
           updatedBy: userId,
@@ -211,7 +215,10 @@ export class PaymentRequestsService {
             gatewayAmount: paymentRequest.totalAmount,
             eligibleTotal: paiseToRupees(paymentRequest.eligibleTotalPaise ?? rupeesToPaise(paymentRequest.totalAmount)),
             prepaidDiscount: totals.prepaidDiscount,
-            paymentLink: `https://payments.cashfree.com/order/${paymentSessionId}`,
+            paymentLink: cashfreeHostedCheckoutUrl(
+            paymentSessionId,
+            this.cashfreeService.getEnv() === 'production' ? 'production' : 'sandbox',
+          ),
           },
         };
       } catch (error) {

@@ -9,6 +9,7 @@ import {
   ISubscriptionPayment,
   IUserProductSubscription,
 } from '../interfaces/product-subscription.interface';
+import { rewriteCashfreeHostedCheckoutUrl } from '@modules/payment-requests/utils/cashfree-checkout-url.util';
 import {
   paymentSessionIdFromLink,
   type SubscriptionCheckoutExtras,
@@ -124,7 +125,7 @@ export const mapUserProductSubscriptionToResponse = (
       setupMandate: activeLike && !entity.autopayReady,
       retryPayment: pendingPay,
     },
-    paymentLink: extras?.paymentLink ?? null,
+    paymentLink: rewriteCashfreeHostedCheckoutUrl(extras?.paymentLink ?? null),
     razorpayOrderId: extras?.razorpayOrderId ?? null,
     keyId: extras?.keyId ?? null,
     amount: extras?.amount ?? null,
@@ -165,7 +166,7 @@ export const mapSubscriptionPaymentToResponse = (
   paymentGateway: entity.paymentGateway,
   gatewayOrderId: entity.gatewayOrderId,
   gatewayPaymentId: entity.gatewayPaymentId,
-  paymentLink: entity.paymentLink,
+  paymentLink: rewriteCashfreeHostedCheckoutUrl(entity.paymentLink),
   paymentSessionId: paymentSessionIdFromLink(entity.paymentLink),
   status: entity.status,
   billingDate: entity.billingDate.toISOString(),

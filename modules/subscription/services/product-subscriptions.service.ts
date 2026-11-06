@@ -45,6 +45,7 @@ import { SubscriptionRenewalMethod } from '../enums/subscription-renewal-method.
 import { SUBSCRIPTION_ERROR, describeProductFrequency } from '../constants/subscription.constants';
 import { SUBSCRIPTION_PAYMENT_PURPOSE } from '../constants/subscription-payment-purpose.constants';
 import { mapUserProductSubscriptionToResponse } from '../mappers/product-subscription.mapper';
+import { rewriteCashfreeHostedCheckoutUrl } from '@modules/payment-requests/utils/cashfree-checkout-url.util';
 import { checkoutExtrasFromLink, paymentSessionIdFromLink } from '../utils/checkout-extras.util';
 import { cashfreeSubscriptionReturnUrl } from '../utils/cashfree-subscription-return-url.util';
 import {
@@ -53,6 +54,7 @@ import {
   cashfreeChargeAttemptMetadata,
   nextCashfreeUpiScheduleDate,
   nextCashfreeCardScheduleDate,
+  nextLegalCashfreeChargeDate,
   resolveCashfreeChargeSchedule,
 } from '../utils/cashfree-schedule-date.util';
 import { isCashfreeAdvanceChargeEnabled } from '../utils/subscriptions-module.util';
@@ -1097,7 +1099,7 @@ export class ProductSubscriptionsService {
         skipReason: cycle.skipReason,
         failureReason: cycle.failureReason,
         retryCount: cycle.retryCount,
-        paymentLink: payment?.paymentLink ?? null,
+        paymentLink: rewriteCashfreeHostedCheckoutUrl(payment?.paymentLink ?? null),
         paymentStatus: payment?.status ?? null,
         attemptKind: payment?.attemptKind ?? null,
         paymentGateway: payment?.paymentGateway ?? sub.paymentGateway ?? null,
@@ -2498,14 +2500,22 @@ export class ProductSubscriptionsService {
     ) {
       return;
     }
-    // Already recorded a missed Cashfree window for this cycle — do not rewrite
-    // history or cycle rows on every test-tenure / advance tick.
-    if (cycle.skipReason === CASHFREE_MISSED_SCHEDULE_REASON) {
-      return;
-    }
-
     if (decision.outcome === 'missed') {
-      await this.recordMissedCashfreeSchedule(sub, cycle.id, decision.reason, billingCycleRef);
+      this.logger.warn(
+        { subscriptionId: sub.id, billingCycleRef, reason: decision.reason },
+        'Cashfree same-day window was missed; AutoPay CHARGE is scheduled on the next legal slot',
+      );
+      await this.attemptAutopay(
+        sub,
+        cycle,
+        mandate.id,
+        amount,
+        billingCycleRef,
+        nextLegalCashfreeChargeDate({
+          now: asOfDate,
+          method: String(mandate.consentEvidence?.method ?? ''),
+        }),
+      );
       return;
     }
 
@@ -3164,33 +3174,34 @@ export class ProductSubscriptionsService {
             method: String(mandate.consentEvidence?.method ?? ''),
           });
           if (decision.outcome === 'wait') return;
+          const debitAt =
+            decision.outcome === 'schedule'
+              ? chargeDate
+              : nextLegalCashfreeChargeDate({
+                  now: asOfDate,
+                  method: String(mandate.consentEvidence?.method ?? ''),
+                });
           if (decision.outcome === 'missed') {
-            // Record once, then open a manual payment link below.
-            // Later scheduler ticks must not rewrite history / payments.
-            const recorded = await this.recordMissedCashfreeSchedule(
-              sub,
-              cycle.id,
-              decision.reason,
-              billingCycleRef,
+            this.logger.warn(
+              { subscriptionId: sub.id, billingCycleRef, reason: decision.reason },
+              'Cashfree same-day window was missed; AutoPay CHARGE is scheduled on the next legal slot',
             );
-            if (!recorded) return;
-          } else {
-            const charged = await this.attemptAutopay(
-              sub,
-              cycle,
-              mandate.id,
-              amount,
-              billingCycleRef,
-              chargeDate,
-            );
-            if (!charged) {
-              this.logger.warn(
-                { subscriptionId: sub.id, billingCycleRef },
-                'AutoPay debit was not accepted. No second charge is sent while that payment is failed or still unresolved.',
-              );
-            }
-            return;
           }
+          const charged = await this.attemptAutopay(
+            sub,
+            cycle,
+            mandate.id,
+            amount,
+            billingCycleRef,
+            debitAt,
+          );
+          if (!charged) {
+            this.logger.warn(
+              { subscriptionId: sub.id, billingCycleRef },
+              'AutoPay debit was not accepted. No second charge is sent while that payment is failed or still unresolved.',
+            );
+          }
+          return;
         } else {
           const charged = await this.attemptAutopay(sub, cycle, mandate.id, amount, billingCycleRef);
           if (!charged) {
@@ -3556,8 +3567,13 @@ export class ProductSubscriptionsService {
             intended,
             method: mandateMethod,
           });
-          if (decision.outcome !== 'schedule') return false;
-          scheduleDate = decision.scheduleDate;
+          if (decision.outcome === 'schedule') {
+            scheduleDate = decision.scheduleDate;
+          } else if (decision.outcome === 'wait') {
+            return false;
+          } else {
+            scheduleDate = nextLegalCashfreeChargeDate({ method: mandateMethod });
+          }
         }
       } else if (cashfreeCard) {
         // Same-day / T+1 card SI is not allowed; use earliest safe T+2 IST slot.

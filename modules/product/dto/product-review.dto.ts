@@ -6,6 +6,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -49,6 +50,11 @@ export class PublicProductReviewQueryDto {
   @IsString()
   @MaxLength(200)
   variantSlug?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{6}$/)
+  pincode?: string;
 }
 
 export class UpdateProductReviewStatusDto {
