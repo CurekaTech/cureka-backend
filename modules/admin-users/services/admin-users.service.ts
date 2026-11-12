@@ -29,7 +29,7 @@ import { UserEntity } from '@modules/users/entities/user.entity';
 import { UserRole } from '@modules/users/enums/user-role.enum';
 import { IUser } from '@modules/users/interfaces/user.interface';
 import { mapUserEntityToResponse } from '@modules/users/mappers/user.mapper';
-import { DataSource } from 'typeorm';
+import { DataSource, QueryFailedError } from 'typeorm';
 import { AuditService } from '@modules/master/services/audit.service';
 import { getAuditActor } from '@modules/master/utils/audit-actor.context';
 import { auditIdempotency } from '@modules/master/utils/audit-idempotency.util';
@@ -60,24 +60,46 @@ export class AdminUsersService {
       targetRole,
       await this.creatorPermissionCodes(creatorId, creatorRole),
     );
-    const exists = await this.adminUsersRepository.existsByEmail(dto.email);
-    if (exists) {
+    const existing = await this.adminUsersRepository.findByNormalizedEmailIncludingDeleted(
+      dto.email,
+    );
+    if (existing && !existing.deletedAt) {
       throw new ConflictException('An admin user with this email already exists');
     }
 
     const hashedPassword = await hashPassword(dto.password);
-    const entity = await this.adminUsersRepository.create({
-      ...createData,
-      role: targetRole,
-      roleId: roleRecord?.id,
-      password: hashedPassword,
-      refId: await generateUniqueRefId(dto.fullName, (refId) =>
-        this.adminUsersRepository.existsByRefId(refId),
-      ),
-      createdBy,
-    });
 
-    return mapAdminUserEntityToResponse(entity);
+    if (existing?.deletedAt) {
+      const restored = await this.restoreSoftDeletedAdmin(existing.id, {
+        ...createData,
+        email: dto.email.trim(),
+        role: targetRole,
+        roleId: roleRecord?.id,
+        password: hashedPassword,
+        isActive: true,
+        updatedBy: createdBy,
+      });
+      return mapAdminUserEntityToResponse(restored);
+    }
+
+    try {
+      const entity = await this.adminUsersRepository.create({
+        ...createData,
+        role: targetRole,
+        roleId: roleRecord?.id,
+        password: hashedPassword,
+        refId: await generateUniqueRefId(dto.fullName, (refId) =>
+          this.adminUsersRepository.existsByRefId(refId),
+        ),
+        createdBy,
+      });
+      return mapAdminUserEntityToResponse(entity);
+    } catch (error) {
+      if (this.isEmailUniqueViolation(error)) {
+        throw new ConflictException('An admin user with this email already exists');
+      }
+      throw error;
+    }
   }
 
   async findAll(query: PaginationQueryDto): Promise<PaginatedResult<IAdminUser>> {
@@ -319,5 +341,32 @@ export class AdminUsersService {
     }
 
     return fallback === AdminUserRole.SUPER_ADMIN ? AdminUserRole.SUPER_ADMIN : AdminUserRole.ADMIN;
+  }
+
+  private async restoreSoftDeletedAdmin(
+    id: string,
+    data: Parameters<AdminUsersRepository['restoreAndUpdate']>[1],
+  ) {
+    try {
+      const restored = await this.adminUsersRepository.restoreAndUpdate(id, data);
+      if (!restored) {
+        throw new NotFoundException('Admin user could not be restored');
+      }
+      return restored;
+    } catch (error) {
+      if (this.isEmailUniqueViolation(error)) {
+        throw new ConflictException('An admin user with this email already exists');
+      }
+      throw error;
+    }
+  }
+
+  private isEmailUniqueViolation(error: unknown): boolean {
+    if (!(error instanceof QueryFailedError)) return false;
+    const driverError = error.driverError as { code?: string; constraint?: string; detail?: string };
+    if (driverError?.code !== '23505') return false;
+    return `${driverError.constraint ?? ''} ${driverError.detail ?? ''}`.toLowerCase().includes(
+      'email',
+    );
   }
 }
