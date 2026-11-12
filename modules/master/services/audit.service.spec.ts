@@ -69,4 +69,54 @@ describe('AuditService critical persistence', () => {
     );
     expect(create.mock.calls[0][0].performedBy).not.toBe('anonymous');
   });
+
+  it('stores redacted request payload and field diffs on ordinary writes', async () => {
+    const create = jest.fn().mockResolvedValue({ id: 'row-1' });
+    const service = new AuditService({ create } as never, {} as never);
+    await runWithActor(
+      {
+        type: 'SYSTEM',
+        id: 'bulk-upload',
+        performedBy: 'system:bulk-upload',
+        ipAddress: null,
+        requestId: 'req-1',
+        batchId: 'BUP1',
+        path: '/admin/products/bulk-upload',
+        source: 'bulk_upload',
+      },
+      () =>
+        service.recordWrite({
+          entityType: 'product',
+          entityId: 'product-1',
+          entityRefId: 'PRO1',
+          action: 'updated',
+          performedBy: 'system-bulk-upload',
+          requestPayload: { name: 'New', password: 'secret' },
+          databaseChanges: [
+            {
+              table: 'products',
+              recordId: 'product-1',
+              column: 'name',
+              field: 'name',
+              changeType: 'updated',
+              oldValue: 'Old',
+              newValue: 'New',
+            },
+          ],
+        }),
+    );
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestPayload: { name: 'New', password: '[redacted]' },
+        captureStatus: 'captured',
+        batchId: 'BUP1',
+        changedFieldsCount: 1,
+        requestContext: expect.objectContaining({
+          source: 'bulk_upload',
+          path: '/admin/products/bulk-upload',
+          batchId: 'BUP1',
+        }),
+      }),
+    );
+  });
 });

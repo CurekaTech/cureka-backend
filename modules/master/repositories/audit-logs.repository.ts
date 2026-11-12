@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuditLogEntity } from '../entities/audit-log.entity';
+import { AuditLogChangeEntity } from '../entities/audit-log-change.entity';
+import { AuditFieldChange, AuditRequestContext } from '../types/audit-capture.types';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -33,6 +35,12 @@ export type CreateAuditLogInput = {
   requestId?: string | null;
   idempotencyKey?: string | null;
   reliability?: string | null;
+  batchId?: string | null;
+  captureStatus?: string | null;
+  requestContext?: AuditRequestContext | Record<string, unknown> | null;
+  requestPayload?: Record<string, unknown> | null;
+  databaseChanges?: AuditFieldChange[] | null;
+  changedFieldsCount?: number;
 };
 
 @Injectable()
@@ -40,24 +48,57 @@ export class AuditLogsRepository {
   constructor(
     @InjectRepository(AuditLogEntity)
     private readonly repo: Repository<AuditLogEntity>,
+    @InjectRepository(AuditLogChangeEntity)
+    private readonly changesRepo: Repository<AuditLogChangeEntity>,
   ) {}
 
   async create(data: CreateAuditLogInput): Promise<AuditLogEntity> {
-    const entity = this.repo.create({
-      entityType: data.entityType,
-      entityId: data.entityId ?? null,
-      entityRefId: data.entityRefId ?? null,
-      action: data.action,
-      performedBy: data.performedBy,
-      details: data.details ?? null,
-      actorType: data.actorType ?? null,
-      actorId: data.actorId ?? null,
-      ipAddress: data.ipAddress ?? null,
-      requestId: data.requestId ?? null,
-      idempotencyKey: data.idempotencyKey ?? null,
-      reliability: data.reliability ?? null,
+    const changes = data.databaseChanges ?? [];
+    return this.repo.manager.transaction(async (manager) => {
+      const entity = manager.create(AuditLogEntity, {
+        entityType: data.entityType,
+        entityId: data.entityId ?? null,
+        entityRefId: data.entityRefId ?? null,
+        action: data.action,
+        performedBy: data.performedBy,
+        details: data.details ?? null,
+        actorType: data.actorType ?? null,
+        actorId: data.actorId ?? null,
+        ipAddress: data.ipAddress ?? null,
+        requestId: data.requestId ?? null,
+        idempotencyKey: data.idempotencyKey ?? null,
+        reliability: data.reliability ?? null,
+        batchId: data.batchId ?? null,
+        captureStatus: data.captureStatus ?? null,
+        requestContext: (data.requestContext ?? null) as Record<string, unknown> | null,
+        requestPayload: data.requestPayload ?? null,
+        changedFieldsCount: data.changedFieldsCount ?? changes.length,
+      });
+      const saved = await manager.save(AuditLogEntity, entity);
+      if (changes.length) {
+        await manager.insert(
+          AuditLogChangeEntity,
+          changes.map((change) => ({
+            auditLogId: saved.id,
+            tableName: change.table,
+            recordId: change.recordId,
+            columnName: change.column,
+            field: change.field,
+            changeType: change.changeType,
+            oldValue: change.oldValue ?? undefined,
+            newValue: change.newValue ?? undefined,
+          })),
+        );
+      }
+      return saved;
     });
-    return this.repo.save(entity);
+  }
+
+  async findChanges(auditLogId: string): Promise<AuditLogChangeEntity[]> {
+    return this.changesRepo.find({
+      where: { auditLogId },
+      order: { createdAt: 'ASC' },
+    });
   }
 
   async findById(id: string): Promise<AuditLogEntity | null> {

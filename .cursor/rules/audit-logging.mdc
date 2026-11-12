@@ -14,4 +14,4 @@ Import `MasterModule` and inject `AuditService`. Do not insert into `audit_logs`
 - Pass a real entity UUID. `entityId: null` only when no business row exists; put the investigation id in `entityRefId`. Never use a nil UUID.
 - Set `idempotencyKey` with `auditIdempotency`. Job and webhook retries reuse the same key. A real repeat uses a new request id, status, or timestamp.
 - Jobs call `runAsSystem(jobName)`. Do not inherit the HTTP actor.
-- Do not store raw bodies, passwords, OTPs, tokens, cookies, authorization headers, or full bank details. Do not audit `entityType` `audit_log`.
+- Store a redacted, size-capped request snapshot and field-level old/new values when the writer can supply them. Never store passwords, OTPs, tokens, cookies, authorization headers, or full bank details. Do not audit `entityType` `audit_log`.

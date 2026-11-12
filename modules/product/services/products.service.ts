@@ -61,6 +61,7 @@ import { IProductDetail } from '../interfaces/product-detail.interface';
 import { generateProductSlug, assertProductUrlSlugLength } from '../utils/product-slug.util';
 import { ProductStatus } from '../enums/product-status.enum';
 import { resolveProductAuditAction } from '../utils/product-audit-action.util';
+import { captureProductAuditChanges } from '../utils/product-audit-capture.util';
 import { ProductEntity } from '../entities/product.entity';
 import { ProductCategoryHierarchyEntity } from '../entities/product-category-hierarchy.entity';
 import { GokwikQueueService } from '@modules/gokwik/services/gokwik-queue.service';
@@ -722,6 +723,12 @@ export class ProductsService {
     loaded.rejectionReason = null;
 
     await this.emitProductUpdated(product.refId, 'created');
+    const createdChanges = captureProductAuditChanges({
+      product,
+      dto: normalizedDto,
+      payload: product,
+      action: 'created',
+    });
     await this.auditService.recordWrite({
       entityType: AuditEntityType.PRODUCT,
       entityId: product.id,
@@ -729,7 +736,12 @@ export class ProductsService {
       action: 'created',
       performedBy: createdBy,
       name: product.name,
-      details: { status: ProductStatus.PENDING_REVIEW },
+      details: {
+        fields: createdChanges.map((change) => change.field),
+        status: ProductStatus.PENDING_REVIEW,
+      },
+      requestPayload: normalizedDto as unknown as Record<string, unknown>,
+      databaseChanges: createdChanges,
     });
 
     await this.syncSubscriptionConfig(product.id, normalizedDto, createdBy);
@@ -1367,18 +1379,26 @@ export class ProductsService {
     updated.rejectionReason = null;
 
     await this.emitProductUpdated(refId, 'updated');
+    const databaseChanges = captureProductAuditChanges({
+      product: existing,
+      dto,
+      payload,
+      action: 'updated',
+    });
     await this.auditService.recordWrite({
       entityType: AuditEntityType.PRODUCT,
       entityId: existing.id,
       entityRefId: existing.refId,
       action: 'updated',
       performedBy: updatedBy,
-      name: existing.name,
+      name: updated.name ?? existing.name,
       details: {
-        fields: Object.keys(dto).slice(0, 40),
+        fields: databaseChanges.map((change) => change.field),
         fromStatus: existing.status,
         toStatus: ProductStatus.PENDING_REVIEW,
       },
+      requestPayload: dto as unknown as Record<string, unknown>,
+      databaseChanges,
     });
     await this.syncSubscriptionConfig(updated.id, dto, updatedBy);
     if (options?.skipDetailEnrichment) {

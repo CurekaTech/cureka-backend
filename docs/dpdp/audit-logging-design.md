@@ -36,7 +36,7 @@ Admin forwarding: [admin-frontend-client-ip-forwarding.md](../admin-frontend-cli
 
 ## Redaction and API
 
-Details are redacted recursively, including arrays and case or separator variants of password, OTP, token, cookie, authorization, card, and bank-account keys. Raw request and response bodies are not stored.
+Details are redacted recursively, including arrays and case or separator variants of password, OTP, token, cookie, authorization, card, and bank-account keys. Auth, OTP, and password routes never store a request body. Other writes store a redacted, size-capped request snapshot on `audit_logs.request_payload` plus field-level old/new values on `audit_log_changes`. Full raw request or response bodies are not stored.
 
 `GET /api/v1/admin/audit-logs` and `GET /api/v1/admin/audit-logs/:id` both require `audit_logs.read`. Responses are redacted again. Opening the list or a row does not write another audit event. Older `audit_log_access` rows stay in the table and are omitted from the default list. Pass `entityType=audit_log_access` to see them.
 
