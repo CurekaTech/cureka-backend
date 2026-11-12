@@ -1,7 +1,8 @@
 import { BadRequestException, ConflictException, forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { DataSource, EntityManager, In } from 'typeorm';
+import { InjectRepository } from '@nestjs/typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import {
   buildPaginatedResult,
   buildPaginationOptions,
@@ -13,6 +14,7 @@ import { EVENTS, OrderCancelledEvent, ProductUpdatedEvent, ShipmentUpdatedEvent 
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
 import { UserAddressEntity } from '@modules/users/entities/user-address.entity';
+import { AdminUserEntity } from '@modules/admin-users/entities/admin-user.entity';
 import { PaymentRequestEntity } from '@modules/payment-requests/entities/payment-request.entity';
 import { PaymentRequestItemEntity } from '@modules/payment-requests/entities/payment-request-item.entity';
 import { PaymentRequestStatus } from '@modules/payment-requests/enums/payment-request-status.enum';
@@ -48,10 +50,13 @@ import { CouponUsageEntity } from '../entities/coupon-usage.entity';
 import { OrderEntity } from '../entities/order.entity';
 import { OrderItemEntity } from '../entities/order-item.entity';
 import {
+  AdminOrderResponse,
+  isAdminActorId,
   mapOrderToResponse,
   mapOrderToAdminResponse,
   mapPaymentRequestToAdminOrderResponse,
   withPaymentRequestOnAdminOrder,
+  withPlacedBy,
 } from '../mappers/order.mapper';
 import {
   mapDefaultShipmentResponse,
@@ -135,6 +140,8 @@ export class OrdersService {
     private readonly refundWalletService: RefundWalletService,
     private readonly configService: ConfigService,
     private readonly promotionalOfferReservationService: PromotionalOfferReservationService,
+    @InjectRepository(AdminUserEntity)
+    private readonly adminUsersRepo: Repository<AdminUserEntity>,
   ) {}
 
   private async decrementVariantStock(
@@ -1381,11 +1388,9 @@ export class OrdersService {
       }),
     );
 
-    return buildPaginatedResult(
-      mapped.filter((row): row is NonNullable<typeof row> => row != null),
-      total,
-      paginationOptions,
-    );
+    const rows = mapped.filter((row): row is NonNullable<typeof row> => row != null);
+    const placedByRows = await this.attachPlacedByToAdminOrders(rows);
+    return buildPaginatedResult(placedByRows, total, paginationOptions);
   }
 
   async findOneForAdmin(idOrRefId: string) {
@@ -1404,16 +1409,28 @@ export class OrdersService {
 
     if (order) {
       const response = await this.mapAdminOrderDetail(order);
-      return paymentRequest ? withPaymentRequestOnAdminOrder(response, paymentRequest) : response;
+      const withRequest = paymentRequest
+        ? withPaymentRequestOnAdminOrder(response, paymentRequest)
+        : response;
+      const [withPlacedBy] = await this.attachPlacedByToAdminOrders(
+        [withRequest],
+        paymentRequest?.createdBy,
+      );
+      return withPlacedBy;
     }
 
     if (paymentRequest) {
       const address = await this.resolveAddressForPaymentRequest(paymentRequest);
-      return mapPaymentRequestToAdminOrderResponse(
+      const response = await mapPaymentRequestToAdminOrderResponse(
         paymentRequest,
         address,
         this.storageUrlEnricher,
       );
+      const [withPlacedBy] = await this.attachPlacedByToAdminOrders(
+        [response],
+        paymentRequest.createdBy,
+      );
+      return withPlacedBy;
     }
 
     throw new NotFoundException(`Order ${idOrRefId} not found`);
@@ -1458,6 +1475,38 @@ export class OrdersService {
     }
 
     throw new NotFoundException(`Payment request ${idOrRefId} not found`);
+  }
+
+  private async attachPlacedByToAdminOrders(
+    rows: AdminOrderResponse[],
+    fallbackCreatedBy?: string | null,
+  ): Promise<AdminOrderResponse[]> {
+    const actorIds = [
+      ...new Set(
+        rows
+          .flatMap((row) => [row.createdBy, fallbackCreatedBy])
+          .filter(isAdminActorId),
+      ),
+    ];
+    if (actorIds.length === 0) {
+      return rows.map((row) => withPlacedBy(row, null));
+    }
+
+    const admins = await this.adminUsersRepo.find({
+      where: { id: In(actorIds) },
+      withDeleted: true,
+      select: ['id', 'fullName', 'email'],
+    });
+    const adminById = new Map(admins.map((admin) => [admin.id, admin]));
+
+    return rows.map((row) => {
+      const actorId = isAdminActorId(row.createdBy)
+        ? row.createdBy
+        : isAdminActorId(fallbackCreatedBy)
+          ? fallbackCreatedBy
+          : null;
+      return withPlacedBy(row, actorId ? (adminById.get(actorId) ?? null) : null);
+    });
   }
 
   private async mapAdminOrderDetail(order: OrderEntity) {
