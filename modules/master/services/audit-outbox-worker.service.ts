@@ -92,9 +92,11 @@ export class AuditOutboxWorkerService implements AuditOutboxStore, OnModuleInit,
     const insertSql = [
       'INSERT INTO audit_logs (',
       'entity_type, entity_id, entity_ref_id, action, performed_by, details,',
-      'actor_type, actor_id, ip_address, request_id, idempotency_key, reliability',
+      'actor_type, actor_id, ip_address, request_id, idempotency_key, reliability,',
+      'batch_id, capture_status, request_context, request_payload, changed_fields_count',
       ') VALUES (',
-      '$1, $2, $3, $4, $5, CAST($6 AS jsonb), $7, $8, $9, $10, $11, $12',
+      '$1, $2, $3, $4, $5, CAST($6 AS jsonb), $7, $8, $9, $10, $11, $12,',
+      '$13, $14, CAST($15 AS jsonb), CAST($16 AS jsonb), $17',
       ')',
       'ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING',
       'RETURNING id',
@@ -112,7 +114,33 @@ export class AuditOutboxWorkerService implements AuditOutboxStore, OnModuleInit,
       payload.requestId ?? null,
       payload.idempotencyKey ?? row.idempotencyKey,
       payload.reliability ?? 'critical',
+      payload.batchId ?? null,
+      payload.captureStatus ?? null,
+      JSON.stringify(payload.requestContext ?? null),
+      JSON.stringify(payload.requestPayload ?? null),
+      Number(payload.changedFieldsCount ?? (Array.isArray(payload.databaseChanges) ? payload.databaseChanges.length : 0)),
     ]));
+    const auditLogId = inserted[0]?.id;
+    const changes = Array.isArray(payload.databaseChanges) ? payload.databaseChanges : [];
+    if (auditLogId && changes.length) {
+      for (const change of changes as Array<Record<string, unknown>>) {
+        await this.dataSource.query(
+          `INSERT INTO audit_log_changes (
+             audit_log_id, table_name, record_id, column_name, field, change_type, old_value, new_value
+           ) VALUES ($1, $2, $3, $4, $5, $6, CAST($7 AS jsonb), CAST($8 AS jsonb))`,
+          [
+            auditLogId,
+            change.table,
+            change.recordId ?? null,
+            change.column,
+            change.field,
+            change.changeType,
+            JSON.stringify(change.oldValue ?? null),
+            JSON.stringify(change.newValue ?? null),
+          ],
+        );
+      }
+    }
     return inserted.length ? 'inserted' : 'exists';
   }
 

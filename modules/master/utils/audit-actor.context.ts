@@ -8,6 +8,11 @@ export interface AuditActor {
   performedBy: string;
   ipAddress: string | null;
   requestId: string | null;
+  method?: string | null;
+  path?: string | null;
+  batchId?: string | null;
+  source?: string | null;
+  requestPayload?: Record<string, unknown> | null;
 }
 
 const ADMIN_ROLES = new Set(['super_admin', 'admin', 'moderator']);
@@ -18,7 +23,15 @@ export function runWithActor<T>(actor: AuditActor, fn: () => T): T {
   return storage.run(actor, fn);
 }
 
-export function runAsSystem<T>(jobName: string, fn: () => T): T {
+export function runAsSystem<T>(
+  jobName: string,
+  fn: () => T,
+  extras?: { batchId?: string | null; path?: string | null; source?: string | null },
+): T {
+  const batchId = extras?.batchId ?? null;
+  const source =
+    extras?.source ??
+    (jobName.includes('bulk') || Boolean(batchId) ? 'bulk_upload' : 'system');
   return storage.run(
     {
       type: 'SYSTEM',
@@ -26,6 +39,10 @@ export function runAsSystem<T>(jobName: string, fn: () => T): T {
       performedBy: `system:${jobName}`,
       ipAddress: null,
       requestId: null,
+      batchId,
+      method: null,
+      path: extras?.path ?? null,
+      source,
     },
     fn,
   );

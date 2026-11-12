@@ -9,6 +9,10 @@ The admin React app is not in this repo. The menu item below is already returned
 
 UI binding for names, ids, and the Reliability field: [audit-logs-admin-integration.md](./audit-logs-admin-integration.md). Do not display `reliability` on the admin screen.
 
+Admin page prompt (payload + field history): [audit-logs-admin-frontend-prompt.md](./audit-logs-admin-frontend-prompt.md).
+
+Migration: `1786032000000-audit-log-payload-and-changes.ts` (adds `audit_logs` payload columns and `audit_log_changes`).
+
 ---
 
 ## Menu / nav
@@ -128,12 +132,78 @@ Success body:
     "actorId": "admin-user-uuid",
     "ipAddress": "203.0.113.8",
     "requestId": "req-9",
+    "batchId": null,
     "reliability": "critical",
+    "captureStatus": "partial",
+    "changedFieldsCount": 0,
+    "requestContext": {
+      "source": "admin_api",
+      "method": "PATCH",
+      "path": "/api/v1/admin/refund-requests/REF2026001/approve",
+      "requestId": "req-9",
+      "batchId": null
+    },
+    "requestPayload": {
+      "status": "APPROVED"
+    },
+    "databaseChanges": [],
     "details": {
       "status": "APPROVED"
     },
     "createdAt": "2026-10-12T06:40:00.000Z"
   }
+}
+```
+
+Product update example (bulk upload):
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "36fe7310-5cc3-4ba4-bfeb-f112dd6d52ba",
+    "entityType": "product",
+    "entityId": "2f3207cc-10df-4a0f-b143-52a185a83da4",
+    "entityRefId": "TES2026054554",
+    "entityName": "Test Age Image Updated",
+    "action": "updated",
+    "performedBy": "system-bulk-upload",
+    "actorLabel": "system-bulk-upload",
+    "requestId": "req-example-123",
+    "batchId": "BUP2026001234",
+    "reliability": "best_effort",
+    "captureStatus": "captured",
+    "requestContext": {
+      "source": "bulk_upload",
+      "method": null,
+      "path": "/admin/products/bulk-upload",
+      "requestId": null,
+      "batchId": "BUP2026001234"
+    },
+    "requestPayload": {
+      "name": "Test Age Image Updated",
+      "slug": "test-age-image-updated"
+    },
+    "databaseChanges": [
+      {
+        "table": "products",
+        "recordId": "2f3207cc-10df-4a0f-b143-52a185a83da4",
+        "column": "name",
+        "field": "name",
+        "changeType": "updated",
+        "oldValue": "Test Age Image kfnk",
+        "newValue": "Test Age Image Updated"
+      }
+    ],
+    "changedFieldsCount": 1,
+    "details": {
+      "fields": ["name"],
+      "fromStatus": "pending_review",
+      "toStatus": "pending_review"
+    },
+    "createdAt": "2026-11-12T12:38:47.667Z"
+  },
+  "message": "Audit log retrieved successfully"
 }
 ```
 
@@ -159,13 +229,21 @@ A missing id returns 404 with message `Audit log {id} not found`. An id that is 
 | `actorLabel` | Name and email together, such as `Sahil Admin · sahil.admin@cureka.com`. Show this beside `actorId` |
 | `ipAddress` | Client IP after the trusted proxy decision. `null` on older rows and on system jobs |
 | `requestId` | Request id for that action. `null` on older rows |
+| `batchId` | Bulk job ref id when the write came from bulk upload. `null` otherwise. List and detail both return it |
 | `reliability` | Returned as `critical`, `best_effort`, or `null`. Do not display this field on the admin UI |
+| `captureStatus` | `captured` when request payload and field diffs were stored, `partial` when only one of those exists, `skipped` or `null` on older rows |
+| `changedFieldsCount` | Number of field-level diffs. List and detail both return it |
+| `requestContext` | Detail only. Source, method, path, request id, batch id |
+| `requestPayload` | Detail only. Redacted snapshot of the write payload. `null` on older rows and on auth/OTP routes |
+| `databaseChanges` | Detail only. Array of `{ table, recordId, column, field, changeType, oldValue, newValue }` from `audit_log_changes` |
 | `details` | JSON object or `null`. Already redacted. Render as key/value pairs. Sensitive values appear as `[redacted]`. Includes `subjectName`, `subjectId`, `subjectRefId`, `subjectLabel`, and when known `actorName` and `actorEmail` |
 | `createdAt` | When the audit row was stored |
 
-Older rows can omit `actorType`, `actorId`, `ipAddress`, `requestId`, and `reliability`. Show those cells as empty.
+Older rows can omit `actorType`, `actorId`, `ipAddress`, `requestId`, `reliability`, `batchId`, `requestPayload`, and `databaseChanges`. Show those cells as empty.
 
-`details` never contains passwords, OTPs, tokens, cookies, authorization headers, or a full bank account number. Do not request a raw payload from another API to fill those in.
+`details`, `requestPayload`, and `databaseChanges` never contain passwords, OTPs, tokens, cookies, authorization headers, or a full bank account number. Do not request a raw payload from another API to fill those in.
+
+The list endpoint does not return `requestPayload`, `requestContext`, or `databaseChanges`. Open the detail endpoint for the before/after table.
 
 ---
 

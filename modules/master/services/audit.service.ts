@@ -9,6 +9,13 @@ import { getAuditActor } from '../utils/audit-actor.context';
 import { mergeAuditSubject } from '../utils/audit-subject.util';
 import { auditIdempotency } from '../utils/audit-idempotency.util';
 import { redactAuditDetails } from '../utils/audit-redact.util';
+import {
+  buildRequestContext,
+  resolveCaptureStatus,
+  sanitizeRequestPayload,
+} from '../utils/audit-capture.util';
+import { AuditFieldChange } from '../types/audit-capture.types';
+import { rowsFromPostgresQuery } from './audit-outbox.publisher';
 
 const FORBIDDEN_ENTITY = new Set(['audit_log']);
 
@@ -53,17 +60,18 @@ export class AuditService {
   async enqueueCritical(manager: EntityManager, input: CreateAuditLogInput): Promise<void> {
     this.assertAuditable(input);
     const payload = this.decorate(input, 'critical');
-    // The list API reads audit_logs. Write the row in this transaction so login,
-    // logout, and other critical events are visible as soon as the transaction
-    // commits, and disappear with it if the business change rolls back.
-    await manager.query(
+    const inserted = rowsFromPostgresQuery<{ id: string }>(
+      await manager.query(
       `INSERT INTO "audit_logs" (
          entity_type, entity_id, entity_ref_id, action, performed_by, details,
-         actor_type, actor_id, ip_address, request_id, idempotency_key, reliability
+         actor_type, actor_id, ip_address, request_id, idempotency_key, reliability,
+         batch_id, capture_status, request_context, request_payload, changed_fields_count
        ) VALUES (
-         $1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12
+         $1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12,
+         $13, $14, $15::jsonb, $16::jsonb, $17
        )
-       ON CONFLICT ("idempotency_key") WHERE "idempotency_key" IS NOT NULL DO NOTHING`,
+       ON CONFLICT ("idempotency_key") WHERE "idempotency_key" IS NOT NULL DO NOTHING
+       RETURNING id`,
       [
         payload.entityType,
         payload.entityId ?? null,
@@ -77,8 +85,18 @@ export class AuditService {
         payload.requestId ?? null,
         payload.idempotencyKey,
         'critical',
+        payload.batchId ?? null,
+        payload.captureStatus ?? null,
+        JSON.stringify(payload.requestContext ?? null),
+        JSON.stringify(payload.requestPayload ?? null),
+        payload.changedFieldsCount ?? 0,
       ],
+      ),
     );
+    const auditLogId = inserted[0]?.id ? String(inserted[0].id) : null;
+    if (auditLogId && payload.databaseChanges?.length) {
+      await this.insertChanges(manager, auditLogId, payload.databaseChanges);
+    }
     await manager.query(
       `INSERT INTO "audit_outbox" ("idempotency_key", "payload", "status", "attempts")
        VALUES ($1, $2::jsonb, 'pending', 0)
@@ -106,8 +124,8 @@ export class AuditService {
 
   /**
    * Best-effort record of a committed write. The actor comes from the verified
-   * request context when one exists. `anonymous` is used only when no identity
-   * was supplied and no request actor is present.
+   * request context when one exists. `anonymous` is used only when neither the
+   * caller nor the request has an identity.
    */
   async recordWrite(input: {
     entityType: string;
@@ -118,6 +136,9 @@ export class AuditService {
     /** Readable name stored beside the id. Not a full entity dump. */
     name?: string | null;
     details?: Record<string, unknown> | null;
+    requestPayload?: Record<string, unknown> | null;
+    databaseChanges?: AuditFieldChange[] | null;
+    batchId?: string | null;
   }): Promise<void> {
     const actor = getAuditActor();
     const performedBy = input.performedBy?.trim() || actor?.performedBy || 'anonymous';
@@ -141,6 +162,9 @@ export class AuditService {
         id: input.entityId,
         refId: input.entityRefId,
       }),
+      requestPayload: input.requestPayload,
+      databaseChanges: input.databaseChanges,
+      batchId: input.batchId,
     });
   }
 
@@ -152,9 +176,24 @@ export class AuditService {
     return this.auditLogsRepo.findByEntity(entityType, entityId, order);
   }
 
-  private decorate(input: CreateAuditLogInput, reliability: 'best_effort' | 'critical'): CreateAuditLogInput {
+  private decorate(
+    input: CreateAuditLogInput,
+    reliability: 'best_effort' | 'critical',
+  ): CreateAuditLogInput {
     const actor = getAuditActor();
     const requestId = clip(input.requestId ?? actor?.requestId ?? null, 64);
+    const requestContext = buildRequestContext(actor, {
+      ...(input.requestContext ?? {}),
+      requestId,
+      batchId: input.batchId ?? actor?.batchId ?? null,
+    });
+    const requestPayload = sanitizeRequestPayload(
+      input.requestPayload ?? actor?.requestPayload ?? null,
+      requestContext.path,
+    );
+    const databaseChanges = input.databaseChanges ?? [];
+    const captureStatus =
+      input.captureStatus ?? resolveCaptureStatus({ requestPayload, databaseChanges });
     return {
       ...input,
       entityId: input.entityId ?? null,
@@ -164,10 +203,40 @@ export class AuditService {
       actorId: clip(input.actorId ?? actor?.id ?? null, 255),
       ipAddress: clip(input.ipAddress ?? actor?.ipAddress ?? null, 64),
       requestId,
+      batchId: clip(input.batchId ?? actor?.batchId ?? null, 64),
       idempotencyKey: clip(input.idempotencyKey ?? null, 255),
       reliability,
       details: redactAuditDetails(input.details ?? null),
+      requestContext: { ...requestContext },
+      requestPayload,
+      databaseChanges,
+      changedFieldsCount: databaseChanges.length,
+      captureStatus,
     };
+  }
+
+  private async insertChanges(
+    manager: EntityManager,
+    auditLogId: string,
+    changes: AuditFieldChange[],
+  ): Promise<void> {
+    for (const change of changes) {
+      await manager.query(
+        `INSERT INTO "audit_log_changes" (
+           audit_log_id, table_name, record_id, column_name, field, change_type, old_value, new_value
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb)`,
+        [
+          auditLogId,
+          change.table,
+          change.recordId,
+          change.column,
+          change.field,
+          change.changeType,
+          JSON.stringify(change.oldValue ?? null),
+          JSON.stringify(change.newValue ?? null),
+        ],
+      );
+    }
   }
 
   private assertAuditable(input: CreateAuditLogInput): void {

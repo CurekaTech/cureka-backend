@@ -33,6 +33,7 @@ import { UnitEntity } from './entities/unit.entity';
 
 // ── Audit entities ───────────────────────────────────────────────────────────
 import { AuditLogEntity } from './entities/audit-log.entity';
+import { AuditLogChangeEntity } from './entities/audit-log-change.entity';
 import { AuditOutboxEntity } from './entities/audit-outbox.entity';
 
 // ── Blog entities ────────────────────────────────────────────────────────────
@@ -266,6 +267,7 @@ import { SubscriptionFrequencyCacheListener } from './listeners/subscription-fre
       ProductCategoryHierarchyEntity,
       // ── Audit ────────────────────────────────────────────────────────────
       AuditLogEntity,
+      AuditLogChangeEntity,
       AuditOutboxEntity,
       // ── Blog ─────────────────────────────────────────────────────────────
       BlogCategoryEntity,

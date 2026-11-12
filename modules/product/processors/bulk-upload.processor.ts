@@ -75,6 +75,7 @@ import { mapParsedVariantToDetailDto } from '../utils/bulk-upload-variant-detail
 import { BulkUploadExportStreamService } from '../services/bulk-upload-export-stream.service';
 import { resolveProductBulkBatchSize } from '../constants/bulk-batch.constant';
 import { mapBulkUploadDbError } from '../utils/bulk-upload-db-error.util';
+import { runAsSystem } from '@modules/master/utils/audit-actor.context';
 
 const BULK_MUTATION_OPTIONS = {
   skipDetailEnrichment: true,
@@ -513,9 +514,19 @@ export class BulkUploadProcessor extends WorkerHost {
 
   async process(job: Job<BulkUploadJobData | BulkExportJobData, any, string>): Promise<any> {
     if (job.name === 'export-products') {
-      return this.processExportProducts(job as Job<BulkExportJobData, any, string>);
+      const exportRefId = (job.data as BulkExportJobData).exportRefId;
+      return runAsSystem(
+        'bulk-export',
+        () => this.processExportProducts(job as Job<BulkExportJobData, any, string>),
+        { batchId: exportRefId, path: '/admin/products/bulk-upload/export', source: 'bulk_upload' },
+      );
     }
-    return this.processUploadSheet(job as Job<BulkUploadJobData, any, string>);
+    const uploadRefId = (job.data as BulkUploadJobData).uploadRefId;
+    return runAsSystem(
+      'bulk-upload',
+      () => this.processUploadSheet(job as Job<BulkUploadJobData, any, string>),
+      { batchId: uploadRefId, path: '/admin/products/bulk-upload', source: 'bulk_upload' },
+    );
   }
 
   private async processExportProducts(job: Job<BulkExportJobData, any, string>): Promise<any> {
