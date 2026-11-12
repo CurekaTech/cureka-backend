@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { buildSkipTake } from '@packages/database';
 import { EntityManager, ILike, In, Not, QueryDeepPartialEntity, Repository } from 'typeorm';
+import { ShipmentEntity } from '@modules/shipping/entities/shipment.entity';
+import { ShipmentStatus } from '@modules/shipping/enums/shipment-status.enum';
 import { OrderEntity } from '../entities/order.entity';
 import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
@@ -52,6 +54,26 @@ export class OrdersRepository {
       .where('order.userId = :userId', { userId })
       .andWhere('item.productId = :productId', { productId })
       .andWhere('order.orderStatus != :cancelled', { cancelled: OrderStatus.CANCELLED })
+      .getCount();
+
+    return count > 0;
+  }
+
+  /** True when the user has a successfully delivered order that includes the product. */
+  async userHasDeliveredProduct(userId: string, productId: string): Promise<boolean> {
+    const count = await this.repo
+      .createQueryBuilder('order')
+      .innerJoin('order.items', 'item')
+      .leftJoin(ShipmentEntity, 'shipment', 'shipment.orderId = order.id')
+      .where('order.userId = :userId', { userId })
+      .andWhere('item.productId = :productId', { productId })
+      .andWhere(
+        '(order.orderStatus = :delivered OR shipment.shipmentStatus = :shipDelivered)',
+        {
+          delivered: OrderStatus.DELIVERED,
+          shipDelivered: ShipmentStatus.DELIVERED,
+        },
+      )
       .getCount();
 
     return count > 0;

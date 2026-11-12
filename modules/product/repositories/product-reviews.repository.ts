@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { PaginationOptions } from '@packages/common';
 import { buildSkipTake } from '@packages/database';
 import { ProductReviewEntity } from '../entities/product-review.entity';
@@ -52,6 +52,19 @@ export class ProductReviewsRepository {
   ): Promise<ProductReviewEntity | null> {
     return this.repo.findOne({
       where: { userId, productId },
+      order: { updatedAt: 'DESC' },
+    });
+  }
+
+  async findLatestByUserIdAndProductIds(
+    userId: string,
+    productIds: string[],
+  ): Promise<ProductReviewEntity[]> {
+    const ids = [...new Set(productIds.filter(Boolean))];
+    if (!ids.length) return [];
+
+    return this.repo.find({
+      where: { userId, productId: In(ids) },
       order: { updatedAt: 'DESC' },
     });
   }

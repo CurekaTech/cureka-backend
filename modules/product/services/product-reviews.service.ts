@@ -120,8 +120,8 @@ export class ProductReviewsService {
       return { canReview: false, existingReview };
     }
 
-    const hasOrdered = await this.ordersService.userHasOrderedProduct(user.sub, product.id);
-    return { canReview: hasOrdered, existingReview: null };
+    const hasDelivered = await this.ordersService.userHasDeliveredProduct(user.sub, product.id);
+    return { canReview: hasDelivered, existingReview: null };
   }
 
   async createForProductSlug(
@@ -135,9 +135,11 @@ export class ProductReviewsService {
 
     const { product, variant } = await this.resolvePublishedProductContext(slug, dto);
 
-    const hasOrdered = await this.ordersService.userHasOrderedProduct(user.sub, product.id);
-    if (!hasOrdered) {
-      throw new ForbiddenException('Only customers who ordered this product can submit a review');
+    const hasDelivered = await this.ordersService.userHasDeliveredProduct(user.sub, product.id);
+    if (!hasDelivered) {
+      throw new ForbiddenException(
+        'Only customers with a delivered order of this product can submit a review',
+      );
     }
 
     const alreadyReviewed = await this.reviewsRepository.existsByUserIdAndProductId(

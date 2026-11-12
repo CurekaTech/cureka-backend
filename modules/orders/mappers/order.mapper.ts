@@ -15,6 +15,7 @@ import { OrderPaymentMethod } from '../enums/order-payment-method.enum';
 import { OrderPaymentStatus } from '../enums/order-payment-status.enum';
 import { OrderStatus } from '../enums/order-status.enum';
 import { parseMoney } from '../utils/money.util';
+import { ShipmentStatus } from '@modules/shipping/enums/shipment-status.enum';
 import { ShipmentEntity } from '@modules/shipping/entities/shipment.entity';
 import { PolicyWindowUnit } from '@modules/product/enums/policy-window-unit.enum';
 import { IOrderItemReturnPolicySnapshot } from '../interfaces/order-item-return-policy.interface';
@@ -44,12 +45,32 @@ export type OrderItemReturnReplaceResponse = {
   withinReplaceWindow: boolean;
 };
 
+/** Shopper review CTA on GET /orders and GET /orders/:id line items. */
+export type OrderItemReviewSnapshot = {
+  refId: string;
+  rating: number;
+  review: string | null;
+  reviewDescription: string | null;
+  status: string;
+  variantId: string | null;
+};
+
+export type OrderItemReviewResponse = {
+  /** True only for a delivered, non-reward line with no existing review. */
+  canReview: boolean;
+  /** True when this shopper already submitted a review for the product. */
+  reviewed: boolean;
+  existingReview: OrderItemReviewSnapshot | null;
+};
+
 export type OrderItemResponse = {
   id: string;
   refId: string;
   orderId: string;
   productId: string;
   variantId: string;
+  /** Live catalogue slug for PDP / review APIs. Null if the product row is gone. */
+  productSlug: string | null;
   sku: string;
   productName: string;
   variantName: string | null;
@@ -71,6 +92,11 @@ export type OrderItemResponse = {
   bundleComponents: IOrderItemBundleComponent[] | null;
   /** COD frozen at placement. Null means the order predates the column. */
   codAvailable: boolean | null;
+  /**
+   * Present on delivered customer orders. Null when the order is not delivered
+   * (Write a Review is hidden).
+   */
+  review: OrderItemReviewResponse | null;
 };
 
 /** Per-status times on the order row (set once when that status is first reached). */
@@ -251,11 +277,30 @@ export function resolveOrderItemReturnReplace(
   };
 }
 
+function resolveOrderItemReview(
+  item: OrderItemEntity,
+  isReviewEligible: boolean,
+  existingReview: OrderItemReviewSnapshot | null,
+): OrderItemReviewResponse | null {
+  if (!isReviewEligible) return null;
+
+  const isReward = (item.lineSource ?? 'customer') === 'promotion';
+  const reviewed = Boolean(existingReview);
+
+  return {
+    canReview: !isReward && !reviewed && Boolean(item.product?.slug?.trim()),
+    reviewed,
+    existingReview,
+  };
+}
+
 async function mapOrderItemToResponse(
   item: OrderItemEntity,
   enricher: StorageUrlEnricher,
   deliveredAt: Date | null,
   isDelivered: boolean,
+  isReviewEligible: boolean,
+  existingReview: OrderItemReviewSnapshot | null,
 ): Promise<OrderItemResponse> {
   const imageRef = resolvePrimaryProductImageRef(item.product, item.variantId);
   const primaryImageUrl = await enricher.toReference(imageRef);
@@ -266,6 +311,7 @@ async function mapOrderItemToResponse(
     orderId: item.orderId,
     productId: item.productId,
     variantId: item.variantId,
+    productSlug: item.product?.slug?.trim() || null,
     sku: item.sku,
     productName: item.productName,
     variantName: item.variantName,
@@ -287,6 +333,7 @@ async function mapOrderItemToResponse(
     ),
     bundleComponents: item.bundleComponents ?? null,
     codAvailable: item.codAvailable ?? null,
+    review: resolveOrderItemReview(item, isReviewEligible, existingReview),
   };
 }
 
@@ -385,11 +432,22 @@ function pickOrderStatusTimestamps(
 export async function mapOrderToResponse(
   order: OrderWithShipment,
   enricher: StorageUrlEnricher,
+  reviewsByProductId?: Map<string, OrderItemReviewSnapshot>,
 ): Promise<OrderResponse> {
   const isDelivered = order.orderStatus === OrderStatus.DELIVERED;
+  const shipment = resolveShipmentResponse(order);
+  const isReviewEligible =
+    isDelivered || shipment.shipmentStatus === ShipmentStatus.DELIVERED;
   const items = await Promise.all(
     (order.items ?? []).map((item) =>
-      mapOrderItemToResponse(item, enricher, order.deliveredAt ?? null, isDelivered),
+      mapOrderItemToResponse(
+        item,
+        enricher,
+        order.deliveredAt ?? null,
+        isDelivered,
+        isReviewEligible,
+        reviewsByProductId?.get(item.productId) ?? null,
+      ),
     ),
   );
 

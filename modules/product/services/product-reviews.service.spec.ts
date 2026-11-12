@@ -74,6 +74,7 @@ function createService(options?: {
   };
   const ordersService = {
     userHasOrderedProduct: jest.fn(async () => options?.ordered !== false),
+    userHasDeliveredProduct: jest.fn(async () => options?.ordered !== false),
     userHasOrderedProductVariant: jest.fn(async () => options?.orderedVariant !== false),
     findLatestOrderLocationForPurchase: jest.fn(async () => options?.orderLocation ?? null),
   };
@@ -389,8 +390,25 @@ describe('ProductReviewsService variant reviews', () => {
     });
   });
 
-  it('can-review is false when the product was not ordered', async () => {
-    const { service } = createService({
+  it('rejects create when the product was not delivered', async () => {
+    const { service, ordersService, reviewsRepository } = createService({
+      variantsById: { v1: variant },
+      ordered: false,
+    });
+
+    await expect(
+      service.createForProductSlug(
+        'serum',
+        { rating: 5, review: 'Ok', reviewDescription: 'Details', variantId: 'v1' },
+        shopper,
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(ordersService.userHasDeliveredProduct).toHaveBeenCalledWith('user-1', 'p1');
+    expect(reviewsRepository.create).not.toHaveBeenCalled();
+  });
+
+  it('can-review is false when the product was not delivered', async () => {
+    const { service, ordersService } = createService({
       variantsById: { v1: variant },
       ordered: false,
     });
@@ -398,6 +416,7 @@ describe('ProductReviewsService variant reviews', () => {
     await expect(
       service.canReviewForProductSlug('serum', shopper, { variantId: 'v1' }),
     ).resolves.toEqual({ canReview: false, existingReview: null });
+    expect(ordersService.userHasDeliveredProduct).toHaveBeenCalledWith('user-1', 'p1');
   });
 
   it('lets the owner update their existing review and resets status to pending', async () => {
