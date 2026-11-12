@@ -5,9 +5,12 @@ import { OrderStatus } from '../enums/order-status.enum';
 import { PolicyWindowUnit } from '@modules/product/enums/policy-window-unit.enum';
 import { IOrderItemReturnPolicySnapshot } from '../interfaces/order-item-return-policy.interface';
 import {
+  isAdminActorId,
+  mapAdminPlacedBy,
   mapOrderPaymentSummary,
   mapPaymentRequestToOrderStatuses,
   resolveOrderItemReturnReplace,
+  withPlacedBy,
 } from './order.mapper';
 
 describe('mapOrderPaymentSummary', () => {
@@ -189,6 +192,41 @@ describe('mapPaymentRequestToOrderStatuses', () => {
     expect(mapPaymentRequestToOrderStatuses(PaymentRequestStatus.EXPIRED)).toEqual({
       orderStatus: OrderStatus.CANCELLED,
       paymentStatus: OrderPaymentStatus.PENDING,
+    });
+  });
+});
+
+describe('admin placedBy mapping', () => {
+  it('accepts UUID actor ids and rejects webhook placeholders', () => {
+    expect(isAdminActorId('3fa85f64-5717-4562-b3fc-2c963f66afa6')).toBe(true);
+    expect(isAdminActorId('razorpay-webhook')).toBe(false);
+    expect(isAdminActorId(null)).toBe(false);
+  });
+
+  it('maps admin staff name and email, and returns null when missing', () => {
+    expect(
+      mapAdminPlacedBy({
+        id: 'admin-1',
+        fullName: 'Priya Sharma',
+        email: 'priya@cureka.com',
+      }),
+    ).toEqual({
+      id: 'admin-1',
+      fullName: 'Priya Sharma',
+      email: 'priya@cureka.com',
+    });
+    expect(mapAdminPlacedBy(null)).toBeNull();
+  });
+
+  it('attaches placedBy onto an admin order response', () => {
+    const attached = withPlacedBy(
+      { placedBy: null } as Parameters<typeof withPlacedBy>[0],
+      { id: 'admin-1', fullName: 'Asha', email: 'asha@cureka.com' },
+    );
+    expect(attached.placedBy).toEqual({
+      id: 'admin-1',
+      fullName: 'Asha',
+      email: 'asha@cureka.com',
     });
   });
 });

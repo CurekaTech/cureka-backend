@@ -137,8 +137,16 @@ export type AdminOrderCustomerResponse = {
   mobileNumber: string | null;
 };
 
+/** Customer-care / admin staff who created the order from the backend. Null for storefront orders. */
+export type AdminOrderPlacedByResponse = {
+  id: string;
+  fullName: string;
+  email: string;
+};
+
 export type AdminOrderResponse = OrderResponse & {
   customer: AdminOrderCustomerResponse | null;
+  placedBy?: AdminOrderPlacedByResponse | null;
   /** Present when admin order detail is resolved from a payment request (`PAY…`). */
   paymentRequestId?: string | null;
   paymentRequestRefId?: string;
@@ -147,6 +155,34 @@ export type AdminOrderResponse = OrderResponse & {
   /** Gateway / tender on the payment request (`RAZORPAY` / `CASHFREE` / `COD` / …). */
   paymentProvider?: string | null;
 };
+
+const ACTOR_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isAdminActorId(value?: string | null): value is string {
+  return typeof value === 'string' && ACTOR_UUID_RE.test(value);
+}
+
+export function mapAdminPlacedBy(
+  admin?: { id: string; fullName: string; email: string } | null,
+): AdminOrderPlacedByResponse | null {
+  if (!admin) return null;
+  return {
+    id: admin.id,
+    fullName: admin.fullName,
+    email: admin.email,
+  };
+}
+
+export function withPlacedBy(
+  response: AdminOrderResponse,
+  admin?: { id: string; fullName: string; email: string } | null,
+): AdminOrderResponse {
+  return {
+    ...response,
+    placedBy: mapAdminPlacedBy(admin),
+  };
+}
 
 type OrderWithShipment = OrderEntity & {
   user?: UserEntity | null;
@@ -403,6 +439,7 @@ export async function mapOrderToAdminResponse(
   return {
     ...base,
     customer: mapOrderCustomer(order.user),
+    placedBy: null,
   };
 }
 

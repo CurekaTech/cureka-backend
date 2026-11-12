@@ -46,6 +46,10 @@ describe('OrdersService.checkout pincode gate', () => {
       {},
       {},
       { recordWrite: jest.fn() },
+      {},
+      {},
+      {},
+      { find: jest.fn() },
     ] as unknown as ConstructorParameters<typeof OrdersService>),
   );
 
