@@ -13,6 +13,8 @@ import {
 import { EVENTS, OrderCancelledEvent, ProductUpdatedEvent, ShipmentUpdatedEvent } from '@packages/events';
 import { ProductEntity } from '@modules/product/entities/product.entity';
 import { ProductVariantEntity } from '@modules/product/entities/product-variant.entity';
+import { ProductReviewsRepository } from '@modules/product/repositories/product-reviews.repository';
+import type { OrderItemReviewSnapshot } from '../mappers/order.mapper';
 import { UserAddressEntity } from '@modules/users/entities/user-address.entity';
 import { AdminUserEntity } from '@modules/admin-users/entities/admin-user.entity';
 import { PaymentRequestEntity } from '@modules/payment-requests/entities/payment-request.entity';
@@ -142,6 +144,8 @@ export class OrdersService {
     private readonly promotionalOfferReservationService: PromotionalOfferReservationService,
     @InjectRepository(AdminUserEntity)
     private readonly adminUsersRepo: Repository<AdminUserEntity>,
+    @Inject(forwardRef(() => ProductReviewsRepository))
+    private readonly productReviewsRepository: ProductReviewsRepository,
   ) {}
 
   private async decrementVariantStock(
@@ -1278,6 +1282,10 @@ export class OrdersService {
     });
     const shipments = await this.shipmentsRepository.findByOrderIds(data.map((order) => order.id));
     const shipmentByOrderId = new Map(shipments.map((shipment) => [shipment.orderId, shipment]));
+    const reviewsByProductId = await this.reviewsByProductIdForUser(
+      userId,
+      data.flatMap((order) => (order.items ?? []).map((item) => item.productId)),
+    );
     const mapped = await Promise.all(
       data.map((order) => {
         const shipment = shipmentByOrderId.get(order.id) ?? null;
@@ -1288,6 +1296,7 @@ export class OrdersService {
             shipwayStatus: Boolean(shipment?.shipwayRawStatus || shipment?.awbNumber),
           },
           this.storageUrlEnricher,
+          reviewsByProductId,
         ).then((mapped) => ({
           ...mapped,
           cancellation: mapCancellationView(order),
@@ -1305,6 +1314,36 @@ export class OrdersService {
   /** Whether the user has purchased the given product (non-cancelled order). */
   userHasOrderedProduct(userId: string, productId: string): Promise<boolean> {
     return this.ordersRepository.userHasOrderedProduct(userId, productId);
+  }
+
+  /** Whether the user has a successfully delivered order that includes the product. */
+  userHasDeliveredProduct(userId: string, productId: string): Promise<boolean> {
+    return this.ordersRepository.userHasDeliveredProduct(userId, productId);
+  }
+
+  private async reviewsByProductIdForUser(
+    userId: string,
+    productIds: string[],
+  ): Promise<Map<string, OrderItemReviewSnapshot>> {
+    const map = new Map<string, OrderItemReviewSnapshot>();
+    const rows = await this.productReviewsRepository.findLatestByUserIdAndProductIds(
+      userId,
+      productIds,
+    );
+
+    for (const row of rows) {
+      if (map.has(row.productId)) continue;
+      map.set(row.productId, {
+        refId: row.refId,
+        rating: row.rating,
+        review: row.review,
+        reviewDescription: row.reviewDescription ?? null,
+        status: row.status,
+        variantId: row.variantId ?? null,
+      });
+    }
+
+    return map;
   }
 
   userHasOrderedProductVariant(
@@ -1655,10 +1694,16 @@ export class OrdersService {
         })
       : mapDefaultShipmentResponse(order);
 
+    const reviewsByProductId = await this.reviewsByProductIdForUser(
+      userId,
+      (order.items ?? []).map((item) => item.productId),
+    );
+
     return {
       ...(await mapOrderToResponse(
       { ...order, shipment, shipmentResponse, shipwayStatus },
       this.storageUrlEnricher,
+      reviewsByProductId,
     )),
       refund: await this.refundRequestsService.getCustomerRefund(id, userId),
       ...(await this.attachOrderWorkflow(order, { customerId: userId, includeInternalEvents: false })),

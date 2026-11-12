@@ -32,7 +32,7 @@ Listing cards are always the **product** total: every approved review for that p
 4. Do not send `userId`. The server sets it from the signed-in customer.
 5. The title field is `review`. It is required. Description, age, and location are optional.
 6. Attach the review to the variant the customer is looking at by sending that variant’s `variantId`.
-7. `canReview` means the customer is signed in, verified, and has ordered this product. It is not limited to the selected variant. Guests see no Write a review button; send them to sign-in if they try.
+7. `canReview` means the customer is signed in, verified, and has a **delivered** order of this product. It is not limited to the selected variant. Guests see no Write a review button; send them to sign-in if they try. My Orders shows Write a Review per delivered line item, then Reviewed once submitted.
 8. There is no helpful or report API. Do not show those actions.
 9. Do not hard-code `0` when the card payload includes `averageRating` or `reviewCount`.
 
@@ -68,7 +68,7 @@ Error:
   "success": false,
   "statusCode": 403,
   "error": "Forbidden",
-  "message": "Only customers who ordered this product can submit a review",
+  "message": "Only customers with a delivered order of this product can submit a review",
   "timestamp": "2026-10-28T06:30:00.000Z",
   "path": "/api/v1/public/products/serum/reviews"
 }
@@ -188,7 +188,7 @@ GET /public/products/{productSlug}/can-review?variantId={selectedVariantId}
 Authorization: Bearer <customer_session>
 ```
 
-Pass the on-screen `variantId` the same way as the reviews list. Eligibility is true only when the customer ordered that variant (or the product when no variant is selected) and has not already submitted a review for that variant.
+Pass the on-screen `variantId` the same way as the reviews list. Eligibility is true only when the customer has a delivered order of this product and has not already submitted a review for it.
 
 ```json
 { "canReview": true }
@@ -239,7 +239,7 @@ Do not insert the create response into the list. On any other failure, show the 
 | Status | Message | App |
 |---|---|---|
 | 403 | Please sign in to submit a product review | Open sign-in |
-| 403 | Only customers who ordered this product/variant can submit a review | Show the message. Hide the button on the next `can-review`. |
+| 403 | Only customers with a delivered order of this product can submit a review | Show the message. Hide the button on the next `can-review`. |
 | 409 | You have already submitted a review for this variant | Show the message. Hide Write a Review for that variant. |
 | 400 | Rating must be an integer between 1 and 5 | Show the message |
 | 400 | Review text is required | Show the message |
