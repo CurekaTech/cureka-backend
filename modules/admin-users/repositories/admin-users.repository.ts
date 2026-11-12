@@ -124,6 +124,31 @@ export class AdminUsersRepository {
     return count > 0;
   }
 
+  /**
+   * Includes soft-deleted rows. The unique index on email is not partial,
+   * so deleted admins still occupy the address even though list queries hide them.
+   */
+  async findByNormalizedEmailIncludingDeleted(
+    email: string,
+  ): Promise<AdminUserEntity | null> {
+    return this.repo
+      .createQueryBuilder('admin_user')
+      .withDeleted()
+      .where('LOWER(TRIM(admin_user.email)) = :email', {
+        email: email.trim().toLowerCase(),
+      })
+      .getOne();
+  }
+
+  async restoreAndUpdate(
+    id: string,
+    data: Partial<AdminUserEntity>,
+  ): Promise<AdminUserEntity | null> {
+    await this.repo.restore(id);
+    await this.repo.update(id, data);
+    return this.findById(id);
+  }
+
   async updateLastLoginAt(id: string): Promise<void> {
     await this.repo.update(id, { lastLoginAt: new Date() });
   }
