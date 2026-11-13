@@ -15,6 +15,8 @@ import {
   formatCashfreeScheduleDate,
   nextCashfreeUpiScheduleDate,
 } from '../../utils/cashfree-schedule-date.util';
+import { resolveCashfreeMerchantSubscriptionId } from '../../utils/cashfree-subscription-id.util';
+import { AUTOPAY_TRACE, formatIstDate } from '../../utils/autopay-trace.util';
 import { mapCashfreeSubscriptionStatus } from '../../utils/subscription-mandate-status.util';
 
 /**
@@ -77,16 +79,18 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
       'x-idempotency-key': `cf-sub-create:${input.subscriptionId}`.slice(0, 64),
     });
     const sessionId = String(created['subscription_session_id'] ?? '');
+    const merchantId = String(created['subscription_id'] ?? subscriptionId);
     const cfId = String(created['cf_subscription_id'] ?? '');
-    if (!sessionId && !String(created['subscription_id'] ?? '')) {
+    if (!sessionId && !merchantId) {
       throw new BadRequestException('Cashfree subscription create did not return a session');
     }
     const env = (this.configService.get<string>('CASHFREE_ENV') ?? 'sandbox').toLowerCase();
     const environment = env === 'production' ? 'production' : 'sandbox';
     return {
       provider: this.provider,
-      authorizationOrderId: String(created['subscription_id'] ?? subscriptionId),
-      gatewaySubscriptionId: cfId || String(created['subscription_id'] ?? subscriptionId),
+      authorizationOrderId: merchantId,
+      gatewaySubscriptionId: merchantId,
+      gatewayMandateId: cfId || null,
       currency: input.currency ?? 'INR',
       amountPaise: Math.round(Number(input.authorizationAmount ?? 1) * 100),
       paymentSessionId: sessionId || null,
@@ -96,7 +100,7 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
       checkoutPayload: {
         subscription_session_id: sessionId,
         paymentSessionId: sessionId,
-        subscription_id: created['subscription_id'],
+        subscription_id: merchantId,
         cf_subscription_id: cfId,
         environment,
         subscriptionCheckout: true,
@@ -108,25 +112,55 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
     gatewaySubscriptionId?: string | null;
   }): Promise<MandateStatusSnapshot> {
     this.assertConfigured();
-    if (!params.gatewaySubscriptionId) {
-      return { status: mapCashfreeSubscriptionStatus('INITIALIZED') };
+    const merchantId = this.requireMerchantSubscriptionId(
+      params.gatewaySubscriptionId,
+      'fetchMandateStatus',
+    );
+    if (!merchantId) {
+      return { status: mapCashfreeSubscriptionStatus('INITIALIZED'), gatewayRead: false };
     }
     const details = await this.request(
       'GET',
-      `/subscriptions/${encodeURIComponent(params.gatewaySubscriptionId)}`,
+      `/subscriptions/${encodeURIComponent(merchantId)}`,
     );
     return {
       status: mapCashfreeSubscriptionStatus(String(details['subscription_status'] ?? '')),
-      gatewaySubscriptionId: String(details['subscription_id'] ?? params.gatewaySubscriptionId),
-      gatewayMandateId: String(details['cf_subscription_id'] ?? details['subscription_id'] ?? '') || null,
+      gatewaySubscriptionId: String(details['subscription_id'] ?? merchantId),
+      gatewayMandateId: String(details['cf_subscription_id'] ?? '') || null,
       raw: details,
+      gatewayRead: true,
     };
   }
 
   async charge(input: ChargeMandateInput): Promise<AutopayChargeResult> {
     this.assertConfigured();
-    const subscriptionId = input.gatewaySubscriptionId || input.gatewayMandateId;
+    const subscriptionId = this.requireMerchantSubscriptionId(
+      input.gatewaySubscriptionId,
+      'charge',
+    );
+    if (!subscriptionId) {
+      return {
+        accepted: false,
+        pending: false,
+        failureReason:
+          'Cashfree merchant subscription_id is required (sub_…). A numeric cf_subscription_id cannot be charged.',
+      };
+    }
     const scheduleDate = input.scheduleDate ?? nextCashfreeUpiScheduleDate();
+    const scheduleIst = formatCashfreeScheduleDate(scheduleDate);
+    this.logger.log(
+      {
+        event: AUTOPAY_TRACE,
+        phase: 'cashfree_pay_request',
+        merchantSubscriptionId: subscriptionId,
+        paymentAmount: input.amount,
+        paymentType: 'CHARGE',
+        paymentId: input.idempotencyKey.slice(0, 50),
+        scheduleIst,
+        nowIst: formatIstDate(new Date()),
+      },
+      `${AUTOPAY_TRACE} POST /subscriptions/pay CHARGE`,
+    );
     try {
       const payment = await this.request(
         'POST',
@@ -136,11 +170,26 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
           payment_id: input.idempotencyKey.slice(0, 50),
           payment_amount: Number(input.amount),
           payment_type: 'CHARGE',
-          payment_schedule_date: formatCashfreeScheduleDate(scheduleDate),
+          payment_schedule_date: scheduleIst,
         },
         { 'x-idempotency-key': input.idempotencyKey.slice(0, 64) },
       );
       const status = String(payment['payment_status'] ?? payment['status'] ?? '').toUpperCase();
+      this.logger.log(
+        {
+          event: AUTOPAY_TRACE,
+          phase: 'cashfree_pay_response',
+          merchantSubscriptionId: subscriptionId,
+          paymentAmount: input.amount,
+          scheduleIst,
+          nowIst: formatIstDate(new Date()),
+          paymentStatus: status || null,
+          gatewayOrderId: String(payment['payment_id'] ?? '') || null,
+          gatewayPaymentId: String(payment['cf_payment_id'] ?? '') || null,
+          failureReason: String(payment['failure_reason'] ?? '') || null,
+        },
+        `${AUTOPAY_TRACE} Cashfree CHARGE response`,
+      );
       if (!status) {
         return {
           accepted: true,
@@ -177,6 +226,18 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        {
+          event: AUTOPAY_TRACE,
+          phase: 'cashfree_pay_error',
+          merchantSubscriptionId: subscriptionId,
+          paymentAmount: input.amount,
+          scheduleIst,
+          nowIst: formatIstDate(new Date()),
+          error: message,
+        },
+        `${AUTOPAY_TRACE} Cashfree CHARGE request failed`,
+      );
       if (/timeout|ECONNRESET|fetch failed|network|aborted|failed \(5\d\d\)/i.test(message)) {
         return { accepted: true, pending: true, failureReason: message };
       }
@@ -189,8 +250,17 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
     gatewayPaymentId?: string | null;
     gatewaySubscriptionId?: string | null;
     matchSingleCaptured?: boolean;
+    expectedAmount?: string | null;
+    expectedCurrency?: string | null;
   }): Promise<GatewayChargeSnapshot> {
-    if (!this.isConfigured() || !params.gatewaySubscriptionId) {
+    const merchantId = resolveCashfreeMerchantSubscriptionId(params.gatewaySubscriptionId);
+    if (!this.isConfigured() || !merchantId) {
+      if (params.gatewaySubscriptionId && !merchantId) {
+        this.logger.warn(
+          { gatewaySubscriptionId: params.gatewaySubscriptionId },
+          'Cashfree payment list skipped — numeric cf_subscription_id is not a merchant subscription_id',
+        );
+      }
       return {
         state: 'unknown',
         gatewayOrderId: params.gatewayOrderId,
@@ -200,7 +270,7 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
     try {
       const listed = await this.request(
         'GET',
-        `/subscriptions/${encodeURIComponent(params.gatewaySubscriptionId)}/payments`,
+        `/subscriptions/${encodeURIComponent(merchantId)}/payments`,
       );
       const rows = cashfreePaymentRows(listed);
       const wanted = [params.gatewayOrderId, params.gatewayPaymentId]
@@ -211,18 +281,19 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
         ? rows.find((row) => cashfreeRowIds(row).some((id) => wanted.includes(id)))
         : undefined;
       const soleChargeCaptured = cashfreeSoleNonAuthCaptured(captured);
-      const match =
-        byId ??
-        soleChargeCaptured ??
-        (params.matchSingleCaptured && captured.length === 1 ? captured[0] : undefined);
+      const amountMatchedCharge = cashfreeUniqueChargeMatchingAmount(captured, params);
+      const soleCaptured =
+        params.matchSingleCaptured && captured.length === 1 ? captured[0] : undefined;
+      const match = byId ?? soleChargeCaptured ?? amountMatchedCharge ?? soleCaptured;
       if (!match) {
         this.logger.warn(
           {
-            gatewaySubscriptionId: params.gatewaySubscriptionId,
+            gatewaySubscriptionId: merchantId,
             rowCount: rows.length,
             capturedCount: captured.length,
             lookedUpPaymentId: wanted.length > 0,
             soleChargeCaptured: Boolean(soleChargeCaptured),
+            amountMatchedCharge: Boolean(amountMatchedCharge),
           },
           'Cashfree subscription payment was not found in the payment list',
         );
@@ -235,21 +306,38 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
       if (!byId && wanted.length > 0) {
         this.logger.log(
           {
-            gatewaySubscriptionId: params.gatewaySubscriptionId,
+            gatewaySubscriptionId: merchantId,
             rowCount: rows.length,
             capturedCount: captured.length,
             lookedUpPaymentId: true,
             usedSoleChargeFallback: Boolean(soleChargeCaptured),
-            usedMatchSingleCaptured: !soleChargeCaptured,
+            usedAmountMatch: Boolean(amountMatchedCharge && !soleChargeCaptured),
+            usedMatchSingleCaptured: !soleChargeCaptured && !amountMatchedCharge,
           },
           'Cashfree subscription payment matched via sole captured CHARGE after id lookup missed',
         );
       }
-      return cashfreePaymentSnapshot(match);
+      const snapshot = cashfreePaymentSnapshot(match);
+      if (
+        cashfreeIsAuthPayment(match) &&
+        params.expectedAmount &&
+        params.expectedCurrency &&
+        (snapshot.amount == null ||
+          snapshot.currency == null ||
+          snapshot.currency.toUpperCase() !== params.expectedCurrency.trim().toUpperCase() ||
+          Math.abs(Number(params.expectedAmount) - Number(snapshot.amount)) >= 0.009)
+      ) {
+        return {
+          state: 'unknown',
+          gatewayOrderId: params.gatewayOrderId,
+          gatewayPaymentId: params.gatewayPaymentId,
+        };
+      }
+      return snapshot;
     } catch (error) {
       this.logger.warn(
         {
-          gatewaySubscriptionId: params.gatewaySubscriptionId,
+          gatewaySubscriptionId: merchantId,
           error: error instanceof Error ? error.message : String(error),
         },
         'Cashfree subscription payment status could not be read',
@@ -270,7 +358,10 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
     gatewaySubscriptionId?: string | null;
   }): Promise<MandateCancelResult> {
     this.assertConfigured();
-    const subscriptionId = params.gatewaySubscriptionId?.trim();
+    const subscriptionId = this.requireMerchantSubscriptionId(
+      params.gatewaySubscriptionId,
+      'cancelMandate',
+    );
     if (!subscriptionId) return { cancelled: true };
     try {
       await this.request('POST', `/subscriptions/${encodeURIComponent(subscriptionId)}/manage`, {
@@ -282,6 +373,21 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
       if (/already|cancelled|canceled|does not exist|not found/i.test(message)) return { cancelled: true };
       return { cancelled: false, failureReason: message };
     }
+  }
+
+  private requireMerchantSubscriptionId(
+    value: string | null | undefined,
+    operation: string,
+  ): string | undefined {
+    const merchantId = resolveCashfreeMerchantSubscriptionId(value);
+    if (merchantId) return merchantId;
+    if (value?.trim()) {
+      this.logger.warn(
+        { given: value.trim(), operation },
+        'Cashfree API skipped — numeric cf_subscription_id is not a merchant subscription_id',
+      );
+    }
+    return undefined;
   }
 
   private assertConfigured(): void {
@@ -358,6 +464,26 @@ function cashfreeSoleNonAuthCaptured(captured: Record<string, unknown>[]): Recor
   return charges.length === 1 ? charges[0] : undefined;
 }
 
+function cashfreeUniqueChargeMatchingAmount(
+  captured: Record<string, unknown>[],
+  params: { expectedAmount?: string | null; expectedCurrency?: string | null },
+): Record<string, unknown> | undefined {
+  const expectedAmount = params.expectedAmount?.trim();
+  const expectedCurrency = params.expectedCurrency?.trim();
+  if (!expectedAmount || !expectedCurrency) return undefined;
+  const expected = Number(expectedAmount);
+  if (!Number.isFinite(expected)) return undefined;
+  const matches = captured.filter((row) => {
+    if (cashfreeIsAuthPayment(row)) return false;
+    const snapshot = cashfreePaymentSnapshot(row);
+    if (snapshot.state !== 'captured' || snapshot.amount == null || !snapshot.currency) return false;
+    if (snapshot.currency.toUpperCase() !== expectedCurrency.toUpperCase()) return false;
+    const actual = Number(snapshot.amount);
+    return Number.isFinite(actual) && Math.abs(expected - actual) < 0.009;
+  });
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
 function cashfreeIsAuthPayment(row: Record<string, unknown>): boolean {
   return String(row['payment_type'] ?? '').trim().toUpperCase() === 'AUTH';
 }
@@ -370,6 +496,7 @@ function cashfreePaymentSnapshot(payment: Record<string, unknown>): GatewayCharg
     gatewayOrderId: String(payment['payment_id'] ?? '') || null,
     gatewayPaymentId: String(payment['cf_payment_id'] ?? '') || null,
     amount: Number.isFinite(amount) ? amount.toFixed(2) : null,
+    paymentType: String(payment['payment_type'] ?? '').trim().toUpperCase() || null,
     ...(currency ? { currency } : {}),
   };
   if (['SUCCESS', 'PAID'].includes(status)) return { ...snapshot, state: 'captured' };

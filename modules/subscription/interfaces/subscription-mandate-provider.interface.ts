@@ -5,7 +5,10 @@ export type MandateAuthSession = {
   provider: SubscriptionMandateProvider;
   authorizationOrderId: string;
   gatewayCustomerId?: string | null;
+  /** Cashfree: merchant `subscription_id` (`sub_…`). Razorpay: unused. */
   gatewaySubscriptionId?: string | null;
+  /** Cashfree: numeric `cf_subscription_id`. Razorpay: token id when known. */
+  gatewayMandateId?: string | null;
   keyId?: string | null;
   amountPaise?: number | null;
   currency: string;
@@ -21,6 +24,8 @@ export type MandateStatusSnapshot = {
   gatewaySubscriptionId?: string | null;
   validUntil?: Date | null;
   raw?: Record<string, unknown>;
+  /** False when Cashfree was not queried (missing/invalid merchant subscription_id). */
+  gatewayRead?: boolean;
 };
 
 export type AutopayChargeResult = {
@@ -53,6 +58,8 @@ export type GatewayChargeSnapshot = {
   amount?: string | null;
   /** Present when Razorpay included it. A different currency is not the product payment. */
   currency?: string | null;
+  /** Cashfree AUTH vs CHARGE. AUTH must not settle a product order. */
+  paymentType?: string | null;
   failureReason?: string | null;
 };
 
@@ -129,6 +136,8 @@ export interface ISubscriptionMandateProvider {
      * one captured subscription payment may be used. A renewal must not set this.
      */
     matchSingleCaptured?: boolean;
+    expectedAmount?: string | null;
+    expectedCurrency?: string | null;
   }): Promise<GatewayChargeSnapshot>;
   /**
    * Successful empty means this order has no payment. A transport error is unknown

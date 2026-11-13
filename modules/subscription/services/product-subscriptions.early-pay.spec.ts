@@ -11,6 +11,7 @@ describe('Product subscription early payment and reminders', () => {
     findById: jest.fn(),
     findByIdAndUserId: jest.fn(),
     findDueForRenewal: jest.fn(),
+    findAutopayReadyPendingPayment: jest.fn(async () => []),
     updateById: jest.fn(),
   };
   const paymentsService = {
@@ -44,6 +45,7 @@ describe('Product subscription early payment and reminders', () => {
     sendRenewalReminderEmail: jest.fn(async () => true),
     notifyReminder: jest.fn(),
     notifyRenewalDue: jest.fn(),
+    notifyMandateLimitExceeded: jest.fn(),
   };
   const reminderLogsRepository = {
     findSent: jest.fn(async () => null),
@@ -57,6 +59,9 @@ describe('Product subscription early payment and reminders', () => {
       email: 'a@example.com',
       mobileNumber: '9999999999',
     })),
+  };
+  const productsRepository = {
+    findPublishedById: jest.fn(async () => ({ id: 'prod-1', status: 'published' })),
   };
   const variantsRepository = {
     findById: jest.fn(async () => ({ sellingPrice: '199.00' })),
@@ -88,7 +93,7 @@ describe('Product subscription early payment and reminders', () => {
     paymentLinkService as never,
     notificationsService as never,
     membershipBenefits as never,
-    {} as never,
+    productsRepository as never,
     variantsRepository as never,
     usersRepository as never,
     {} as never,
@@ -160,7 +165,7 @@ describe('Product subscription early payment and reminders', () => {
       gatewayOrderId: null,
     });
     paymentLinkService.createPaymentLink.mockResolvedValue({
-      paymentLink: 'https://sandbox.cashfree.com/pg/view/checkout?payment_session_id=sess',
+      paymentLink: 'https://cureka.techbv.in/api/v1/payments/cashfree/hosted-checkout?payment_session_id=sess',
       gatewayOrderId: 'order_cf_early',
       paymentGateway: 'CASHFREE',
       paymentSessionId: 'sess',
@@ -190,7 +195,7 @@ describe('Product subscription early payment and reminders', () => {
       refId: 'spay-1',
       status: SubscriptionPaymentStatus.LINK_GENERATED,
       attemptKind: SubscriptionPaymentAttemptKind.MANUAL_LINK,
-      paymentLink: 'https://sandbox.cashfree.com/pg/view/checkout?payment_session_id=sess',
+      paymentLink: 'https://cureka.techbv.in/api/v1/payments/cashfree/hosted-checkout?payment_session_id=sess',
       gatewayOrderId: 'order_cf_early',
       paymentGateway: 'CASHFREE',
       currency: 'INR',
@@ -237,7 +242,7 @@ describe('Product subscription early payment and reminders', () => {
     expect(notificationsService.sendRenewalReminderEmail).toHaveBeenCalledWith(
       expect.objectContaining({
         daysBefore: 5,
-        paymentLink: expect.stringContaining('cashfree.com'),
+        paymentLink: expect.stringMatching(/cashfree\.com|hosted-checkout/),
         amount: '199.00',
       }),
     );

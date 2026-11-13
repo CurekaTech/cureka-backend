@@ -185,6 +185,8 @@ export class PaymentRequestsService {
           paymentLink: cashfreeHostedCheckoutUrl(
             paymentSessionId,
             this.cashfreeService.getEnv() === 'production' ? 'production' : 'sandbox',
+            this.configService.get<string>('API_PUBLIC_URL') ||
+              this.configService.get<string>('STOREFRONT_URL'),
           ),
           paymentProvider: 'CASHFREE',
           status: PaymentRequestStatus.LINK_GENERATED,
@@ -218,6 +220,8 @@ export class PaymentRequestsService {
             paymentLink: cashfreeHostedCheckoutUrl(
             paymentSessionId,
             this.cashfreeService.getEnv() === 'production' ? 'production' : 'sandbox',
+            this.configService.get<string>('API_PUBLIC_URL') ||
+              this.configService.get<string>('STOREFRONT_URL'),
           ),
           },
         };

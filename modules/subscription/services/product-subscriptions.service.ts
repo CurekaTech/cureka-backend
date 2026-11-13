@@ -57,6 +57,8 @@ import {
   nextLegalCashfreeChargeDate,
   resolveCashfreeChargeSchedule,
 } from '../utils/cashfree-schedule-date.util';
+import { resolveCashfreeMerchantSubscriptionId } from '../utils/cashfree-subscription-id.util';
+import { AUTOPAY_TRACE, formatIstDate, isHourlyAutopayTrace } from '../utils/autopay-trace.util';
 import { isCashfreeAdvanceChargeEnabled } from '../utils/subscriptions-module.util';
 import { UserProductSubscriptionsRepository } from '../repositories/user-product-subscriptions.repository';
 import { SubscriptionReminderLogsRepository } from '../repositories/subscription-reminder-logs.repository';
@@ -68,6 +70,13 @@ import {
 import { buildBillingCycleRef } from '../utils/billing-cycle-ref.util';
 import { buildSubscriptionGatewayNotes } from '../utils/subscription-gateway-notes.util';
 import { isAmountWithinMandateLimit, resolveMandateMaxAmount } from '../utils/mandate-amount.util';
+import {
+  buildRenewalPricingSnapshot,
+  isBillingCyclePricingLocked,
+  MANDATE_LIMIT_EXCEEDED_REASON,
+  PRODUCT_UNAVAILABLE_REASON,
+  SubscriptionRenewalQuote,
+} from '../utils/subscription-pricing-snapshot.util';
 import {
   advancePastMissedCycles,
   getEstimatedDeliveryDate,
@@ -1012,7 +1021,10 @@ export class ProductSubscriptionsService {
         paymentId: pending.id,
         gatewayOrderId: pending.gatewayOrderId ?? undefined,
         gatewayPaymentId: pending.gatewayPaymentId ?? undefined,
-        gatewaySubscriptionId: mandate.gatewaySubscriptionId ?? mandate.authorizationOrderId ?? undefined,
+        gatewaySubscriptionId: resolveCashfreeMerchantSubscriptionId(
+          mandate.authorizationOrderId,
+          mandate.gatewaySubscriptionId,
+        ),
         actor: userId,
       });
       return { paid: settled };
@@ -1108,7 +1120,11 @@ export class ProductSubscriptionsService {
         skipReason: cycle.skipReason,
         failureReason: cycle.failureReason,
         retryCount: cycle.retryCount,
-        paymentLink: rewriteCashfreeHostedCheckoutUrl(payment?.paymentLink ?? null),
+        paymentLink: rewriteCashfreeHostedCheckoutUrl(
+          payment?.paymentLink ?? null,
+          this.nestConfig.get<string>('API_PUBLIC_URL') ||
+            this.nestConfig.get<string>('STOREFRONT_URL'),
+        ),
         paymentStatus: payment?.status ?? null,
         attemptKind: payment?.attemptKind ?? null,
         paymentGateway: payment?.paymentGateway ?? sub.paymentGateway ?? null,
@@ -1213,14 +1229,24 @@ export class ProductSubscriptionsService {
     if (!mandate) throw new NotFoundException('Mandate not found');
     const snapshot = await this.mandateService.adapter(mandate.provider).fetchMandateStatus({
       gatewayMandateId: mandate.gatewayMandateId,
-      gatewaySubscriptionId: mandate.gatewaySubscriptionId,
+      gatewaySubscriptionId:
+        mandate.provider === SubscriptionMandateProvider.CASHFREE
+          ? resolveCashfreeMerchantSubscriptionId(
+              mandate.authorizationOrderId,
+              mandate.gatewaySubscriptionId,
+            )
+          : mandate.gatewaySubscriptionId,
       gatewayPaymentId: mandate.authorizationPaymentId,
       gatewayCustomerId: mandate.gatewayCustomerId,
     });
+    if (snapshot.gatewayRead === false) {
+      return this.getMandate(userId, id);
+    }
     await this.mandateService.applyStatusSnapshot({
       mandateId: mandate.id,
       status: snapshot.status,
       gatewayMandateId: snapshot.gatewayMandateId,
+      gatewaySubscriptionId: snapshot.gatewaySubscriptionId,
       actor: userId,
       raw: snapshot.raw,
     });
@@ -1750,11 +1776,14 @@ export class ProductSubscriptionsService {
     if (!payment) {
       this.logger.warn(
         {
+          event: AUTOPAY_TRACE,
+          phase: 'cashfree_settle_skipped',
           paymentId: params.paymentId ?? null,
           gatewayOrderId: params.gatewayOrderId ?? null,
           gatewaySubscriptionId: params.gatewaySubscriptionId ?? null,
+          nowIst: formatIstDate(new Date()),
         },
-        'Cashfree settlement skipped because the subscription payment row was not found',
+        `${AUTOPAY_TRACE} Cashfree settlement skipped because the subscription payment row was not found`,
       );
       return false;
     }
@@ -1782,7 +1811,7 @@ export class ProductSubscriptionsService {
       );
       return false;
     }
-    const gatewaySubscriptionId = cashfreeMerchantSubscriptionId(
+    const gatewaySubscriptionId = resolveCashfreeMerchantSubscriptionId(
       mandate?.authorizationOrderId,
       params.gatewaySubscriptionId,
       mandate?.gatewaySubscriptionId,
@@ -1791,6 +1820,8 @@ export class ProductSubscriptionsService {
       gatewayOrderId: chargeOrderId,
       gatewayPaymentId: params.gatewayPaymentId ?? payment.gatewayPaymentId,
       gatewaySubscriptionId,
+      expectedAmount: payment.amount,
+      expectedCurrency: payment.currency,
       matchSingleCaptured:
         !chargeOrderId &&
         !params.gatewayPaymentId &&
@@ -1800,17 +1831,22 @@ export class ProductSubscriptionsService {
     if (!this.cashfreeCapturedPaymentMatches(payment, snapshot)) {
       this.logger.warn(
         {
+          event: AUTOPAY_TRACE,
+          phase: 'cashfree_settle_mismatch',
           paymentId: payment.id,
           subscriptionId: payment.subscriptionId,
+          attemptKind: payment.attemptKind ?? null,
           expectedAmount: payment.amount,
           expectedCurrency: payment.currency ?? null,
           snapshotState: snapshot.state,
           snapshotAmount: snapshot.amount ?? null,
           snapshotCurrency: snapshot.currency ?? null,
+          snapshotPaymentType: snapshot.paymentType ?? null,
           gatewaySubscriptionId: gatewaySubscriptionId ?? null,
           chargeOrderId,
+          nowIst: formatIstDate(new Date()),
         },
-        'Cashfree settlement skipped because the captured payment does not match the subscription',
+        `${AUTOPAY_TRACE} Cashfree settlement skipped because the captured payment does not match the subscription`,
       );
       return false;
     }
@@ -1827,13 +1863,18 @@ export class ProductSubscriptionsService {
       if (!this.cashfreeCapturedPaymentMatches(current, snapshot)) return false;
       this.logger.log(
         {
+          event: AUTOPAY_TRACE,
+          phase: 'cashfree_settle_matched',
           paymentId: current.id,
           subscriptionId: current.subscriptionId,
+          attemptKind: current.attemptKind ?? null,
           snapshotAmount: snapshot.amount,
           snapshotCurrency: snapshot.currency ?? null,
           snapshotState: snapshot.state,
+          snapshotPaymentType: snapshot.paymentType ?? null,
+          nowIst: formatIstDate(new Date()),
         },
-        'Cashfree product payment matched the subscription amount and currency',
+        `${AUTOPAY_TRACE} Cashfree product payment matched the subscription amount and currency`,
       );
       await this.handlePaymentSuccess({
         paymentId: current.id,
@@ -1850,10 +1891,20 @@ export class ProductSubscriptionsService {
    * A missing currency is not treated as INR.
    */
   private cashfreeCapturedPaymentMatches(
-    payment: { amount?: string | null; currency?: string | null },
-    snapshot: { state: string; amount?: string | null; currency?: string | null },
+    payment: {
+      amount?: string | null;
+      currency?: string | null;
+      attemptKind?: SubscriptionPaymentAttemptKind | null;
+    },
+    snapshot: { state: string; amount?: string | null; currency?: string | null; paymentType?: string | null },
   ): boolean {
     if (snapshot.state !== 'captured') return false;
+    if (
+      (snapshot.paymentType ?? '').toUpperCase() === 'AUTH' &&
+      payment.attemptKind !== SubscriptionPaymentAttemptKind.FIRST_ORDER
+    ) {
+      return false;
+    }
     if (payment.amount == null || payment.amount === '' || snapshot.amount == null || snapshot.amount === '') {
       return false;
     }
@@ -2276,6 +2327,7 @@ export class ProductSubscriptionsService {
     try {
       await this.finalizePaidCycles(asOfDate);
       await this.settleReconcilingPayments();
+      await this.chargePendingCashfreeFirstOrders(asOfDate);
       await this.scheduleUpcomingUpiDebits(asOfDate);
       if (isCashfreeAdvanceChargeEnabled(this.nestConfig)) {
         await this.scheduleUpcomingCashfreeDebits(asOfDate);
@@ -2291,14 +2343,12 @@ export class ProductSubscriptionsService {
 
       let processed = 0;
       for (const sub of due) {
-        const cycleLock = await this.lockService.withLock(
-          `renewal:${sub.id}`,
-          async () => {
-            await this.processSingleRenewal(sub.id, asOfDate);
-          },
-          120_000,
+        const cycleLock = await this.runIsolatedSubscriptionPass(
+          sub.id,
+          'due-renewal',
+          () => this.processSingleRenewal(sub.id, asOfDate),
         );
-        if (cycleLock !== null) processed += 1;
+        if (cycleLock) processed += 1;
       }
       return processed;
     } finally {
@@ -2318,12 +2368,8 @@ export class ProductSubscriptionsService {
       asOfDate,
     );
     for (const sub of upcoming) {
-      await this.lockService.withLock(
-        `renewal:${sub.id}`,
-        async () => {
-          await this.presentUpcomingUpiDebit(sub.id, asOfDate);
-        },
-        120_000,
+      await this.runIsolatedSubscriptionPass(sub.id, 'upi-preschedule', () =>
+        this.presentUpcomingUpiDebit(sub.id, asOfDate),
       );
     }
   }
@@ -2369,9 +2415,9 @@ export class ProductSubscriptionsService {
     if (this.mandateService.resolveChargeProvider(sub) !== SubscriptionMandateProvider.RAZORPAY) return;
     if (!canNotifyAtSchedule) return;
 
-    let amount: string;
+    let quote: SubscriptionRenewalQuote;
     try {
-      amount = await this.recalculateAmount(sub);
+      quote = await this.quoteRenewal(sub);
     } catch (error) {
       this.logger.warn(
         { subscriptionId: sub.id, error: error instanceof Error ? error.message : String(error) },
@@ -2379,14 +2425,6 @@ export class ProductSubscriptionsService {
       );
       return;
     }
-    if (!isAmountWithinMandateLimit(amount, mandate.maxAmount)) {
-      this.logger.warn(
-        { subscriptionId: sub.id, amount, maxAmount: mandate.maxAmount },
-        '27-hour UPI debit was not scheduled because the amount exceeds the mandate',
-      );
-      return;
-    }
-
     const deliveryLead = sub.config?.deliveryLeadDays ?? 2;
     const cycle = await this.billingCycleService.getOrCreate({
       subscriptionId: sub.id,
@@ -2395,10 +2433,15 @@ export class ProductSubscriptionsService {
       sequence: (sub.billingCycleSequence ?? 0) + 1,
       chargeDate: sub.nextBillingDate,
       estimatedDeliveryDate: getEstimatedDeliveryDate(sub.nextBillingDate, deliveryLead),
-      amount,
-      pricingSnapshot: { amount, quantity: sub.quantity, frequency: sub.frequency },
+      amount: quote.finalAmount,
+      pricingSnapshot: buildRenewalPricingSnapshot(quote, { frequency: sub.frequency }),
       actor: 'scheduler',
     });
+    const amount = isBillingCyclePricingLocked(cycle.status) ? cycle.amount : quote.finalAmount;
+    if (!isAmountWithinMandateLimit(amount, mandate.maxAmount)) {
+      await this.markMandateLimitExceeded(sub, cycle, amount, mandate.maxAmount);
+      return;
+    }
     if (
       cycle.status === SubscriptionBillingCycleStatus.PAID ||
       cycle.status === SubscriptionBillingCycleStatus.PAID_ORDER_PENDING ||
@@ -2425,12 +2468,8 @@ export class ProductSubscriptionsService {
       horizon,
     );
     for (const sub of upcoming) {
-      await this.lockService.withLock(
-        `renewal:${sub.id}`,
-        async () => {
-          await this.presentUpcomingCashfreeDebit(sub.id, asOfDate);
-        },
-        120_000,
+      await this.runIsolatedSubscriptionPass(sub.id, 'cashfree-preschedule', () =>
+        this.presentUpcomingCashfreeDebit(sub.id, asOfDate),
       );
     }
   }
@@ -2475,16 +2514,43 @@ export class ProductSubscriptionsService {
       now: asOfDate,
       method: String(mandate.consentEvidence?.method ?? ''),
     });
-    if (decision.outcome === 'wait') return;
+    if (decision.outcome === 'wait') {
+      if (isHourlyAutopayTrace(asOfDate)) {
+        this.logAutopayTrace('cashfree_charge_wait', {
+          subscriptionId: sub.id,
+          refId: sub.refId,
+          frequency: sub.frequency,
+          status: sub.status,
+          nextBillingIst: formatIstDate(sub.nextBillingDate),
+          nowIst: formatIstDate(asOfDate),
+          method: String(mandate.consentEvidence?.method ?? ''),
+          reason: decision.reason,
+          merchantSubscriptionId: resolveCashfreeMerchantSubscriptionId(
+            mandate.authorizationOrderId,
+            mandate.gatewaySubscriptionId,
+          ),
+        });
+      }
+      return;
+    }
 
     const deliveryLead = sub.config?.deliveryLeadDays ?? 2;
-    let amount: string;
+    let quote: SubscriptionRenewalQuote;
     try {
-      amount = await this.recalculateAmount(sub);
+      quote = await this.quoteRenewal(sub);
     } catch (error) {
       this.logger.warn(
-        { subscriptionId: sub.id, error: error instanceof Error ? error.message : String(error) },
-        'Cashfree CHARGE was not scheduled because pricing failed',
+        {
+          event: AUTOPAY_TRACE,
+          phase: 'cashfree_pricing_failed',
+          subscriptionId: sub.id,
+          refId: sub.refId,
+          frequency: sub.frequency,
+          nextBillingIst: formatIstDate(sub.nextBillingDate),
+          nowIst: formatIstDate(asOfDate),
+          error: error instanceof Error ? error.message : String(error),
+        },
+        `${AUTOPAY_TRACE} Cashfree CHARGE was not scheduled because pricing failed`,
       );
       return;
     }
@@ -2496,10 +2562,11 @@ export class ProductSubscriptionsService {
       sequence: (sub.billingCycleSequence ?? 0) + 1,
       chargeDate: sub.nextBillingDate,
       estimatedDeliveryDate: getEstimatedDeliveryDate(sub.nextBillingDate, deliveryLead),
-      amount,
-      pricingSnapshot: { amount, quantity: sub.quantity, frequency: sub.frequency },
+      amount: quote.finalAmount,
+      pricingSnapshot: buildRenewalPricingSnapshot(quote, { frequency: sub.frequency }),
       actor: 'scheduler',
     });
+    const amount = isBillingCyclePricingLocked(cycle.status) ? cycle.amount : quote.finalAmount;
     if (
       cycle.status === SubscriptionBillingCycleStatus.PAID ||
       cycle.status === SubscriptionBillingCycleStatus.PAID_ORDER_PENDING ||
@@ -2511,8 +2578,19 @@ export class ProductSubscriptionsService {
     }
     if (decision.outcome === 'missed') {
       this.logger.warn(
-        { subscriptionId: sub.id, billingCycleRef, reason: decision.reason },
-        'Cashfree same-day window was missed; AutoPay CHARGE is scheduled on the next legal slot',
+        {
+          event: AUTOPAY_TRACE,
+          phase: 'cashfree_window_missed',
+          subscriptionId: sub.id,
+          refId: sub.refId,
+          frequency: sub.frequency,
+          billingCycleRef,
+          nextBillingIst: formatIstDate(sub.nextBillingDate),
+          nowIst: formatIstDate(asOfDate),
+          liveAmount: amount,
+          reason: decision.reason,
+        },
+        `${AUTOPAY_TRACE} Cashfree same-day window was missed; AutoPay CHARGE is scheduled on the next legal slot`,
       );
       await this.attemptAutopay(
         sub,
@@ -2529,10 +2607,7 @@ export class ProductSubscriptionsService {
     }
 
     if (!isAmountWithinMandateLimit(amount, mandate.maxAmount)) {
-      this.logger.warn(
-        { subscriptionId: sub.id, amount, maxAmount: mandate.maxAmount },
-        'Cashfree CHARGE was not scheduled because the amount exceeds the mandate',
-      );
+      await this.markMandateLimitExceeded(sub, cycle, amount, mandate.maxAmount);
       return;
     }
 
@@ -2593,32 +2668,42 @@ export class ProductSubscriptionsService {
     );
     let updated = 0;
     for (const sub of pastDue) {
-      const graceDays = sub.config?.gracePeriodDays ?? 7;
-      const billing = sub.nextBillingDate;
-      if (!billing) continue;
-      const graceEnd = new Date(billing.getTime());
-      graceEnd.setUTCDate(graceEnd.getUTCDate() + graceDays);
-      if (asOfDate <= graceEnd) {
-        if (sub.status !== ProductSubscriptionStatus.PAST_DUE) {
-          await this.subscriptionsRepository.updateById(sub.id, {
-            status: ProductSubscriptionStatus.PAST_DUE,
-            updatedBy: 'scheduler',
-          });
-          updated += 1;
+      try {
+        const graceDays = sub.config?.gracePeriodDays ?? 7;
+        const billing = sub.nextBillingDate;
+        if (!billing) continue;
+        const graceEnd = new Date(billing.getTime());
+        graceEnd.setUTCDate(graceEnd.getUTCDate() + graceDays);
+        if (asOfDate <= graceEnd) {
+          if (sub.status !== ProductSubscriptionStatus.PAST_DUE) {
+            await this.subscriptionsRepository.updateById(sub.id, {
+              status: ProductSubscriptionStatus.PAST_DUE,
+              updatedBy: 'scheduler',
+            });
+            updated += 1;
+          }
+          continue;
         }
-        continue;
-      }
 
-      const action = sub.config?.missedPaymentAction ?? SubscriptionMissedPaymentAction.PAUSE;
-      await this.subscriptionsRepository.updateById(sub.id, {
-        status:
-          action === SubscriptionMissedPaymentAction.EXPIRE
-            ? ProductSubscriptionStatus.EXPIRED
-            : ProductSubscriptionStatus.PAUSED,
-        pausedAt: action === SubscriptionMissedPaymentAction.PAUSE ? asOfDate : sub.pausedAt,
-        updatedBy: 'scheduler',
-      });
-      updated += 1;
+        const action = sub.config?.missedPaymentAction ?? SubscriptionMissedPaymentAction.PAUSE;
+        await this.subscriptionsRepository.updateById(sub.id, {
+          status:
+            action === SubscriptionMissedPaymentAction.EXPIRE
+              ? ProductSubscriptionStatus.EXPIRED
+              : ProductSubscriptionStatus.PAUSED,
+          pausedAt: action === SubscriptionMissedPaymentAction.PAUSE ? asOfDate : sub.pausedAt,
+          updatedBy: 'scheduler',
+        });
+        updated += 1;
+      } catch (error) {
+        this.logger.error(
+          {
+            subscriptionId: sub.id,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          'Grace/expiry pass skipped this subscription after an error',
+        );
+      }
     }
     return updated;
   }
@@ -2990,7 +3075,15 @@ export class ProductSubscriptionsService {
     const snapshot = await this.mandateService.adapter(provider).fetchChargeStatus({
       gatewayOrderId: payment.gatewayOrderId,
       gatewayPaymentId: payment.gatewayPaymentId,
-      gatewaySubscriptionId: mandate?.gatewaySubscriptionId ?? mandate?.authorizationOrderId,
+      gatewaySubscriptionId:
+        provider === SubscriptionMandateProvider.CASHFREE
+          ? resolveCashfreeMerchantSubscriptionId(
+              mandate?.authorizationOrderId,
+              mandate?.gatewaySubscriptionId,
+            )
+          : (mandate?.gatewaySubscriptionId ?? mandate?.authorizationOrderId),
+      expectedAmount: payment.amount,
+      expectedCurrency: payment.currency,
     });
     if (this.snapshotPaysProductAmount(payment.amount, snapshot)) {
       await this.handlePaymentSuccess({
@@ -3104,9 +3197,9 @@ export class ProductSubscriptionsService {
     if (chargeDate.getTime() > asOfDate.getTime()) return;
 
     const billingCycleRef = buildBillingCycleRef(chargeDate, sub.frequency);
-    let amount: string;
+    let quote: SubscriptionRenewalQuote;
     try {
-      amount = await this.recalculateAmount(sub);
+      quote = await this.quoteRenewal(sub);
     } catch (error) {
       this.logger.warn(
         { subscriptionId: sub.id, error: error instanceof Error ? error.message : String(error) },
@@ -3122,10 +3215,11 @@ export class ProductSubscriptionsService {
       sequence: (sub.billingCycleSequence ?? 0) + 1,
       chargeDate,
       estimatedDeliveryDate: getEstimatedDeliveryDate(chargeDate, deliveryLead),
-      amount,
-      pricingSnapshot: { amount, quantity: sub.quantity, frequency: sub.frequency },
+      amount: quote.finalAmount,
+      pricingSnapshot: buildRenewalPricingSnapshot(quote, { frequency: sub.frequency }),
       actor: 'scheduler',
     });
+    const amount = isBillingCyclePricingLocked(cycle.status) ? cycle.amount : quote.finalAmount;
     if (
       cycle.status === SubscriptionBillingCycleStatus.PAID ||
       cycle.status === SubscriptionBillingCycleStatus.PAID_ORDER_PENDING ||
@@ -3167,10 +3261,7 @@ export class ProductSubscriptionsService {
     const autopay = this.mandateService.canPresentAsAutopay(sub, mandate);
     if (autopay && mandate) {
       if (!isAmountWithinMandateLimit(amount, mandate.maxAmount)) {
-        this.logger.warn(
-          { subscriptionId: sub.id, amount, maxAmount: mandate.maxAmount },
-          'Cycle amount exceeds mandate limit — falling back to manual payment',
-        );
+        await this.markMandateLimitExceeded(sub, cycle, amount, mandate.maxAmount);
       } else {
         const provider = this.mandateService.resolveChargeProvider(sub);
         const advanceCashfree =
@@ -3182,7 +3273,21 @@ export class ProductSubscriptionsService {
             now: asOfDate,
             method: String(mandate.consentEvidence?.method ?? ''),
           });
-          if (decision.outcome === 'wait') return;
+          if (decision.outcome === 'wait') {
+            if (isHourlyAutopayTrace(asOfDate)) {
+              this.logAutopayTrace('cashfree_charge_wait', {
+                subscriptionId: sub.id,
+                refId: sub.refId,
+                frequency: sub.frequency,
+                billingCycleRef,
+                nextBillingIst: formatIstDate(chargeDate),
+                nowIst: formatIstDate(asOfDate),
+                liveAmount: amount,
+                reason: decision.reason,
+              });
+            }
+            return;
+          }
           const debitAt =
             decision.outcome === 'schedule'
               ? chargeDate
@@ -3192,8 +3297,19 @@ export class ProductSubscriptionsService {
                 });
           if (decision.outcome === 'missed') {
             this.logger.warn(
-              { subscriptionId: sub.id, billingCycleRef, reason: decision.reason },
-              'Cashfree same-day window was missed; AutoPay CHARGE is scheduled on the next legal slot',
+              {
+                event: AUTOPAY_TRACE,
+                phase: 'cashfree_window_missed',
+                subscriptionId: sub.id,
+                refId: sub.refId,
+                frequency: sub.frequency,
+                billingCycleRef,
+                nextBillingIst: formatIstDate(chargeDate),
+                nowIst: formatIstDate(asOfDate),
+                liveAmount: amount,
+                reason: decision.reason,
+              },
+              `${AUTOPAY_TRACE} Cashfree same-day window was missed; AutoPay CHARGE is scheduled on the next legal slot`,
             );
           }
           const charged = await this.attemptAutopay(
@@ -3305,23 +3421,196 @@ export class ProductSubscriptionsService {
     });
   }
 
+  /**
+   * AUTH ₹ setup is not merchandise. After the mandate is ACTIVE, raise the first
+   * product CHARGE at the live price (Cashfree T+1 / T+2 legal slot).
+   */
+  async tryChargeCashfreeFirstOrderAfterAuth(params: {
+    gatewaySubscriptionId?: string;
+    actor: string;
+  }): Promise<boolean> {
+    const mandate = await this.mandateService.findByGatewayReference(params.gatewaySubscriptionId);
+    if (!mandate || mandate.provider !== SubscriptionMandateProvider.CASHFREE) return false;
+    if (mandate.consentEvidence?.firstCharge === true) return false;
+    const sub = await this.subscriptionsRepository.findById(mandate.subscriptionId);
+    if (!sub) return false;
+    if (
+      sub.status === ProductSubscriptionStatus.CANCELLED ||
+      sub.status === ProductSubscriptionStatus.EXPIRED ||
+      sub.status === ProductSubscriptionStatus.PAUSED
+    ) {
+      return false;
+    }
+    if (this.mandateService.resolveChargeProvider(sub) !== SubscriptionMandateProvider.CASHFREE) {
+      return false;
+    }
+    if (!this.mandateService.canPresentAsAutopay(sub, mandate)) return false;
+
+    const cycles = await this.billingCycleService.findBySubscriptionId(sub.id);
+    const first = cycles.find((cycle) => cycle.sequence === 1) ?? cycles[cycles.length - 1];
+    if (!first) return false;
+    if (
+      first.status === SubscriptionBillingCycleStatus.PAID ||
+      first.status === SubscriptionBillingCycleStatus.PAID_ORDER_PENDING ||
+      first.status === SubscriptionBillingCycleStatus.DEBIT_PENDING ||
+      first.status === SubscriptionBillingCycleStatus.NOTIFICATION_SENT
+    ) {
+      return true;
+    }
+
+    const existingPayment = first.paymentId
+      ? await this.paymentsService.findById(first.paymentId)
+      : (await this.paymentsService.findBySubscriptionId(sub.id)).find(
+          (row) => row.attemptKind === SubscriptionPaymentAttemptKind.FIRST_ORDER,
+        );
+    if (existingPayment?.status === SubscriptionPaymentStatus.PAID) return true;
+
+    let quote: SubscriptionRenewalQuote;
+    try {
+      quote = await this.quoteRenewal(sub);
+    } catch (error) {
+      this.logger.warn(
+        {
+          subscriptionId: sub.id,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Cashfree first product CHARGE was not scheduled because pricing failed',
+      );
+      return false;
+    }
+    const amount = isBillingCyclePricingLocked(first.status) ? first.amount : quote.finalAmount;
+    if (!isBillingCyclePricingLocked(first.status)) {
+      await this.billingCycleService.updateById(first.id, {
+        amount,
+        pricingSnapshot: buildRenewalPricingSnapshot(quote, { frequency: sub.frequency }),
+        updatedBy: params.actor,
+      });
+    }
+    if (!isAmountWithinMandateLimit(amount, mandate.maxAmount)) {
+      await this.markMandateLimitExceeded(sub, first, amount, mandate.maxAmount);
+      return false;
+    }
+    const debitAt = nextLegalCashfreeChargeDate({
+      method: String(mandate.consentEvidence?.method ?? ''),
+    });
+    return this.attemptAutopay(sub, first, mandate.id, amount, first.billingCycleRef, debitAt);
+  }
+
+  private async chargePendingCashfreeFirstOrders(asOfDate: Date): Promise<void> {
+    void asOfDate;
+    const pending = await this.subscriptionsRepository.findAutopayReadyPendingPayment(
+      SubscriptionMandateProvider.CASHFREE,
+    );
+    for (const sub of pending) {
+      await this.runIsolatedSubscriptionPass(sub.id, 'cashfree-first-charge', async () => {
+        const mandate = await this.mandateService.getForSubscription(sub.id);
+        await this.tryChargeCashfreeFirstOrderAfterAuth({
+          gatewaySubscriptionId:
+            mandate?.authorizationOrderId ?? mandate?.gatewaySubscriptionId ?? undefined,
+          actor: 'scheduler',
+        });
+      });
+    }
+  }
+
+  private async markMandateLimitExceeded(
+    sub: UserProductSubscriptionEntity,
+    cycle: { id: string; skipReason?: string | null },
+    amount: string,
+    maxAmount: string | number | null | undefined,
+  ): Promise<void> {
+    this.logger.warn(
+      {
+        event: AUTOPAY_TRACE,
+        phase: 'mandate_limit_exceeded',
+        subscriptionId: sub.id,
+        refId: sub.refId,
+        frequency: sub.frequency,
+        liveAmount: amount,
+        maxAmount,
+        nextBillingIst: formatIstDate(sub.nextBillingDate),
+        nowIst: formatIstDate(new Date()),
+      },
+      `${AUTOPAY_TRACE} Renewal exceeds the approved mandate maximum — AutoPay CHARGE was not sent`,
+    );
+    if (cycle.skipReason === MANDATE_LIMIT_EXCEEDED_REASON) return;
+    await this.billingCycleService.updateById(cycle.id, {
+      skipReason: MANDATE_LIMIT_EXCEEDED_REASON,
+      failureReason: `Renewal ${amount} exceeds approved mandate maximum ${maxAmount ?? ''}`,
+      updatedBy: 'scheduler',
+    });
+    this.notificationsService.notifyMandateLimitExceeded({
+      userId: sub.userId,
+      kind: 'product_subscription',
+      amount,
+      maxAmount: String(maxAmount ?? ''),
+      refId: sub.refId,
+    });
+  }
+
+  private logAutopayTrace(phase: string, details: Record<string, unknown>): void {
+    this.logger.log({ event: AUTOPAY_TRACE, phase, ...details }, `${AUTOPAY_TRACE} ${phase}`);
+  }
+
   private async recalculateAmount(sub: {
+    productId?: string;
     productVariantId: string;
     quantity: number;
     discountType: import('../enums/subscription-discount-type.enum').SubscriptionDiscountType;
     discountValue: string;
     userId: string;
   }): Promise<string> {
+    return (await this.quoteRenewal(sub)).finalAmount;
+  }
+
+  private async quoteRenewal(sub: {
+    productId?: string;
+    productVariantId: string;
+    quantity: number;
+    discountType: import('../enums/subscription-discount-type.enum').SubscriptionDiscountType;
+    discountValue: string;
+    userId: string;
+  }): Promise<SubscriptionRenewalQuote> {
+    if (sub.productId) {
+      const product = await this.productsRepository.findPublishedById(sub.productId);
+      if (!product || product.status !== ProductStatus.PUBLISHED) {
+        throw new BadRequestException(PRODUCT_UNAVAILABLE_REASON);
+      }
+    }
     const variant = await this.variantsRepository.findById(sub.productVariantId);
-    if (!variant) throw new BadRequestException('Variant not found for renewal pricing');
+    if (!variant || (sub.productId && variant.productId && variant.productId !== sub.productId)) {
+      throw new BadRequestException('Variant not found for renewal pricing');
+    }
+    if (variant.status && variant.status !== VariantStatus.ACTIVE) {
+      throw new BadRequestException(PRODUCT_UNAVAILABLE_REASON);
+    }
+    if (variant.outOfStock === true || (typeof variant.stock === 'number' && variant.stock < sub.quantity)) {
+      throw new BadRequestException(PRODUCT_UNAVAILABLE_REASON);
+    }
     const memberDiscount = await this.membershipBenefits.getMemberDiscount(sub.userId);
-    return this.pricingService.calculate(
+    const pricing = this.pricingService.calculate(
       variant.sellingPrice,
       sub.quantity,
       sub.discountType,
       sub.discountValue,
       memberDiscount,
-    ).finalAmount;
+    );
+    if (Number(pricing.finalAmount) <= 0) {
+      throw new BadRequestException('Renewal amount must be greater than zero');
+    }
+    return {
+      subscriptionPrice: pricing.subscriptionPrice ?? Number(variant.sellingPrice).toFixed(2),
+      discountAmount: pricing.discountAmount ?? '0.00',
+      finalAmount: pricing.finalAmount,
+      unitSellingPrice: Number(variant.sellingPrice).toFixed(2),
+      quantity: sub.quantity,
+      taxAmount: '0.00',
+      shippingAmount: '0.00',
+      sku: variant.sku ?? null,
+      variantId: variant.id ?? sub.productVariantId,
+      productId: sub.productId ?? variant.productId ?? '',
+      calculatedAt: new Date().toISOString(),
+    };
   }
 
   private async requireOwnedActiveLike(userId: string, id: string) {
@@ -3494,7 +3783,7 @@ export class ProductSubscriptionsService {
 
   private async attemptAutopay(
     sub: UserProductSubscriptionEntity,
-    cycle: { id: string },
+    cycle: { id: string; pricingSnapshot?: Record<string, unknown> | null },
     mandateId: string,
     amount: string,
     billingCycleRef: string,
@@ -3503,11 +3792,21 @@ export class ProductSubscriptionsService {
     let mandate = await this.mandateService.getForSubscription(sub.id);
     if (!mandate) return false;
     if (!mandate.gatewayMandateId && mandate.authorizationOrderId) {
-      await this.mandateService.confirmFromAuthorizationPayment({
-        gatewayOrderId: mandate.authorizationOrderId,
-        gatewayPaymentId: mandate.authorizationPaymentId,
-        actor: 'scheduler',
-      });
+      try {
+        await this.mandateService.confirmFromAuthorizationPayment({
+          gatewayOrderId: mandate.authorizationOrderId,
+          gatewayPaymentId: mandate.authorizationPaymentId,
+          actor: 'scheduler',
+        });
+      } catch (error) {
+        this.logger.warn(
+          {
+            subscriptionId: sub.id,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          'AutoPay mandate was not confirmed from the first payment',
+        );
+      }
       mandate = (await this.mandateService.getForSubscription(sub.id)) ?? mandate;
     }
     const provider = this.mandateService.resolveChargeProvider(sub);
@@ -3624,7 +3923,7 @@ export class ProductSubscriptionsService {
         gatewayMandateId: mandate.gatewayMandateId ?? '',
         gatewaySubscriptionId:
           provider === SubscriptionMandateProvider.CASHFREE
-            ? cashfreeMerchantSubscriptionId(
+            ? resolveCashfreeMerchantSubscriptionId(
                 mandate.authorizationOrderId,
                 mandate.gatewaySubscriptionId,
               )
@@ -3645,10 +3944,45 @@ export class ProductSubscriptionsService {
         }),
       }),
       );
+      this.logAutopayTrace('cashfree_charge_result', {
+        subscriptionId: sub.id,
+        refId: sub.refId,
+        frequency: sub.frequency,
+        billingCycleRef,
+        liveAmount: amount,
+        provider,
+        method: mandateMethod,
+        accepted: result.accepted,
+        pending: result.pending,
+        gatewayOrderId: result.gatewayOrderId ?? null,
+        gatewayPaymentId: result.gatewayPaymentId ?? null,
+        failureReason: result.failureReason ?? null,
+        scheduleIst: formatIstDate(scheduleDate ?? debitAt ?? scheduledDebitAt ?? null),
+        nextBillingIst: formatIstDate(sub.nextBillingDate),
+        nowIst: formatIstDate(new Date()),
+        merchantSubscriptionId:
+          provider === SubscriptionMandateProvider.CASHFREE
+            ? resolveCashfreeMerchantSubscriptionId(
+                mandate.authorizationOrderId,
+                mandate.gatewaySubscriptionId,
+              )
+            : mandate.gatewaySubscriptionId,
+      });
     } catch (error) {
       this.logger.warn(
-        { subscriptionId: sub.id, error: error instanceof Error ? error.message : String(error) },
-        'AutoPay charge outcome is unknown, so no second charge was created',
+        {
+          event: AUTOPAY_TRACE,
+          phase: 'cashfree_charge_unknown',
+          subscriptionId: sub.id,
+          refId: sub.refId,
+          frequency: sub.frequency,
+          billingCycleRef,
+          liveAmount: amount,
+          scheduleIst: formatIstDate(scheduleDate ?? debitAt ?? scheduledDebitAt ?? null),
+          nowIst: formatIstDate(new Date()),
+          error: error instanceof Error ? error.message : String(error),
+        },
+        `${AUTOPAY_TRACE} AutoPay charge outcome is unknown, so no second charge was created`,
       );
       return true;
     }
@@ -3672,6 +4006,18 @@ export class ProductSubscriptionsService {
         pending: Boolean(result.pending || notifyOnly),
         actor: 'scheduler',
         metadata: chargeMetadata,
+      });
+    }
+    if (result.accepted || result.pending) {
+      await this.billingCycleService.updateById(cycle.id, {
+        pricingSnapshot: {
+          ...(cycle.pricingSnapshot ?? {}),
+          lockedAt: new Date().toISOString(),
+          scheduledDebitDate: (scheduleDate ?? debitAt)?.toISOString() ?? null,
+          gatewayPaymentId: result.gatewayPaymentId ?? null,
+          gatewayOrderId: result.gatewayOrderId ?? null,
+        },
+        updatedBy: 'scheduler',
       });
     }
     if (notifyOnly) {
@@ -3813,9 +4159,9 @@ export class ProductSubscriptionsService {
     ) {
       return null;
     }
-    let amount: string;
+    let quote: SubscriptionRenewalQuote;
     try {
-      amount = await this.recalculateAmount(sub);
+      quote = await this.quoteRenewal(sub);
     } catch {
       return null;
     }
@@ -3828,8 +4174,8 @@ export class ProductSubscriptionsService {
       sequence: (sub.billingCycleSequence ?? 0) + 1,
       chargeDate: sub.nextBillingDate,
       estimatedDeliveryDate: getEstimatedDeliveryDate(sub.nextBillingDate, deliveryLead),
-      amount,
-      pricingSnapshot: { amount, quantity: sub.quantity, frequency: sub.frequency },
+      amount: quote.finalAmount,
+      pricingSnapshot: buildRenewalPricingSnapshot(quote, { frequency: sub.frequency }),
       actor,
     });
   }
@@ -4018,6 +4364,7 @@ export class ProductSubscriptionsService {
     if (gateway && gateway !== 'CASHFREE') return false;
     const link = payment.paymentLink ?? '';
     if (link.includes('/order/')) return true;
+    if (/cashfree\.com\/pg\/view\/checkout/.test(link)) return true;
     const createdAt = payment.createdAt ? new Date(payment.createdAt) : null;
     if (!createdAt || Number.isNaN(createdAt.getTime())) return false;
     return Date.now() - createdAt.getTime() > 30 * 60 * 1000;
@@ -4065,6 +4412,31 @@ export class ProductSubscriptionsService {
     return link;
   }
 
+  private async runIsolatedSubscriptionPass(
+    subscriptionId: string,
+    phase: string,
+    work: () => Promise<void>,
+  ): Promise<boolean> {
+    try {
+      const cycleLock = await this.lockService.withLock(
+        `renewal:${subscriptionId}`,
+        work,
+        120_000,
+      );
+      return cycleLock !== null;
+    } catch (error) {
+      this.logger.error(
+        {
+          subscriptionId,
+          phase,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Product subscription renewal skipped this subscription after an error',
+      );
+      return false;
+    }
+  }
+
   private async mapOwned(
     entity: UserProductSubscriptionEntity,
     extras?: Parameters<typeof mapUserProductSubscriptionToResponse>[1],
@@ -4072,11 +4444,4 @@ export class ProductSubscriptionsService {
     const [mapped] = await this.mapSubscriptionsWithRelations([entity], { extras });
     return mapped;
   }
-}
-
-function cashfreeMerchantSubscriptionId(
-  ...ids: Array<string | null | undefined>
-): string | undefined {
-  const values = ids.filter((id): id is string => Boolean(id));
-  return values.find((id) => id.startsWith('sub_')) ?? values[0];
 }

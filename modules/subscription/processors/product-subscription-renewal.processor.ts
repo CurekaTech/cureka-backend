@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { Job, Queue } from 'bullmq';
 import { SUBSCRIPTION_QUEUE } from '../constants/subscription-queue.constants';
 import { ProductSubscriptionsService } from '../services/product-subscriptions.service';
+import { AUTOPAY_TRACE, formatIstDate } from '../utils/autopay-trace.util';
 import { isSubscriptionsModuleEnabled } from '../utils/subscriptions-module.util';
 import { isSubscriptionTestTenuresEnabled } from '../utils/subscription-test-tenures.util';
 import { syncTestTenureRenewalJob } from './test-tenure-renewal-job.util';
@@ -54,10 +55,32 @@ export class ProductSubscriptionRenewalProcessor extends WorkerHost implements O
 
   async process(job: Job): Promise<void> {
     if (!isSubscriptionsModuleEnabled(this.configService)) return;
-    this.logger.log({ jobId: job.id, name: job.name }, 'Running product subscription renewal job');
+    this.logger.log(
+      {
+        event: AUTOPAY_TRACE,
+        phase: 'renewal_job_start',
+        jobId: job.id,
+        name: job.name,
+        nowIst: formatIstDate(new Date()),
+      },
+      `${AUTOPAY_TRACE} Running product subscription renewal job`,
+    );
+    // processRenewals isolates per-subscription errors so one Cashfree 400 cannot
+    // abort the rest of the batch. BullMQ still retries the whole job (3 attempts).
     const renewed = await this.productSubscriptionsService.processRenewals();
     const grace = await this.productSubscriptionsService.processGraceAndExpiry();
-    this.logger.log({ renewed, grace }, 'Product subscription renewal job completed');
+    this.logger.log(
+      {
+        event: AUTOPAY_TRACE,
+        phase: 'renewal_job_complete',
+        jobId: job.id,
+        name: job.name,
+        renewed,
+        grace,
+        nowIst: formatIstDate(new Date()),
+      },
+      `${AUTOPAY_TRACE} Product subscription renewal job completed`,
+    );
   }
 
   @OnWorkerEvent('failed')

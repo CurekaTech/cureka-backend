@@ -60,5 +60,11 @@ export const subscriptionsConfig = registerAs('subscriptions', () => ({
    * Null means AutoPay cannot be offered until an admin sets a limit.
    */
   mandateMaxAmount: asMoney(process.env['SUBSCRIPTION_MANDATE_MAX_AMOUNT']),
+  /**
+   * Optional Cashfree setup AUTH amount. When unset, AUTH uses the current
+   * product price so testing can use any SKU amount. Set only if you want a
+   * separate setup debit (not merchandise).
+   */
+  cashfreeAuthAmount: asMoney(process.env['SUBSCRIPTION_CASHFREE_AUTH_AMOUNT']),
   paymentLinkExpiryHours: asInt(process.env['SUBSCRIPTION_PAYMENT_LINK_EXPIRY_HOURS'], 72),
 }));

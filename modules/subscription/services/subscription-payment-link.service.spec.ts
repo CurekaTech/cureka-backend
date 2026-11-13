@@ -14,7 +14,7 @@ describe('SubscriptionPaymentLinkService preferred gateway', () => {
     getEnv: jest.fn(() => 'sandbox'),
   };
   const configService = {
-    get: jest.fn((key: string) => {
+    get: jest.fn((key: string): string | undefined => {
       if (key === 'CASHFREE_ENV') return 'sandbox';
       return undefined;
     }),
@@ -48,14 +48,19 @@ describe('SubscriptionPaymentLinkService preferred gateway', () => {
     cashfreeService.getEnv.mockReturnValue('sandbox');
   });
 
-  it('uses Cashfree hosted checkout query URLs in production', async () => {
+  it('uses the storefront Cashfree launcher URL in production, not payments.cashfree.com/pg/view/checkout', async () => {
     cashfreeService.getEnv.mockReturnValue('production');
+    configService.get.mockImplementation((key: string): string | undefined => {
+      if (key === 'CASHFREE_ENV') return 'sandbox';
+      if (key === 'STOREFRONT_URL') return 'https://cureka.techbv.in';
+      return undefined;
+    });
     const result = await service.createPaymentLink({
       ...baseInput,
       preferredGateway: 'CASHFREE',
     });
     expect(result.paymentLink).toBe(
-      'https://payments.cashfree.com/pg/view/checkout?payment_session_id=session_cf',
+      'https://cureka.techbv.in/api/v1/payments/cashfree/hosted-checkout?payment_session_id=session_cf',
     );
   });
 

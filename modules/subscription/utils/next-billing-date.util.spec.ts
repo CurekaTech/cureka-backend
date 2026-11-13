@@ -25,6 +25,16 @@ describe('next-billing-date.util', () => {
     expect(getNextProductBillingDate(base, ProductSubscriptionFrequency.YEARLY, 'UTC').getUTCFullYear()).toBe(2027);
   });
 
+  it('advances monthly and quarterly product billing on the calendar, not a 30-day guess', () => {
+    const jan15 = new Date(Date.UTC(2026, 0, 15, 6, 30, 0));
+    expect(getNextProductBillingDate(jan15, ProductSubscriptionFrequency.MONTHLY, 'UTC').toISOString()).toBe(
+      '2026-02-15T06:30:00.000Z',
+    );
+    expect(getNextProductBillingDate(jan15, ProductSubscriptionFrequency.QUARTERLY, 'UTC').toISOString()).toBe(
+      '2026-04-15T06:30:00.000Z',
+    );
+  });
+
   it('adds TechBV test tenures without changing calendar-month schedules', () => {
     expect(getNextProductBillingDate(base, ProductSubscriptionFrequency.MINUTES_2, 'UTC').getTime() - base.getTime()).toBe(
       2 * 60 * 1000,

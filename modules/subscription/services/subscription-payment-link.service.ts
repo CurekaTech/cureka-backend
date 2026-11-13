@@ -184,7 +184,12 @@ export class SubscriptionPaymentLinkService {
     }
 
     const environment = this.cashfreeService.getEnv() === 'production' ? 'production' : 'sandbox';
-    const paymentLink = cashfreeHostedCheckoutUrl(paymentSessionId, environment);
+    const paymentLink = cashfreeHostedCheckoutUrl(
+      paymentSessionId,
+      environment,
+      this.configService.get<string>('API_PUBLIC_URL') ||
+        this.configService.get<string>('STOREFRONT_URL'),
+    );
 
     return {
       paymentLink,

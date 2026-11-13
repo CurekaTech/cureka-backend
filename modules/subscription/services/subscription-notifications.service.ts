@@ -74,6 +74,26 @@ export class SubscriptionNotificationsService {
     });
   }
 
+  notifyMandateLimitExceeded(params: {
+    userId: string;
+    kind: 'product_subscription' | 'membership';
+    amount: string;
+    maxAmount: string;
+    paymentLink?: string;
+    refId?: string;
+  }): void {
+    void this.sendSafely('mandate-limit-exceeded', params.userId, async (phone) => {
+      await this.sendSmsOrLog(phone, {
+        kind: params.kind,
+        event: 'mandate_limit_exceeded',
+        amount: params.amount,
+        maxAmount: params.maxAmount,
+        paymentLink: params.paymentLink,
+        refId: params.refId,
+      });
+    });
+  }
+
   notifyRenewalDue(params: {
     userId: string;
     kind: 'product_subscription' | 'membership';

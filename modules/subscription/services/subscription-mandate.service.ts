@@ -15,6 +15,10 @@ import { SubscriptionMandatesRepository } from '../repositories/subscription-man
 import { UserProductSubscriptionsRepository } from '../repositories/user-product-subscriptions.repository';
 import { resolveMandateMaxAmount } from '../utils/mandate-amount.util';
 import {
+  resolveCashfreeMerchantSubscriptionId,
+  resolveCashfreeNumericReferenceId,
+} from '../utils/cashfree-subscription-id.util';
+import {
   isMandateAutopayReady,
   isMandateTerminal,
 } from '../utils/subscription-mandate-status.util';
@@ -65,6 +69,13 @@ export class SubscriptionMandateService {
     returnUrl?: string;
     /** When set, this checkout charges that amount and registers the mandate together. */
     authorizationAmount?: string;
+    /**
+     * True when this authorization payment is also the product FIRST_ORDER.
+     * Cashfree ON_DEMAND AUTH is a setup debit and must stay false.
+     */
+    firstCharge?: boolean;
+    /** Cashfree setup AUTH — not merchandise fulfillment. */
+    setupAuthOnly?: boolean;
     notes?: Record<string, string>;
     method?: 'upi' | 'card' | 'emandate';
   }): Promise<{ mandate: SubscriptionMandateEntity; session: MandateAuthSession }> {
@@ -121,11 +132,13 @@ export class SubscriptionMandateService {
       currency: 'INR',
       gatewayCustomerId: session.gatewayCustomerId ?? null,
       gatewaySubscriptionId: session.gatewaySubscriptionId ?? null,
+      gatewayMandateId: session.gatewayMandateId ?? null,
       authorizationOrderId: session.authorizationOrderId,
       consentEvidence: {
         startedAt: new Date().toISOString(),
         actor: params.actor,
-        firstCharge: Boolean(params.authorizationAmount),
+        firstCharge: params.firstCharge ?? (!params.setupAuthOnly && Boolean(params.authorizationAmount)),
+        setupAuthOnly: params.setupAuthOnly === true,
         subscriptionPaymentId: params.notes?.subscriptionPaymentId ?? null,
         method:
           params.method === 'card' ? 'card' : params.method === 'emandate' ? 'emandate' : 'upi',
@@ -161,6 +174,7 @@ export class SubscriptionMandateService {
     mandateId: string;
     status: SubscriptionMandateStatus;
     gatewayMandateId?: string | null;
+    gatewaySubscriptionId?: string | null;
     gatewayPaymentId?: string | null;
     actor: string;
     raw?: Record<string, unknown>;
@@ -178,7 +192,15 @@ export class SubscriptionMandateService {
         gatewayMandateId: params.gatewayMandateId ?? mandate.gatewayMandateId,
         gatewayCustomerId: mandate.gatewayCustomerId ?? subscription?.gatewayCustomerId ?? null,
         gatewaySubscriptionId:
-          mandate.gatewaySubscriptionId ?? subscription?.gatewaySubscriptionId ?? mandate.authorizationOrderId,
+          (mandate.provider === SubscriptionMandateProvider.CASHFREE
+            ? resolveCashfreeMerchantSubscriptionId(
+                mandate.authorizationOrderId,
+                mandate.gatewaySubscriptionId,
+                subscription?.gatewaySubscriptionId,
+              )
+            : (mandate.gatewaySubscriptionId ??
+              subscription?.gatewaySubscriptionId ??
+              mandate.authorizationOrderId)) ?? null,
       });
       if (!result.cancelled) {
         this.logger.warn(
@@ -194,9 +216,34 @@ export class SubscriptionMandateService {
       params = { ...params, status: SubscriptionMandateStatus.CANCELLED };
     }
 
+    const cashfreeIds =
+      mandate.provider === SubscriptionMandateProvider.CASHFREE
+        ? {
+            gatewaySubscriptionId:
+              resolveCashfreeMerchantSubscriptionId(
+                params.gatewaySubscriptionId,
+                mandate.gatewaySubscriptionId,
+                mandate.authorizationOrderId,
+              ) ?? mandate.gatewaySubscriptionId,
+            gatewayMandateId:
+              resolveCashfreeNumericReferenceId(
+                params.gatewayMandateId,
+                params.gatewaySubscriptionId,
+                mandate.gatewayMandateId,
+                mandate.gatewaySubscriptionId,
+              ) ??
+              params.gatewayMandateId ??
+              mandate.gatewayMandateId,
+          }
+        : {
+            gatewaySubscriptionId: params.gatewaySubscriptionId ?? mandate.gatewaySubscriptionId,
+            gatewayMandateId: params.gatewayMandateId ?? mandate.gatewayMandateId,
+          };
+
     await this.mandatesRepository.updateById(mandate.id, {
       status: params.status,
-      gatewayMandateId: params.gatewayMandateId ?? mandate.gatewayMandateId,
+      gatewayMandateId: cashfreeIds.gatewayMandateId,
+      gatewaySubscriptionId: cashfreeIds.gatewaySubscriptionId,
       authorizationPaymentId: params.gatewayPaymentId ?? mandate.authorizationPaymentId,
       authorizedAt: isMandateAutopayReady(params.status) ? new Date() : mandate.authorizedAt,
       revokedAt: isMandateTerminal(params.status) ? new Date() : mandate.revokedAt,
@@ -208,7 +255,8 @@ export class SubscriptionMandateService {
     await this.subscriptionsRepository.updateById(mandate.subscriptionId, {
       autopayReady: ready,
       renewalMethod: ready ? SubscriptionRenewalMethod.AUTO_PAY : SubscriptionRenewalMethod.PAYMENT_LINK,
-      gatewayMandateId: params.gatewayMandateId ?? mandate.gatewayMandateId,
+      gatewayMandateId: cashfreeIds.gatewayMandateId,
+      gatewaySubscriptionId: cashfreeIds.gatewaySubscriptionId,
       paymentGateway: mandate.provider,
       updatedBy: params.actor,
     });
@@ -234,7 +282,15 @@ export class SubscriptionMandateService {
       ...mandate,
       gatewayCustomerId: mandate.gatewayCustomerId ?? subscription?.gatewayCustomerId ?? null,
       gatewaySubscriptionId:
-        mandate.gatewaySubscriptionId ?? subscription?.gatewaySubscriptionId ?? mandate.authorizationOrderId,
+        (mandate.provider === SubscriptionMandateProvider.CASHFREE
+          ? resolveCashfreeMerchantSubscriptionId(
+              mandate.authorizationOrderId,
+              mandate.gatewaySubscriptionId,
+              subscription?.gatewaySubscriptionId,
+            )
+          : (mandate.gatewaySubscriptionId ??
+            subscription?.gatewaySubscriptionId ??
+            mandate.authorizationOrderId)) ?? null,
     });
     if (!result.cancelled) {
       throw new BadRequestException(
@@ -259,10 +315,14 @@ export class SubscriptionMandateService {
     if (!adapter.isConfigured()) {
       return { cancelled: false, failureReason: 'AutoPay provider is not configured' };
     }
+    const gatewaySubscriptionId =
+      mandate.provider === SubscriptionMandateProvider.CASHFREE
+        ? resolveCashfreeMerchantSubscriptionId(mandate.gatewaySubscriptionId)
+        : mandate.gatewaySubscriptionId;
     return adapter.cancelMandate({
       gatewayCustomerId: mandate.gatewayCustomerId,
       gatewayMandateId: mandate.gatewayMandateId,
-      gatewaySubscriptionId: mandate.gatewaySubscriptionId,
+      gatewaySubscriptionId,
     });
   }
 
@@ -277,19 +337,7 @@ export class SubscriptionMandateService {
     actor: string;
     raw?: Record<string, unknown>;
   }): Promise<boolean> {
-    const mandate =
-      (params.gatewayMandateId
-        ? await this.mandatesRepository.findByGatewayMandateId(params.gatewayMandateId)
-        : null) ??
-      (params.gatewaySubscriptionId
-        ? await this.mandatesRepository.findByGatewaySubscriptionId(params.gatewaySubscriptionId)
-        : null) ??
-      (params.authorizationOrderId
-        ? await this.mandatesRepository.findByAuthorizationOrderId(params.authorizationOrderId)
-        : null) ??
-      (params.gatewayCustomerId
-        ? await this.mandatesRepository.findLatestPendingByGatewayCustomerId(params.gatewayCustomerId)
-        : null);
+    const mandate = await this.findMandateForWebhook(params);
     if (!mandate) {
       this.logger.warn(
         {
@@ -313,11 +361,38 @@ export class SubscriptionMandateService {
       mandateId: mandate.id,
       status: params.status,
       gatewayMandateId: params.gatewayMandateId,
+      gatewaySubscriptionId: params.gatewaySubscriptionId ?? params.authorizationOrderId,
       gatewayPaymentId: params.gatewayPaymentId,
       actor: params.actor,
       raw: params.raw,
     });
     return true;
+  }
+
+  private async findMandateForWebhook(params: {
+    gatewayMandateId?: string | null;
+    gatewaySubscriptionId?: string | null;
+    authorizationOrderId?: string | null;
+    gatewayCustomerId?: string | null;
+  }): Promise<SubscriptionMandateEntity | null> {
+    const ids = [
+      params.gatewayMandateId,
+      params.gatewaySubscriptionId,
+      params.authorizationOrderId,
+    ]
+      .map((id) => id?.trim() ?? '')
+      .filter((id, index, all) => id.length > 0 && all.indexOf(id) === index);
+    for (const id of ids) {
+      const found =
+        (await this.mandatesRepository.findByGatewayMandateId(id)) ??
+        (await this.mandatesRepository.findByGatewaySubscriptionId(id)) ??
+        (await this.mandatesRepository.findByAuthorizationOrderId(id));
+      if (found) return found;
+    }
+    if (params.gatewayCustomerId) {
+      return this.mandatesRepository.findLatestPendingByGatewayCustomerId(params.gatewayCustomerId);
+    }
+    return null;
   }
 
   resolveChargeProvider(sub: UserProductSubscriptionEntity): SubscriptionMandateProvider | null {
@@ -368,11 +443,17 @@ export class SubscriptionMandateService {
       return null;
     }
     try {
+      const provider = await this.resolveNewMandateProvider();
+      const setupAuthAmount = this.configService.get<string>('subscriptions.cashfreeAuthAmount');
+      const cashfreeSetupOnly =
+        provider === SubscriptionMandateProvider.CASHFREE && Boolean(setupAuthAmount);
       return await this.startAuthorization({
         subscription: params.subscription,
         customer: params.customer,
         actor: params.actor,
-        authorizationAmount: params.amount,
+        authorizationAmount: cashfreeSetupOnly ? setupAuthAmount : params.amount,
+        firstCharge: !cashfreeSetupOnly,
+        setupAuthOnly: cashfreeSetupOnly,
         method: params.method,
         notes: params.notes,
         returnUrl: params.returnUrl,
@@ -396,6 +477,15 @@ export class SubscriptionMandateService {
     return this.mandatesRepository.findByGatewayMandateId(gatewayMandateId);
   }
 
+  findByGatewayReference(id?: string | null) {
+    if (!id?.trim()) return Promise.resolve(null);
+    return this.findMandateForWebhook({
+      gatewayMandateId: id,
+      gatewaySubscriptionId: id,
+      authorizationOrderId: id,
+    });
+  }
+
   async confirmFromAuthorizationPayment(params: {
     gatewayOrderId?: string | null;
     gatewayPaymentId?: string | null;
@@ -406,20 +496,40 @@ export class SubscriptionMandateService {
     if (!mandate) return;
     const adapter = this.adapter(mandate.provider);
     if (!adapter.isConfigured()) return;
-    const snapshot = await adapter.fetchMandateStatus({
-      gatewayPaymentId: params.gatewayPaymentId,
-      gatewayCustomerId: mandate.gatewayCustomerId,
-      gatewayMandateId: mandate.gatewayMandateId,
-      gatewaySubscriptionId: mandate.gatewaySubscriptionId ?? mandate.authorizationOrderId,
-    });
-    await this.applyStatusSnapshot({
-      mandateId: mandate.id,
-      status: snapshot.status,
-      gatewayMandateId: snapshot.gatewayMandateId,
-      gatewayPaymentId: params.gatewayPaymentId,
-      actor: params.actor,
-      raw: snapshot.raw,
-    });
+    const gatewaySubscriptionId =
+      mandate.provider === SubscriptionMandateProvider.CASHFREE
+        ? resolveCashfreeMerchantSubscriptionId(
+            mandate.authorizationOrderId,
+            mandate.gatewaySubscriptionId,
+          )
+        : (mandate.gatewaySubscriptionId ?? mandate.authorizationOrderId);
+    try {
+      const snapshot = await adapter.fetchMandateStatus({
+        gatewayPaymentId: params.gatewayPaymentId,
+        gatewayCustomerId: mandate.gatewayCustomerId,
+        gatewayMandateId: mandate.gatewayMandateId,
+        gatewaySubscriptionId,
+      });
+      if (snapshot.gatewayRead === false) return;
+      await this.applyStatusSnapshot({
+        mandateId: mandate.id,
+        status: snapshot.status,
+        gatewayMandateId: snapshot.gatewayMandateId,
+        gatewaySubscriptionId: snapshot.gatewaySubscriptionId ?? gatewaySubscriptionId,
+        gatewayPaymentId: params.gatewayPaymentId,
+        actor: params.actor,
+        raw: snapshot.raw,
+      });
+    } catch (error) {
+      this.logger.warn(
+        {
+          mandateId: mandate.id,
+          gatewaySubscriptionId: gatewaySubscriptionId ?? null,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'AutoPay mandate status could not be confirmed from the first payment',
+      );
+    }
   }
 
   async recordedFirstChargePaymentId(gatewaySubscriptionId: string): Promise<string | null> {
@@ -485,7 +595,13 @@ export class SubscriptionMandateService {
     const result = await this.adapter(mandate.provider).charge({
       gatewayCustomerId: mandate.gatewayCustomerId,
       gatewayMandateId: mandate.gatewayMandateId,
-      gatewaySubscriptionId: mandate.gatewaySubscriptionId,
+      gatewaySubscriptionId:
+        mandate.provider === SubscriptionMandateProvider.CASHFREE
+          ? resolveCashfreeMerchantSubscriptionId(
+              mandate.authorizationOrderId,
+              mandate.gatewaySubscriptionId,
+            )
+          : mandate.gatewaySubscriptionId,
       amount: params.amount,
       receipt: params.receipt,
       idempotencyKey: params.receipt,

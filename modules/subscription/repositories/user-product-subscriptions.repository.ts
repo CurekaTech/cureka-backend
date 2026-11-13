@@ -86,6 +86,23 @@ export class UserProductSubscriptionsRepository {
     });
   }
 
+  findAutopayReadyPendingPayment(
+    paymentGateway: string,
+    manager?: EntityManager,
+  ): Promise<UserProductSubscriptionEntity[]> {
+    const repository = manager ? manager.getRepository(UserProductSubscriptionEntity) : this.repo;
+    return repository.find({
+      where: {
+        status: ProductSubscriptionStatus.PENDING_PAYMENT,
+        autopayReady: true,
+        paymentGateway,
+      },
+      relations: { config: true },
+      order: { createdAt: 'ASC' },
+      take: 50,
+    });
+  }
+
   findUpcomingByFrequency(
     frequency: ProductSubscriptionFrequency,
     statuses: ProductSubscriptionStatus[],

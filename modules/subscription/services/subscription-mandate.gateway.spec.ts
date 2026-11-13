@@ -85,4 +85,33 @@ describe('Subscription mandate gateway selection', () => {
     );
     expect(razorpay.createAuthorizationSession).not.toHaveBeenCalled();
   });
+
+  it('registers Cashfree ON_DEMAND AUTH as the current product price when no setup AUTH env is set', async () => {
+    gatewayResolver.getActiveGateway.mockResolvedValue('cashfree');
+    mandatesRepository.create.mockImplementation(async (row: { consentEvidence: Record<string, unknown> }) => ({
+      id: 'man-1',
+      ...row,
+    }));
+    await service.tryStartFirstChargeAuthorization({
+      subscription: {
+        id: '11111111-1111-4111-8111-111111111111',
+        userId: 'user-1',
+        mandateMaxAmount: '3000.00',
+      } as never,
+      customer: { phone: '9999999999' },
+      actor: 'user-1',
+      amount: '5.00',
+      productMandateMaxAmount: '3000.00',
+      notes: { subscriptionPaymentId: 'pay-first' },
+    });
+    expect(cashfree.createAuthorizationSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authorizationAmount: '5.00',
+        maxAmount: '3000.00',
+      }),
+    );
+    expect(mandatesRepository.create.mock.calls.at(-1)?.[0].consentEvidence).toEqual(
+      expect.objectContaining({ firstCharge: true, setupAuthOnly: false }),
+    );
+  });
 });

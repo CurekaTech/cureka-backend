@@ -20,6 +20,7 @@ import { CheckoutIdempotencyService } from './services/checkout-idempotency.serv
 import { AdminPaymentRequestsController } from './controllers/admin-payment-requests.controller';
 import { CustomerPaymentRequestsController } from './controllers/customer-payment-requests.controller';
 import { PaymentsWebhookController } from './controllers/payments-webhook.controller';
+import { CashfreeHostedCheckoutController } from './controllers/cashfree-hosted-checkout.controller';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { PaymentsWebhookController } from './controllers/payments-webhook.contro
     AdminPaymentRequestsController,
     CustomerPaymentRequestsController,
     PaymentsWebhookController,
+    CashfreeHostedCheckoutController,
   ],
   exports: [
     RazorpayPaymentLinksService,

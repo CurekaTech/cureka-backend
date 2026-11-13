@@ -147,6 +147,32 @@ describe('CashfreeSubscriptionProvider payment status', () => {
     });
   });
 
+  it('does not treat a sole AUTH as the first product payment even with matchSingleCaptured', async () => {
+    jest.spyOn(global, 'fetch').mockResolvedValueOnce(
+      jsonResponse({
+        payments: [
+          {
+            payment_id: 'auth_pay',
+            cf_payment_id: 'cf_auth',
+            payment_status: 'SUCCESS',
+            payment_amount: 3,
+            payment_currency: 'INR',
+            payment_type: 'AUTH',
+          },
+        ],
+      }) as never,
+    );
+
+    await expect(
+      provider.fetchChargeStatus({
+        gatewaySubscriptionId: 'sub_1',
+        matchSingleCaptured: true,
+        expectedAmount: '2000.00',
+        expectedCurrency: 'INR',
+      }),
+    ).resolves.toMatchObject({ state: 'unknown' });
+  });
+
   it('does not settle against AUTH when stored ids miss and only AUTH is captured', async () => {
     jest.spyOn(global, 'fetch').mockResolvedValueOnce(
       jsonResponse({
@@ -243,6 +269,123 @@ describe('CashfreeSubscriptionProvider payment status', () => {
     await expect(
       provider.fetchChargeStatus({ gatewaySubscriptionId: 'sub_1', gatewayOrderId: 'pay_cf' }),
     ).resolves.toMatchObject({ state: 'unknown', gatewayOrderId: 'pay_cf' });
+  });
+
+  it('stores the merchant subscription_id, not the numeric Cashfree reference', async () => {
+    jest.spyOn(global, 'fetch').mockResolvedValueOnce(
+      jsonResponse({
+        subscription_id: 'sub_39a38148-135b-4eb2-9860-487073358212',
+        subscription_session_id: 'session_1',
+        cf_subscription_id: '408863225',
+      }) as never,
+    );
+
+    const session = await provider.createAuthorizationSession({
+      subscriptionId: '39a38148-135b-4eb2-9860-487073358212',
+      userId: 'user-1',
+      customer: { name: 'A', email: 'a@example.com', phone: '9999999999' },
+      maxAmount: '2500.00',
+      authorizationAmount: '3.00',
+      currency: 'INR',
+      notes: {},
+      returnUrl: 'https://cureka.example/account/subscriptions/cashfree-return',
+    });
+    expect(session.gatewaySubscriptionId).toBe('sub_39a38148-135b-4eb2-9860-487073358212');
+    expect(session.authorizationOrderId).toBe('sub_39a38148-135b-4eb2-9860-487073358212');
+    expect(session.gatewayMandateId).toBe('408863225');
+  });
+
+  it('fetches mandate status with the merchant subscription_id', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValueOnce(
+      jsonResponse({
+        subscription_id: 'sub_39a38148-135b-4eb2-9860-487073358212',
+        cf_subscription_id: '408863225',
+        subscription_status: 'ACTIVE',
+      }) as never,
+    );
+
+    await expect(
+      provider.fetchMandateStatus({
+        gatewaySubscriptionId: 'sub_39a38148-135b-4eb2-9860-487073358212',
+      }),
+    ).resolves.toMatchObject({
+      gatewayRead: true,
+      gatewaySubscriptionId: 'sub_39a38148-135b-4eb2-9860-487073358212',
+      gatewayMandateId: '408863225',
+    });
+    expect(String(fetchMock.mock.calls[0][0])).toContain(
+      '/subscriptions/sub_39a38148-135b-4eb2-9860-487073358212',
+    );
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain('/subscriptions/408863225');
+  });
+
+  it('does not call Cashfree when only a numeric cf_subscription_id is stored', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch');
+    await expect(provider.fetchMandateStatus({ gatewaySubscriptionId: '408863225' })).resolves.toMatchObject({
+      gatewayRead: false,
+    });
+    await expect(
+      provider.charge({
+        gatewaySubscriptionId: '408863225',
+        gatewayCustomerId: 'cust',
+        gatewayMandateId: '408863225',
+        amount: '3.00',
+        receipt: 'r1',
+        idempotencyKey: 'idem-1',
+        customer: { phone: '9999999999' },
+        notes: {},
+      }),
+    ).resolves.toMatchObject({ accepted: false, pending: false });
+    await expect(
+      provider.fetchChargeStatus({ gatewaySubscriptionId: '408863225', gatewayPaymentId: 'cf_1' }),
+    ).resolves.toMatchObject({ state: 'unknown' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('matches a unique captured CHARGE by amount and currency when stored ids miss', async () => {
+    jest.spyOn(global, 'fetch').mockResolvedValueOnce(
+      jsonResponse({
+        payments: [
+          {
+            payment_id: 'auth_pay',
+            cf_payment_id: 'cf_auth',
+            payment_status: 'SUCCESS',
+            payment_amount: 3,
+            payment_currency: 'INR',
+            payment_type: 'AUTH',
+          },
+          {
+            payment_id: 'CH_other',
+            cf_payment_id: 'cf_other',
+            payment_status: 'SUCCESS',
+            payment_amount: 199,
+            payment_currency: 'INR',
+            payment_type: 'CHARGE',
+          },
+          {
+            payment_id: 'CH_renewal',
+            cf_payment_id: 'cf_charge',
+            payment_status: 'SUCCESS',
+            payment_amount: 3,
+            payment_currency: 'INR',
+            payment_type: 'CHARGE',
+          },
+        ],
+      }) as never,
+    );
+
+    await expect(
+      provider.fetchChargeStatus({
+        gatewaySubscriptionId: 'sub_1',
+        gatewayOrderId: 'sub:cycle:1:autopay',
+        expectedAmount: '3.00',
+        expectedCurrency: 'INR',
+      }),
+    ).resolves.toMatchObject({
+      state: 'captured',
+      gatewayOrderId: 'CH_renewal',
+      gatewayPaymentId: 'cf_charge',
+    });
   });
 
   it('cancels the Cashfree subscription mandate', async () => {

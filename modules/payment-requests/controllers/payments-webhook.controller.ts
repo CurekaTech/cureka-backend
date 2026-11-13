@@ -233,6 +233,7 @@ export class PaymentsWebhookController {
           'Cashfree subscription webhook was a duplicate; settlement still runs',
         );
       }
+      const isAuthPayment = subscription.paymentType.toUpperCase() === 'AUTH';
       if (eventType === 'SUBSCRIPTION_PAYMENT_SUCCESS' || eventType === 'SUBSCRIPTION_PAYMENT_FAILED') {
         if (eventType === 'SUBSCRIPTION_PAYMENT_FAILED') {
           await this.productSubscriptionsService.handlePaymentFailed({
@@ -248,7 +249,8 @@ export class PaymentsWebhookController {
           if (subscriptionStatus) {
             await this.subscriptionMandateService.handleProviderWebhook({
               provider: SubscriptionMandateProvider.CASHFREE,
-              gatewaySubscriptionId: cfSubscriptionId || merchantSubscriptionId,
+              gatewayMandateId: cfSubscriptionId || undefined,
+              gatewaySubscriptionId: merchantSubscriptionId || cfSubscriptionId,
               authorizationOrderId: merchantSubscriptionId || undefined,
               gatewayPaymentId: subscriptionCfPaymentId || undefined,
               status: mapCashfreeSubscriptionStatus(subscriptionStatus),
@@ -266,15 +268,21 @@ export class PaymentsWebhookController {
             paymentId,
             gatewayOrderId: subscription.paymentId || merchantSubscriptionId || String(orderId ?? ''),
             gatewayPaymentId: subscriptionCfPaymentId || undefined,
-            gatewaySubscriptionId: cfSubscriptionId || merchantSubscriptionId || undefined,
+            gatewaySubscriptionId: merchantSubscriptionId || cfSubscriptionId || undefined,
             actor: 'cashfree-subscription-webhook',
           });
           this.logger.log(
-            { settled, subscriptionPaymentId: subscriptionPaymentId ?? null, cfSubscriptionId, requestId: req.id },
+            { settled, isAuthPayment, subscriptionPaymentId: subscriptionPaymentId ?? null, cfSubscriptionId, requestId: req.id },
             settled
               ? 'Cashfree subscription payment settled'
               : 'Cashfree subscription payment was not settled, so no order was created',
           );
+          if (isAuthPayment && !settled) {
+            await this.productSubscriptionsService.tryChargeCashfreeFirstOrderAfterAuth({
+              gatewaySubscriptionId: merchantSubscriptionId || cfSubscriptionId,
+              actor: 'cashfree-subscription-webhook',
+            });
+          }
         }
       } else if (
         eventType === 'SUBSCRIPTION_AUTH_STATUS' &&
@@ -283,7 +291,8 @@ export class PaymentsWebhookController {
         if (subscriptionStatus) {
           await this.subscriptionMandateService.handleProviderWebhook({
             provider: SubscriptionMandateProvider.CASHFREE,
-            gatewaySubscriptionId: cfSubscriptionId || merchantSubscriptionId,
+            gatewayMandateId: cfSubscriptionId || undefined,
+            gatewaySubscriptionId: merchantSubscriptionId || cfSubscriptionId,
             authorizationOrderId: merchantSubscriptionId || undefined,
             gatewayPaymentId: subscriptionCfPaymentId || undefined,
             status: mapCashfreeSubscriptionStatus(subscriptionStatus),
@@ -312,15 +321,21 @@ export class PaymentsWebhookController {
           paymentId,
           gatewayOrderId: subscription.paymentId || merchantSubscriptionId || String(orderId ?? ''),
           gatewayPaymentId: subscriptionCfPaymentId || undefined,
-          gatewaySubscriptionId: cfSubscriptionId || merchantSubscriptionId || undefined,
+          gatewaySubscriptionId: merchantSubscriptionId || cfSubscriptionId || undefined,
           actor: 'cashfree-subscription-webhook',
         });
         this.logger.log(
           { settled, subscriptionPaymentId: paymentId ?? null, cfSubscriptionId, requestId: req.id },
           settled
-            ? 'Cashfree authorization payment settled'
-            : 'Cashfree authorization payment was not settled, so no order was created',
+            ? 'Cashfree authorization matched the product amount and was settled'
+            : 'Cashfree AUTH succeeded — product order was not marked paid from a mismatched AUTH amount',
         );
+        if (!settled) {
+          await this.productSubscriptionsService.tryChargeCashfreeFirstOrderAfterAuth({
+            gatewaySubscriptionId: merchantSubscriptionId || cfSubscriptionId,
+            actor: 'cashfree-subscription-webhook',
+          });
+        }
       } else if (!subscriptionStatus) {
         this.logger.log(
           {
@@ -335,7 +350,8 @@ export class PaymentsWebhookController {
       } else {
         const mandateMatched = await this.subscriptionMandateService.handleProviderWebhook({
           provider: SubscriptionMandateProvider.CASHFREE,
-          gatewaySubscriptionId: cfSubscriptionId || merchantSubscriptionId,
+          gatewayMandateId: cfSubscriptionId || undefined,
+          gatewaySubscriptionId: merchantSubscriptionId || cfSubscriptionId,
           authorizationOrderId: merchantSubscriptionId || undefined,
           status: mapCashfreeSubscriptionStatus(subscriptionStatus),
           actor: 'cashfree-webhook',
@@ -354,7 +370,7 @@ export class PaymentsWebhookController {
             ? 'Cashfree mandate status applied'
             : 'Cashfree mandate webhook did not match a subscription',
         );
-        if (subscriptionStatus.toUpperCase() === 'ACTIVE') {
+        if (subscriptionStatus.toUpperCase() === 'ACTIVE' && !isAuthPayment) {
           const paymentId = await this.subscriptionMandateService.firstChargePaymentIdIfReady(
             merchantSubscriptionId || cfSubscriptionId,
           );

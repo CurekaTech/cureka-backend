@@ -3,6 +3,7 @@ import { generateUniqueRefId } from '@packages/common';
 import { SubscriptionBillingCycleEntity } from '../entities/subscription-billing-cycle.entity';
 import { SubscriptionBillingCycleStatus } from '../enums/subscription-billing-cycle-status.enum';
 import { SubscriptionBillingCyclesRepository } from '../repositories/subscription-billing-cycles.repository';
+import { isBillingCyclePricingLocked } from '../utils/subscription-pricing-snapshot.util';
 
 @Injectable()
 export class SubscriptionBillingCycleService {
@@ -23,7 +24,17 @@ export class SubscriptionBillingCycleService {
       params.subscriptionId,
       params.billingCycleRef,
     );
-    if (existing) return existing;
+    if (existing) {
+      if (!isBillingCyclePricingLocked(existing.status) && params.pricingSnapshot) {
+        await this.cyclesRepository.updateById(existing.id, {
+          amount: params.amount,
+          pricingSnapshot: params.pricingSnapshot,
+          updatedBy: params.actor,
+        });
+        return (await this.cyclesRepository.findById(existing.id)) ?? existing;
+      }
+      return existing;
+    }
 
     const refId = await generateUniqueRefId('cyc', (c) => this.cyclesRepository.existsByRefId(c));
     try {

@@ -20,5 +20,7 @@ export function isAmountWithinMandateLimit(
   maxAmount: string | number | null | undefined,
 ): boolean {
   if (maxAmount == null || maxAmount === '') return false;
-  return parseAmount(amount) <= parseAmount(maxAmount) + Number.EPSILON;
+  const charge = parseAmount(amount);
+  if (charge <= 0) return false;
+  return charge <= parseAmount(maxAmount) + Number.EPSILON;
 }
