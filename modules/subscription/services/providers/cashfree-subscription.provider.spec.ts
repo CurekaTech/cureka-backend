@@ -1,5 +1,9 @@
 import { ConfigService } from '@nestjs/config';
 import { formatCashfreeScheduleDate } from '../../utils/cashfree-schedule-date.util';
+import {
+  cashfreeAutopayIdempotencyKey,
+  toCashfreeMerchantPaymentId,
+} from '../../utils/cashfree-payment-id.util';
 import { CashfreeSubscriptionProvider } from './cashfree-subscription.provider';
 
 describe('CashfreeSubscriptionProvider payment status', () => {
@@ -430,9 +434,17 @@ describe('CashfreeSubscriptionProvider payment status', () => {
     expect(createBody.plan_id).toBeUndefined();
     expect(createHeaders['x-idempotency-key']).toContain('cf-sub-create:');
 
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse({ payment_id: 'pay_cf', payment_status: 'INITIALIZED', cf_payment_id: 'cf_2' }) as never,
-    );
+    const payIdempotency = 'sub:1:cycle:1:autopay';
+    const merchantPaymentId = toCashfreeMerchantPaymentId(payIdempotency);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ payments: [] }) as never)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          payment_id: merchantPaymentId,
+          payment_status: 'INITIALIZED',
+          cf_payment_id: 'cf_2',
+        }) as never,
+      );
     const when = new Date('2026-10-26T12:00:00.000Z');
     await provider.charge({
       gatewaySubscriptionId: 'sub_1',
@@ -440,7 +452,7 @@ describe('CashfreeSubscriptionProvider payment status', () => {
       gatewayMandateId: 'man',
       amount: '2.00',
       receipt: 'receipt-1',
-      idempotencyKey: 'sub:1:cycle:1:autopay',
+      idempotencyKey: payIdempotency,
       customer: { phone: '9999999999' },
       notes: {},
       scheduleDate: when,
@@ -448,15 +460,91 @@ describe('CashfreeSubscriptionProvider payment status', () => {
     const payCall = fetchMock.mock.calls.at(-1);
     const payBody = JSON.parse(String(payCall?.[1]?.body));
     const payHeaders = payCall?.[1]?.headers as Record<string, string>;
+    expect(String(payCall?.[0])).toContain('/subscriptions/pay');
     expect(payBody.payment_schedule_date).toBe(formatCashfreeScheduleDate(when));
     expect(payBody.payment_schedule_date.endsWith('+05:30')).toBe(true);
     expect(payBody.payment_schedule_date.endsWith('Z')).toBe(false);
-    expect(payHeaders['x-idempotency-key']).toBe('sub:1:cycle:1:autopay');
+    expect(payHeaders['x-idempotency-key']).toBe(merchantPaymentId);
+    expect(payBody.payment_id).toBe(merchantPaymentId);
+    expect(payBody.payment_id).toMatch(/^[A-Za-z0-9_-]{1,50}$/);
+    expect(payBody.payment_id).not.toContain(':');
     expect(payHeaders['x-api-version']).toBe('2023-08-01');
   });
 
+  it('does not POST CHARGE when Cashfree already has this cycle payment_id', async () => {
+    const key = cashfreeAutopayIdempotencyKey(
+      '541eb4a9-787b-4bbb-8dad-909845cfa6c9',
+      '2026-11-15T1138Z',
+    );
+    const merchantPaymentId = toCashfreeMerchantPaymentId(key);
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValueOnce(
+      jsonResponse({
+        payments: [
+          {
+            payment_id: merchantPaymentId,
+            cf_payment_id: '1343912999',
+            payment_status: 'INITIALIZED',
+            payment_amount: 6,
+            payment_currency: 'INR',
+            payment_type: 'CHARGE',
+          },
+        ],
+      }) as never,
+    );
+    await expect(
+      provider.charge({
+        gatewaySubscriptionId: 'sub_541eb4a9-787b-4bbb-8dad-909845cfa6c9',
+        gatewayCustomerId: 'cust',
+        gatewayMandateId: '408951013',
+        amount: '6.00',
+        receipt: 'spay-1',
+        idempotencyKey: key,
+        customer: { phone: '9999999999' },
+        notes: {},
+        scheduleDate: new Date('2026-11-15T11:38:49.366Z'),
+      }),
+    ).resolves.toMatchObject({
+      accepted: true,
+      pending: true,
+      gatewayOrderId: merchantPaymentId,
+      gatewayPaymentId: '1343912999',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/payments');
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain('/subscriptions/pay');
+  });
+
+  it('never sends the truncated colon payment_id Cashfree rejected in staging', async () => {
+    const key = cashfreeAutopayIdempotencyKey(
+      '541eb4a9-787b-4bbb-8dad-909845cfa6c9',
+      '2026-11-15T1138Z',
+    );
+    const fetchMock = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({ payments: [] }) as never)
+      .mockResolvedValueOnce(
+        jsonResponse({ payment_id: 'ok', payment_status: 'INITIALIZED', cf_payment_id: 'cf_2' }) as never,
+      );
+    await provider.charge({
+      gatewaySubscriptionId: 'sub_541eb4a9-787b-4bbb-8dad-909845cfa6c9',
+      gatewayCustomerId: 'cust',
+      gatewayMandateId: '408951013',
+      amount: '6.00',
+      receipt: 'spay-1',
+      idempotencyKey: key,
+      customer: { phone: '9999999999' },
+      notes: {},
+      scheduleDate: new Date('2026-11-15T11:38:49.366Z'),
+    });
+    const payBody = JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body));
+    expect(payBody.payment_id).not.toBe('sub:541eb4a9-787b-4bbb-8dad-909845cfa6c9:cycle:202');
+    expect(payBody.payment_id).toBe(toCashfreeMerchantPaymentId(key));
+    expect(payBody.payment_amount).toBe(6);
+    expect(payBody.payment_schedule_date).toBe('2026-11-15T17:08:49+05:30');
+  });
+
   it('keeps a Cashfree charge timeout pending', async () => {
-    jest.spyOn(global, 'fetch').mockRejectedValueOnce(new Error('network timeout'));
+    jest.spyOn(global, 'fetch').mockRejectedValue(new Error('network timeout'));
     await expect(
       provider.charge({
         gatewaySubscriptionId: 'sub_1',

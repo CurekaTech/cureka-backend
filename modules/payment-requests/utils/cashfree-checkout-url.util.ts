@@ -29,14 +29,33 @@ export function cashfreeSessionsCheckoutAction(environment: 'sandbox' | 'product
     : 'https://sandbox.cashfree.com/pg/view/sessions/checkout';
 }
 
+export function cashfreeSubscriptionCheckoutAction(
+  environment: 'sandbox' | 'production' | string,
+): string {
+  const env = String(environment ?? '').toLowerCase();
+  return env === 'production'
+    ? 'https://api.cashfree.com/pg/view/subscriptions'
+    : 'https://sandbox.cashfree.com/pg/view/subscriptions';
+}
+
+export function isCashfreeSubscriptionSessionId(sessionId: string): boolean {
+  return /^sub_session_[A-Za-z0-9._-]+$/.test(sessionId);
+}
+
+export function isCashfreePaymentSessionId(sessionId: string): boolean {
+  return /^session_[A-Za-z0-9._-]+$/.test(sessionId);
+}
+
 export function cashfreeSubscriptionHostedCheckoutUrl(
   subscriptionSessionId: string,
   environment: 'sandbox' | 'production' | string,
+  publicOrigin?: string | null,
 ): string {
   const id = encodeURIComponent(normalizeCashfreePaymentSessionId(subscriptionSessionId));
-  const env = String(environment ?? '').toLowerCase();
-  const host = env === 'production' ? 'https://api.cashfree.com' : 'https://sandbox.cashfree.com';
-  return `${host}/pg/view/subscriptions?subscription_session_id=${id}`;
+  const origin = cashfreeCheckoutPublicOrigin(publicOrigin);
+  const query = `subscription_session_id=${id}`;
+  if (origin) return `${origin}${CASHFREE_HOSTED_CHECKOUT_PATH}?${query}`;
+  return `${CASHFREE_HOSTED_CHECKOUT_PATH}?${query}`;
 }
 
 /**
@@ -62,7 +81,13 @@ export function cashfreeHostedCheckoutHtml(
   environment: 'sandbox' | 'production' | string,
 ): string {
   const sessionId = normalizeCashfreePaymentSessionId(paymentSessionId);
-  const action = escapeHtmlAttr(cashfreeSessionsCheckoutAction(environment));
+  const subscription = isCashfreeSubscriptionSessionId(sessionId);
+  const action = escapeHtmlAttr(
+    subscription
+      ? cashfreeSubscriptionCheckoutAction(environment)
+      : cashfreeSessionsCheckoutAction(environment),
+  );
+  const field = subscription ? 'subscription_session_id' : 'payment_session_id';
   const value = escapeHtmlAttr(sessionId);
   return `<!doctype html>
 <html lang="en">
@@ -74,7 +99,7 @@ export function cashfreeHostedCheckoutHtml(
   <body>
     <p>Redirecting to secure payment…</p>
     <form id="cashfree-checkout" method="post" action="${action}">
-      <input type="hidden" name="payment_session_id" value="${value}"/>
+      <input type="hidden" name="${field}" value="${value}"/>
     </form>
     <script>document.getElementById('cashfree-checkout').submit();</script>
     <noscript>
@@ -103,14 +128,17 @@ export function rewriteCashfreeHostedCheckoutUrl(
         ? decodeURIComponent(parts[orderIndex + 1])
         : null;
     const sessionId = normalizeCashfreePaymentSessionId(fromQuery || fromPath || '');
-    if (!sessionId.startsWith('session_')) return raw;
+    if (!isCashfreePaymentSessionId(sessionId) && !isCashfreeSubscriptionSessionId(sessionId)) {
+      return raw;
+    }
     const environment =
       url.hostname.includes('sandbox') || raw.includes('sandbox.cashfree.com') ? 'sandbox' : 'production';
     const isSubscription =
+      isCashfreeSubscriptionSessionId(sessionId) ||
       Boolean(url.searchParams.get('subscription_session_id')) ||
       parts.includes('subscriptions');
     if (isSubscription) {
-      return cashfreeSubscriptionHostedCheckoutUrl(sessionId, environment);
+      return cashfreeSubscriptionHostedCheckoutUrl(sessionId, environment, publicOrigin);
     }
     return cashfreeHostedCheckoutUrl(sessionId, environment, publicOrigin);
   } catch {

@@ -6,17 +6,26 @@ describe('CashfreeHostedCheckoutController', () => {
   const controller = new CashfreeHostedCheckoutController(cashfree as never);
 
   it('rejects a missing session id', () => {
-    expect(() => controller.hostedCheckout(undefined, { type: () => ({ send: jest.fn() }) } as never)).toThrow(
-      BadRequestException,
-    );
+    expect(() =>
+      controller.hostedCheckout(undefined, undefined, { type: () => ({ send: jest.fn() }) } as never),
+    ).toThrow(BadRequestException);
   });
 
   it('sends an auto-post HTML form to Cashfree sessions checkout', () => {
     const send = jest.fn();
     const type = jest.fn(() => ({ send }));
-    controller.hostedCheckout('session_abc', { type } as never);
+    controller.hostedCheckout('session_abc', undefined, { type } as never);
     expect(type).toHaveBeenCalledWith('text/html; charset=utf-8');
     expect(String(send.mock.calls[0][0])).toContain('https://api.cashfree.com/pg/view/sessions/checkout');
     expect(String(send.mock.calls[0][0])).toContain('session_abc');
+  });
+
+  it('sends an auto-post HTML form for a subscription_session_id', () => {
+    const send = jest.fn();
+    const type = jest.fn(() => ({ send }));
+    controller.hostedCheckout(undefined, 'sub_session_abc', { type } as never);
+    expect(String(send.mock.calls[0][0])).toContain('https://api.cashfree.com/pg/view/subscriptions');
+    expect(String(send.mock.calls[0][0])).toContain('sub_session_abc');
+    expect(String(send.mock.calls[0][0])).toContain('subscription_session_id');
   });
 });

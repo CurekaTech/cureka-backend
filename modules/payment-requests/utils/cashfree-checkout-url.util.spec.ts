@@ -25,12 +25,29 @@ describe('cashfree hosted checkout URL', () => {
     expect(html).not.toContain('payments.cashfree.com/pg/view/checkout');
   });
 
-  it('keeps subscription sessions on the subscription hosted URL', () => {
-    expect(
-      rewriteCashfreeHostedCheckoutUrl(
-        'https://api.cashfree.com/pg/view/subscriptions?subscription_session_id=session_sub',
+  it('rewrites Cashfree GET subscription checkout to the Cureka auto-POST launcher', () => {
+    const broken =
+      'https://api.cashfree.com/pg/view/subscriptions?subscription_session_id=sub_session_yxG31dp22Jpr6QBPp2FgeaJq3JlYImar0PaBprNeknyO82m6oCiMVAKHtniWucN-xkuo1rzBZociWOkuB3nxd97iZsYxsRCPpks_FDYyOVPNODSUXZAwrTDOA6Dlxw_P3Z-pUSY3';
+    expect(rewriteCashfreeHostedCheckoutUrl(broken, 'https://cureka.techbv.in')).toBe(
+      cashfreeSubscriptionHostedCheckoutUrl(
+        'sub_session_yxG31dp22Jpr6QBPp2FgeaJq3JlYImar0PaBprNeknyO82m6oCiMVAKHtniWucN-xkuo1rzBZociWOkuB3nxd97iZsYxsRCPpks_FDYyOVPNODSUXZAwrTDOA6Dlxw_P3Z-pUSY3',
+        'production',
+        'https://cureka.techbv.in',
       ),
-    ).toBe(cashfreeSubscriptionHostedCheckoutUrl('session_sub', 'production'));
+    );
+    expect(
+      cashfreeSubscriptionHostedCheckoutUrl('sub_session_abc', 'production', 'https://cureka.techbv.in'),
+    ).toBe(
+      `https://cureka.techbv.in${CASHFREE_HOSTED_CHECKOUT_PATH}?subscription_session_id=sub_session_abc`,
+    );
+  });
+
+  it('posts a subscription session to Cashfree subscriptions checkout', () => {
+    const html = cashfreeHostedCheckoutHtml('sub_session_abc', 'production');
+    expect(html).toContain('https://api.cashfree.com/pg/view/subscriptions');
+    expect(html).toContain('name="subscription_session_id"');
+    expect(html).toContain('value="sub_session_abc"');
+    expect(html).not.toContain('name="payment_session_id"');
   });
 
   it('rewrites the 404 payments.cashfree.com checkout URL to the launcher', () => {

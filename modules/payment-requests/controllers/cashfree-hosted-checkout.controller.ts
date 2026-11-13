@@ -5,10 +5,10 @@ import { RawResponse } from '@packages/common';
 import { CashfreePaymentService } from '../services/cashfree-payment.service';
 import {
   cashfreeHostedCheckoutHtml,
+  isCashfreePaymentSessionId,
+  isCashfreeSubscriptionSessionId,
   normalizeCashfreePaymentSessionId,
 } from '../utils/cashfree-checkout-url.util';
-
-const SESSION_ID = /^session_[A-Za-z0-9._-]+$/;
 
 @ApiExcludeController()
 @RawResponse()
@@ -21,11 +21,14 @@ export class CashfreeHostedCheckoutController {
   @Header('Cache-Control', 'no-store')
   hostedCheckout(
     @Query('payment_session_id') paymentSessionId: string | undefined,
+    @Query('subscription_session_id') subscriptionSessionId: string | undefined,
     @Res() reply: FastifyReply,
   ): void {
-    const sessionId = normalizeCashfreePaymentSessionId(paymentSessionId ?? '');
-    if (!SESSION_ID.test(sessionId)) {
-      throw new BadRequestException('A valid Cashfree payment_session_id is required');
+    const sessionId = normalizeCashfreePaymentSessionId(
+      subscriptionSessionId || paymentSessionId || '',
+    );
+    if (!isCashfreePaymentSessionId(sessionId) && !isCashfreeSubscriptionSessionId(sessionId)) {
+      throw new BadRequestException('A valid Cashfree payment_session_id or subscription_session_id is required');
     }
     const environment = this.cashfreePaymentService.getEnv() === 'production' ? 'production' : 'sandbox';
     const html = cashfreeHostedCheckoutHtml(sessionId, environment);

@@ -57,6 +57,10 @@ import {
   nextLegalCashfreeChargeDate,
   resolveCashfreeChargeSchedule,
 } from '../utils/cashfree-schedule-date.util';
+import {
+  cashfreeAutopayIdempotencyKey,
+  toCashfreeMerchantPaymentId,
+} from '../utils/cashfree-payment-id.util';
 import { resolveCashfreeMerchantSubscriptionId } from '../utils/cashfree-subscription-id.util';
 import { AUTOPAY_TRACE, formatIstDate, isHourlyAutopayTrace } from '../utils/autopay-trace.util';
 import { isCashfreeAdvanceChargeEnabled } from '../utils/subscriptions-module.util';
@@ -3825,7 +3829,7 @@ export class ProductSubscriptionsService {
       return false;
     }
     const user = await this.usersRepository.findById(sub.userId);
-    const idempotencyKey = `sub:${sub.id}:cycle:${billingCycleRef}:autopay`;
+    const idempotencyKey = cashfreeAutopayIdempotencyKey(sub.id, billingCycleRef);
     const payment = await this.paymentsService.upsertPendingCycle({
       subscriptionId: sub.id,
       userId: sub.userId,
@@ -3917,17 +3921,42 @@ export class ProductSubscriptionsService {
     });
     let result: Awaited<ReturnType<ReturnType<SubscriptionMandateService['adapter']>['charge']>>;
     try {
-      result = await this.lockService.withDbLock(`upi-debit:${sub.id}:${billingCycleRef}`, () =>
-        this.mandateService.adapter(provider).charge({
+      const merchantSubscriptionId =
+        provider === SubscriptionMandateProvider.CASHFREE
+          ? resolveCashfreeMerchantSubscriptionId(
+              mandate.authorizationOrderId,
+              mandate.gatewaySubscriptionId,
+            )
+          : mandate.gatewaySubscriptionId;
+      result = await this.lockService.withDbLock(`upi-debit:${sub.id}:${billingCycleRef}`, async () => {
+        if (provider === SubscriptionMandateProvider.CASHFREE && merchantSubscriptionId) {
+          const existing = await this.mandateService.adapter(provider).fetchChargeStatus({
+            gatewaySubscriptionId: merchantSubscriptionId,
+            gatewayOrderId: toCashfreeMerchantPaymentId(idempotencyKey),
+          });
+          if (existing.state === 'pending' || existing.state === 'captured') {
+            this.logAutopayTrace('cashfree_pay_reuse', {
+              subscriptionId: sub.id,
+              refId: sub.refId,
+              billingCycleRef,
+              liveAmount: amount,
+              scheduleIst: formatIstDate(scheduleDate ?? debitAt ?? scheduledDebitAt ?? null),
+              gatewayOrderId: existing.gatewayOrderId ?? null,
+              gatewayPaymentId: existing.gatewayPaymentId ?? null,
+              nowIst: formatIstDate(new Date()),
+            });
+            return {
+              accepted: true,
+              pending: existing.state === 'pending',
+              gatewayOrderId: existing.gatewayOrderId,
+              gatewayPaymentId: existing.gatewayPaymentId,
+            };
+          }
+        }
+        return this.mandateService.adapter(provider).charge({
         gatewayCustomerId: mandate.gatewayCustomerId ?? '',
         gatewayMandateId: mandate.gatewayMandateId ?? '',
-        gatewaySubscriptionId:
-          provider === SubscriptionMandateProvider.CASHFREE
-            ? resolveCashfreeMerchantSubscriptionId(
-                mandate.authorizationOrderId,
-                mandate.gatewaySubscriptionId,
-              )
-            : mandate.gatewaySubscriptionId,
+        gatewaySubscriptionId: merchantSubscriptionId,
         amount,
         receipt: payment.refId,
         idempotencyKey,
@@ -3942,8 +3971,8 @@ export class ProductSubscriptionsService {
           userId: sub.userId,
           productId: sub.productId,
         }),
-      }),
-      );
+      });
+      });
       this.logAutopayTrace('cashfree_charge_result', {
         subscriptionId: sub.id,
         refId: sub.refId,
@@ -4364,7 +4393,7 @@ export class ProductSubscriptionsService {
     if (gateway && gateway !== 'CASHFREE') return false;
     const link = payment.paymentLink ?? '';
     if (link.includes('/order/')) return true;
-    if (/cashfree\.com\/pg\/view\/checkout/.test(link)) return true;
+    if (/cashfree\.com\/pg\/view\/(checkout|subscriptions)/.test(link)) return true;
     const createdAt = payment.createdAt ? new Date(payment.createdAt) : null;
     if (!createdAt || Number.isNaN(createdAt.getTime())) return false;
     return Date.now() - createdAt.getTime() > 30 * 60 * 1000;

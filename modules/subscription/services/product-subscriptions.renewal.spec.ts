@@ -6,6 +6,7 @@ import { SubscriptionMandateProvider } from '../enums/subscription-mandate-provi
 import { SubscriptionPaymentAttemptKind } from '../enums/subscription-payment-attempt-kind.enum';
 import { SubscriptionPaymentStatus } from '../enums/subscription-payment-status.enum';
 import { buildBillingCycleRef } from '../utils/billing-cycle-ref.util';
+import { cashfreeAutopayIdempotencyKey } from '../utils/cashfree-payment-id.util';
 import { RAZORPAY_UPI_LIVE_PREDEBIT_MS, RAZORPAY_UPI_TEST_PREDEBIT_MS } from '../utils/razorpay-upi-debit.util';
 import { ProductSubscriptionsService } from './product-subscriptions.service';
 
@@ -1427,6 +1428,130 @@ describe('Product subscription Razorpay UPI renewal', () => {
     ]);
     await presentCashfree('sub-1', onT2);
     expect(charge).not.toHaveBeenCalled();
+  });
+
+  it('reuses an existing Cashfree CHARGE for UPS2026024114 instead of posting again', async () => {
+    const intended = new Date('2026-11-15T11:38:49.366Z');
+    const asOf = new Date('2026-11-13T11:46:02.000Z');
+    const subId = '541eb4a9-787b-4bbb-8dad-909845cfa6c9';
+    variantsRepository.findById.mockResolvedValue({ sellingPrice: '6.00' });
+    membershipBenefits.getMemberDiscount.mockResolvedValue(null);
+    pricingService.calculate.mockReturnValue({ finalAmount: '6.00' });
+    usersRepository.findById.mockResolvedValue({ email: 'a@example.com', mobileNumber: '9999999999' });
+    paymentsService.upsertPendingCycle.mockResolvedValue({
+      id: 'pay-row-1',
+      refId: 'spay-1',
+      amount: '6.00',
+      status: SubscriptionPaymentStatus.PENDING,
+    });
+    billingCycleService.findBySubscriptionId.mockResolvedValue([]);
+    billingCycleService.getOrCreate.mockResolvedValue({
+      id: 'cycle-ups',
+      status: SubscriptionBillingCycleStatus.SCHEDULED,
+    });
+    mandateService.resolveChargeProvider.mockReturnValue(SubscriptionMandateProvider.CASHFREE);
+    mandateService.canPresentAsAutopay.mockReturnValue(true);
+    subscriptionsRepository.findById.mockResolvedValue(
+      subscription({
+        id: subId,
+        paymentGateway: 'CASHFREE',
+        autopayReady: true,
+        frequency: ProductSubscriptionFrequency.HOURS_48,
+        nextBillingDate: intended,
+        mandateMaxAmount: '160.00',
+      }),
+    );
+    mandateService.getForSubscription.mockResolvedValue({
+      id: 'man-1',
+      provider: SubscriptionMandateProvider.CASHFREE,
+      authorizationOrderId: `sub_${subId}`,
+      maxAmount: '160.00',
+      consentEvidence: { method: 'upi' },
+    });
+    fetchChargeStatus.mockResolvedValue({
+      state: 'pending',
+      gatewayOrderId: 'p-existing',
+      gatewayPaymentId: '1343912999',
+      amount: '6.00',
+      currency: 'INR',
+      paymentType: 'CHARGE',
+    });
+
+    await presentCashfree(subId, asOf);
+
+    expect(charge).not.toHaveBeenCalled();
+    expect(fetchChargeStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        gatewaySubscriptionId: `sub_${subId}`,
+      }),
+    );
+    expect(paymentsService.recordProviderCharge).toHaveBeenCalledWith(
+      'pay-row-1',
+      expect.objectContaining({
+        gatewayOrderId: 'p-existing',
+        gatewayPaymentId: '1343912999',
+      }),
+    );
+  });
+
+  it('keeps the 15 Nov 17:08:49 IST schedule and a stable cycle idempotency key for ₹6 HOURS_48', async () => {
+    const intended = new Date('2026-11-15T11:38:49.366Z');
+    const asOf = new Date('2026-11-13T11:46:02.000Z');
+    const subId = '541eb4a9-787b-4bbb-8dad-909845cfa6c9';
+    variantsRepository.findById.mockResolvedValue({ sellingPrice: '6.00' });
+    membershipBenefits.getMemberDiscount.mockResolvedValue(null);
+    pricingService.calculate.mockReturnValue({ finalAmount: '6.00' });
+    usersRepository.findById.mockResolvedValue({ email: 'a@example.com', mobileNumber: '9999999999' });
+    paymentsService.upsertPendingCycle.mockResolvedValue({
+      id: 'pay-row-1',
+      refId: 'spay-1',
+      amount: '6.00',
+      status: SubscriptionPaymentStatus.PENDING,
+    });
+    billingCycleService.findBySubscriptionId.mockResolvedValue([]);
+    billingCycleService.getOrCreate.mockResolvedValue({
+      id: 'cycle-ups',
+      status: SubscriptionBillingCycleStatus.SCHEDULED,
+    });
+    charge.mockResolvedValue({
+      accepted: true,
+      pending: true,
+      gatewayOrderId: 'p-ok',
+      gatewayPaymentId: 'cf_charge',
+      raw: { payment_status: 'INITIALIZED' },
+    });
+    mandateService.resolveChargeProvider.mockReturnValue(SubscriptionMandateProvider.CASHFREE);
+    mandateService.canPresentAsAutopay.mockReturnValue(true);
+    subscriptionsRepository.findById.mockResolvedValue(
+      subscription({
+        id: subId,
+        paymentGateway: 'CASHFREE',
+        autopayReady: true,
+        frequency: ProductSubscriptionFrequency.HOURS_48,
+        nextBillingDate: intended,
+        mandateMaxAmount: '160.00',
+      }),
+    );
+    mandateService.getForSubscription.mockResolvedValue({
+      id: 'man-1',
+      provider: SubscriptionMandateProvider.CASHFREE,
+      authorizationOrderId: `sub_${subId}`,
+      maxAmount: '160.00',
+      consentEvidence: { method: 'upi' },
+    });
+
+    await presentCashfree(subId, asOf);
+    await presentCashfree(subId, asOf);
+
+    expect(charge).toHaveBeenCalledTimes(2);
+    expect(charge.mock.calls[0][0].amount).toBe('6.00');
+    expect(charge.mock.calls[0][0].scheduleDate).toEqual(intended);
+    expect(charge.mock.calls[0][0].idempotencyKey).toBe(
+      charge.mock.calls[1][0].idempotencyKey,
+    );
+    expect(charge.mock.calls[0][0].idempotencyKey).toBe(
+      cashfreeAutopayIdempotencyKey(subId, buildBillingCycleRef(intended, ProductSubscriptionFrequency.HOURS_48)),
+    );
   });
 
   it('HOURS_72 card waits on T+1 and CHARGE once on T+2 with intended scheduleDate', async () => {

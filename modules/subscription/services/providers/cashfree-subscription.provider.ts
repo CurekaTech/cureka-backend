@@ -15,7 +15,9 @@ import {
   formatCashfreeScheduleDate,
   nextCashfreeUpiScheduleDate,
 } from '../../utils/cashfree-schedule-date.util';
+import { toCashfreeMerchantPaymentId } from '../../utils/cashfree-payment-id.util';
 import { resolveCashfreeMerchantSubscriptionId } from '../../utils/cashfree-subscription-id.util';
+import { cashfreeSubscriptionHostedCheckoutUrl } from '@modules/payment-requests/utils/cashfree-checkout-url.util';
 import { AUTOPAY_TRACE, formatIstDate } from '../../utils/autopay-trace.util';
 import { mapCashfreeSubscriptionStatus } from '../../utils/subscription-mandate-status.util';
 
@@ -95,7 +97,12 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
       amountPaise: Math.round(Number(input.authorizationAmount ?? 1) * 100),
       paymentSessionId: sessionId || null,
       authorizationLink: sessionId
-        ? `${this.baseUrl.replace('/pg', '')}/pg/view/subscriptions?subscription_session_id=${sessionId}`
+        ? cashfreeSubscriptionHostedCheckoutUrl(
+            sessionId,
+            environment,
+            this.configService.get<string>('API_PUBLIC_URL') ||
+              this.configService.get<string>('STOREFRONT_URL'),
+          )
         : null,
       checkoutPayload: {
         subscription_session_id: sessionId,
@@ -148,6 +155,33 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
     }
     const scheduleDate = input.scheduleDate ?? nextCashfreeUpiScheduleDate();
     const scheduleIst = formatCashfreeScheduleDate(scheduleDate);
+    const merchantPaymentId = toCashfreeMerchantPaymentId(input.idempotencyKey);
+    const existing = await this.fetchChargeStatus({
+      gatewaySubscriptionId: subscriptionId,
+      gatewayOrderId: merchantPaymentId,
+    });
+    if (existing.state === 'pending' || existing.state === 'captured') {
+      this.logger.log(
+        {
+          event: AUTOPAY_TRACE,
+          phase: 'cashfree_pay_reuse',
+          merchantSubscriptionId: subscriptionId,
+          paymentAmount: input.amount,
+          paymentId: merchantPaymentId,
+          gatewayPaymentId: existing.gatewayPaymentId ?? null,
+          paymentStatus: existing.state,
+          scheduleIst,
+          nowIst: formatIstDate(new Date()),
+        },
+        `${AUTOPAY_TRACE} Cashfree CHARGE already exists for this payment_id; POST skipped`,
+      );
+      return {
+        accepted: true,
+        pending: existing.state === 'pending',
+        gatewayOrderId: existing.gatewayOrderId ?? merchantPaymentId,
+        gatewayPaymentId: existing.gatewayPaymentId ?? null,
+      };
+    }
     this.logger.log(
       {
         event: AUTOPAY_TRACE,
@@ -155,7 +189,8 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
         merchantSubscriptionId: subscriptionId,
         paymentAmount: input.amount,
         paymentType: 'CHARGE',
-        paymentId: input.idempotencyKey.slice(0, 50),
+        paymentId: merchantPaymentId,
+        idempotencyKey: input.idempotencyKey,
         scheduleIst,
         nowIst: formatIstDate(new Date()),
       },
@@ -167,12 +202,12 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
         '/subscriptions/pay',
         {
           subscription_id: subscriptionId,
-          payment_id: input.idempotencyKey.slice(0, 50),
+          payment_id: merchantPaymentId,
           payment_amount: Number(input.amount),
           payment_type: 'CHARGE',
           payment_schedule_date: scheduleIst,
         },
-        { 'x-idempotency-key': input.idempotencyKey.slice(0, 64) },
+        { 'x-idempotency-key': merchantPaymentId },
       );
       const status = String(payment['payment_status'] ?? payment['status'] ?? '').toUpperCase();
       this.logger.log(
