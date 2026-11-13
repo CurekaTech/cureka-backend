@@ -492,7 +492,7 @@ export class SubscriptionMandateService {
     actor: string;
   }): Promise<void> {
     if (!params.gatewayOrderId) return;
-    const mandate = await this.mandatesRepository.findByAuthorizationOrderId(params.gatewayOrderId);
+    const mandate = await this.findByGatewayReference(params.gatewayOrderId);
     if (!mandate) return;
     const adapter = this.adapter(mandate.provider);
     if (!adapter.isConfigured()) return;
@@ -534,19 +534,14 @@ export class SubscriptionMandateService {
 
   async recordedFirstChargePaymentId(gatewaySubscriptionId: string): Promise<string | null> {
     if (!gatewaySubscriptionId) return null;
-    const mandate =
-      (await this.mandatesRepository.findByGatewaySubscriptionId(gatewaySubscriptionId)) ??
-      (await this.mandatesRepository.findByAuthorizationOrderId(gatewaySubscriptionId));
-    if (!mandate || mandate.consentEvidence?.firstCharge !== true) return null;
-    const paymentId = mandate.consentEvidence.subscriptionPaymentId;
+    const mandate = await this.findByGatewayReference(gatewaySubscriptionId);
+    const paymentId = mandate?.consentEvidence?.subscriptionPaymentId;
     return typeof paymentId === 'string' && paymentId ? paymentId : null;
   }
 
   async firstChargePaymentIdIfReady(gatewaySubscriptionId: string): Promise<string | null> {
     if (!gatewaySubscriptionId) return null;
-    const mandate =
-      (await this.mandatesRepository.findByGatewaySubscriptionId(gatewaySubscriptionId)) ??
-      (await this.mandatesRepository.findByAuthorizationOrderId(gatewaySubscriptionId));
+    const mandate = await this.findByGatewayReference(gatewaySubscriptionId);
     if (!mandate || !isMandateAutopayReady(mandate.status)) return null;
     return this.recordedFirstChargePaymentId(gatewaySubscriptionId);
   }

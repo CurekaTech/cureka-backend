@@ -81,13 +81,38 @@ export function cashfreeHostedCheckoutHtml(
   environment: 'sandbox' | 'production' | string,
 ): string {
   const sessionId = normalizeCashfreePaymentSessionId(paymentSessionId);
-  const subscription = isCashfreeSubscriptionSessionId(sessionId);
-  const action = escapeHtmlAttr(
-    subscription
-      ? cashfreeSubscriptionCheckoutAction(environment)
-      : cashfreeSessionsCheckoutAction(environment),
-  );
-  const field = subscription ? 'subscription_session_id' : 'payment_session_id';
+  if (isCashfreeSubscriptionSessionId(sessionId)) {
+    const mode = String(environment ?? '').toLowerCase() === 'production' ? 'production' : 'sandbox';
+    const sessionJson = JSON.stringify(sessionId);
+    const modeJson = JSON.stringify(mode);
+    return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Redirecting to Cashfree</title>
+    <script src="https://sdk.cashfree.com/js/v3/cashfree.js"></script>
+  </head>
+  <body>
+    <p id="cashfree-checkout-msg">Redirecting to secure AutoPay checkout…</p>
+    <script>
+      (function () {
+        var cashfree = Cashfree({ mode: ${modeJson} });
+        cashfree.subscriptionsCheckout({
+          subsSessionId: ${sessionJson},
+          redirectTarget: "_self"
+        }).then(function (result) {
+          if (result && result.error) {
+            document.getElementById("cashfree-checkout-msg").textContent =
+              result.error.message || "Cashfree checkout could not start.";
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>`;
+  }
+  const action = escapeHtmlAttr(cashfreeSessionsCheckoutAction(environment));
   const value = escapeHtmlAttr(sessionId);
   return `<!doctype html>
 <html lang="en">
@@ -99,7 +124,7 @@ export function cashfreeHostedCheckoutHtml(
   <body>
     <p>Redirecting to secure payment…</p>
     <form id="cashfree-checkout" method="post" action="${action}">
-      <input type="hidden" name="${field}" value="${value}"/>
+      <input type="hidden" name="payment_session_id" value="${value}"/>
     </form>
     <script>document.getElementById('cashfree-checkout').submit();</script>
     <noscript>

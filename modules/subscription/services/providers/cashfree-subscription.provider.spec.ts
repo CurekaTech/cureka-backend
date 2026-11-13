@@ -24,6 +24,35 @@ describe('CashfreeSubscriptionProvider payment status', () => {
     jest.restoreAllMocks();
   });
 
+  it('reads AUTH amount using currency when payment_currency is omitted', async () => {
+    jest.spyOn(global, 'fetch').mockResolvedValueOnce(
+      jsonResponse({
+        payments: [
+          {
+            payment_id: 'CH_7526979183506742559',
+            cf_payment_id: '1343939682',
+            payment_status: 'SUCCESS',
+            payment_amount: 8,
+            currency: 'INR',
+            payment_type: 'AUTH',
+          },
+        ],
+      }) as never,
+    );
+
+    await expect(
+      provider.fetchChargeStatus({
+        gatewaySubscriptionId: 'sub_1',
+        gatewayPaymentId: '1343939682',
+      }),
+    ).resolves.toMatchObject({
+      state: 'captured',
+      amount: '8.00',
+      currency: 'INR',
+      paymentType: 'AUTH',
+    });
+  });
+
   it('reads one successful subscription payment and its amount', async () => {
     jest.spyOn(global, 'fetch').mockResolvedValueOnce(
       jsonResponse({

@@ -121,4 +121,11 @@ describe('SubscriptionMandateService Cashfree webhook ids', () => {
     expect(mandatesRepository.updateById).toHaveBeenCalledTimes(2);
     expect(historyRepository.append).toHaveBeenCalledTimes(2);
   });
+
+  it('resolves the first-order payment id from a numeric cf_subscription_id', async () => {
+    mandatesRepository.findByGatewayMandateId.mockImplementation(async (id: string) =>
+      id === '408970196' ? { ...mandate, consentEvidence: { subscriptionPaymentId: 'pay-first' } } : null,
+    );
+    await expect(service.recordedFirstChargePaymentId('408970196')).resolves.toBe('pay-first');
+  });
 });

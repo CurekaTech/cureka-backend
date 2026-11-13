@@ -1772,11 +1772,20 @@ export class ProductSubscriptionsService {
     gatewaySubscriptionId?: string;
     actor: string;
   }): Promise<boolean> {
-    const payment = params.paymentId
+    let payment = params.paymentId
       ? await this.paymentsService.findById(params.paymentId)
-      : params.gatewayOrderId
-        ? await this.paymentsService.findByGatewayOrderId(params.gatewayOrderId)
+      : null;
+    if (!payment && params.gatewayOrderId) {
+      payment = await this.paymentsService.findByGatewayOrderId(params.gatewayOrderId);
+    }
+    if (!payment && params.gatewaySubscriptionId) {
+      const firstChargePaymentId = await this.mandateService.recordedFirstChargePaymentId(
+        params.gatewaySubscriptionId,
+      );
+      payment = firstChargePaymentId
+        ? await this.paymentsService.findById(firstChargePaymentId)
         : null;
+    }
     if (!payment) {
       this.logger.warn(
         {

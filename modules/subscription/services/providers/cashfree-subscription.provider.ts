@@ -547,7 +547,7 @@ function cashfreePaymentSnapshot(payment: Record<string, unknown>): GatewayCharg
 }
 
 function cashfreePaymentCurrency(payment: Record<string, unknown>): string | null {
-  const value = payment['payment_currency'];
+  const value = payment['payment_currency'] ?? payment['currency'];
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed ? trimmed : null;

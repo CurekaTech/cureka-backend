@@ -20,12 +20,12 @@ describe('CashfreeHostedCheckoutController', () => {
     expect(String(send.mock.calls[0][0])).toContain('session_abc');
   });
 
-  it('sends an auto-post HTML form for a subscription_session_id', () => {
+  it('sends Cashfree JS SDK checkout for a subscription_session_id', () => {
     const send = jest.fn();
     const type = jest.fn(() => ({ send }));
     controller.hostedCheckout(undefined, 'sub_session_abc', { type } as never);
-    expect(String(send.mock.calls[0][0])).toContain('https://api.cashfree.com/pg/view/subscriptions');
+    expect(String(send.mock.calls[0][0])).toContain('subscriptionsCheckout');
     expect(String(send.mock.calls[0][0])).toContain('sub_session_abc');
-    expect(String(send.mock.calls[0][0])).toContain('subscription_session_id');
+    expect(String(send.mock.calls[0][0])).not.toContain('https://api.cashfree.com/pg/view/subscriptions');
   });
 });

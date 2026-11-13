@@ -308,8 +308,13 @@ export class PaymentsWebhookController {
               paymentStatus: subscription.paymentStatus,
               requestId: req.id,
             },
-            'Cashfree authorization succeeded without a subscription status, so the mandate status was left unchanged',
+            'Cashfree authorization succeeded without a subscription status; confirming mandate from Cashfree',
           );
+          await this.subscriptionMandateService.confirmFromAuthorizationPayment({
+            gatewayOrderId: merchantSubscriptionId || cfSubscriptionId,
+            gatewayPaymentId: subscriptionCfPaymentId || undefined,
+            actor: 'cashfree-webhook',
+          });
         }
         const paymentId =
           subscriptionPaymentId ||

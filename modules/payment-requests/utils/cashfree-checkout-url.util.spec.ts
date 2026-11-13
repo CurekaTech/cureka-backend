@@ -42,11 +42,14 @@ describe('cashfree hosted checkout URL', () => {
     );
   });
 
-  it('posts a subscription session to Cashfree subscriptions checkout', () => {
+  it('opens subscription checkout with the Cashfree JS SDK, not GET /pg/view/subscriptions', () => {
     const html = cashfreeHostedCheckoutHtml('sub_session_abc', 'production');
-    expect(html).toContain('https://api.cashfree.com/pg/view/subscriptions');
-    expect(html).toContain('name="subscription_session_id"');
-    expect(html).toContain('value="sub_session_abc"');
+    expect(html).toContain('https://sdk.cashfree.com/js/v3/cashfree.js');
+    expect(html).toContain('subscriptionsCheckout');
+    expect(html).toContain('subsSessionId');
+    expect(html).toContain('sub_session_abc');
+    expect(html).toContain('production');
+    expect(html).not.toContain('https://api.cashfree.com/pg/view/subscriptions');
     expect(html).not.toContain('name="payment_session_id"');
   });
 

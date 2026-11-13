@@ -89,6 +89,7 @@ describe('Product subscription Razorpay UPI renewal', () => {
     confirmFromAuthorizationPayment: jest.fn(),
     chargeCardProduct: jest.fn(),
     findByGatewayMandateId: jest.fn(),
+    recordedFirstChargePaymentId: jest.fn(async (): Promise<string | null> => null),
     markCardDebitSubmitted: jest.fn(),
     claimCardEmptyListDebit: jest.fn().mockResolvedValue(true),
     revokeForSubscription: jest.fn(),
@@ -231,6 +232,8 @@ describe('Product subscription Razorpay UPI renewal', () => {
     historyRepository.append.mockImplementation(async () => ({ id: 'hist-1' }));
     fetchChargeStatus.mockReset();
     fetchChargeStatus.mockResolvedValue({ state: 'unknown' });
+    mandateService.recordedFirstChargePaymentId.mockReset();
+    mandateService.recordedFirstChargePaymentId.mockResolvedValue(null);
     listOrderCharge.mockReset();
     listOrderCharge.mockResolvedValue({ outcome: 'unknown' });
     submitRecurringDebit.mockReset();
@@ -792,6 +795,64 @@ describe('Product subscription Razorpay UPI renewal', () => {
       }),
     ).resolves.toBe(false);
     expect(ordersService.createOrderFromSubscription).not.toHaveBeenCalled();
+  });
+
+  it('settles FIRST_ORDER AUTH using the mandate payment id when the webhook sent CH_ payment_id', async () => {
+    const cashfreeFetch = jest.fn().mockResolvedValue({
+      state: 'captured',
+      amount: '8.00',
+      currency: 'INR',
+      paymentType: 'AUTH',
+      gatewayOrderId: 'CH_7526979183506742559',
+      gatewayPaymentId: '1343939682',
+    });
+    mandateService.adapter.mockImplementation((provider: SubscriptionMandateProvider) =>
+      provider === SubscriptionMandateProvider.CASHFREE
+        ? { isConfigured: () => true, fetchChargeStatus: cashfreeFetch, charge, submitRecurringDebit, listOrderCharge }
+        : { isConfigured: () => true, charge, submitRecurringDebit, fetchChargeStatus, listOrderCharge },
+    );
+    const firstPayment = {
+      id: 'pay-first',
+      status: SubscriptionPaymentStatus.PENDING as string,
+      amount: '8.00',
+      currency: 'INR',
+      attemptKind: SubscriptionPaymentAttemptKind.FIRST_ORDER,
+      subscriptionId: 'sub-1',
+      billingCycleRef: '2026-11-13T1207Z',
+      paymentGateway: 'CASHFREE',
+      gatewayOrderId: 'sub_2c4a7471-dd82-4cff-b250-4cd76b477442',
+    };
+    paymentsService.findById.mockImplementation(async (id: string) =>
+      id === 'pay-first' ? firstPayment : null,
+    );
+    mandateService.recordedFirstChargePaymentId.mockResolvedValue('pay-first');
+    paymentsService.markPaidIdempotent.mockImplementation(async () => {
+      firstPayment.status = SubscriptionPaymentStatus.PAID;
+      return { payment: firstPayment, newlyPaid: true };
+    });
+    subscriptionsRepository.findById.mockResolvedValue(
+      subscription({ status: ProductSubscriptionStatus.PENDING_PAYMENT }),
+    );
+    mandateService.getForSubscription.mockResolvedValue({
+      authorizationOrderId: 'sub_2c4a7471-dd82-4cff-b250-4cd76b477442',
+    });
+    billingCycleService.findBySubscriptionId.mockResolvedValue([]);
+    billingCycleService.getOrCreate.mockResolvedValue({
+      id: 'cycle-1',
+      status: SubscriptionBillingCycleStatus.SCHEDULED,
+    });
+
+    await expect(
+      service.settleCashfreeSubscriptionPayment({
+        paymentId: 'CH_7526979183506742559',
+        gatewayOrderId: 'CH_7526979183506742559',
+        gatewayPaymentId: '1343939682',
+        gatewaySubscriptionId: '408970196',
+        actor: 'cashfree-subscription-webhook',
+      }),
+    ).resolves.toBe(true);
+    expect(mandateService.recordedFirstChargePaymentId).toHaveBeenCalledWith('408970196');
+    expect(ordersService.createOrderFromSubscription).toHaveBeenCalled();
   });
 
   it('creates one order when the Cashfree payment is captured for the product amount', async () => {
