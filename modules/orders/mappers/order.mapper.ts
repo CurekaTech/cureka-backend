@@ -203,16 +203,20 @@ const ACTOR_UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ACTOR_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export function isAdminActorId(value?: string | null): value is string {
+export type AdminActorId = string & { readonly __adminActor: 'id' };
+export type AdminActorEmail = string & { readonly __adminActor: 'email' };
+export type PlacedByActorKey = AdminActorId | AdminActorEmail;
+
+export function isAdminActorId(value?: string | null): value is AdminActorId {
   return typeof value === 'string' && ACTOR_UUID_RE.test(value);
 }
 
-export function isAdminActorEmail(value?: string | null): value is string {
+export function isAdminActorEmail(value?: string | null): value is AdminActorEmail {
   return typeof value === 'string' && ACTOR_EMAIL_RE.test(value.trim());
 }
 
 /** UUID or email stored on `createdBy` / payment-request `createdBy`. */
-export function isPlacedByActorKey(value?: string | null): value is string {
+export function isPlacedByActorKey(value?: string | null): value is PlacedByActorKey {
   return isAdminActorId(value) || isAdminActorEmail(value);
 }
 
