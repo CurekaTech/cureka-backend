@@ -649,6 +649,23 @@ export class ProductsRepository {
     return product;
   }
 
+  async findBySlugAnyStatus(slug: string): Promise<ProductEntity | null> {
+    return this.repo.findOne({ where: { slug } });
+  }
+
+  async findByVariantSlugAnyStatus(variantSlug: string): Promise<ProductEntity | null> {
+    const match = await this.repo.manager
+      .getRepository(ProductVariantEntity)
+      .createQueryBuilder('variant')
+      .innerJoin('variant.product', 'product')
+      .where('variant.slug = :variantSlug', { variantSlug })
+      .andWhere('variant.deletedAt IS NULL')
+      .select('product.refId', 'refId')
+      .getRawOne<{ refId: string }>();
+    if (!match?.refId) return null;
+    return this.findByRefId(match.refId);
+  }
+
   async findPublishedBySlug(slug: string, pincodeId?: string | null): Promise<ProductEntity | null> {
     const product = await this.repo.findOne({
       where: { slug, status: ProductStatus.PUBLISHED },

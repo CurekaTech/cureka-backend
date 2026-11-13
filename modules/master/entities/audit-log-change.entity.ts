@@ -7,8 +7,8 @@ export class AuditLogChangeEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ name: 'audit_log_id', type: 'uuid' })
-  auditLogId!: string;
+  @Column({ name: 'audit_log_id', type: 'uuid', nullable: true })
+  auditLogId!: string | null;
 
   @ManyToOne(() => AuditLogEntity, (log) => log.changes, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'audit_log_id' })
@@ -19,6 +19,15 @@ export class AuditLogChangeEntity {
 
   @Column({ name: 'record_id', type: 'uuid', nullable: true })
   recordId!: string | null;
+
+  @Column({ name: 'record_key', type: 'jsonb', nullable: true })
+  recordKey!: Record<string, unknown> | null;
+
+  @Column({ name: 'request_id', type: 'varchar', length: 64, nullable: true })
+  requestId!: string | null;
+
+  @Column({ name: 'operation', type: 'varchar', length: 16, nullable: true })
+  operation!: string | null;
 
   @Column({ name: 'column_name', type: 'varchar', length: 64 })
   columnName!: string;

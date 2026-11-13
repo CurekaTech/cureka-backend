@@ -94,8 +94,15 @@ export class AuditService {
       ),
     );
     const auditLogId = inserted[0]?.id ? String(inserted[0].id) : null;
-    if (auditLogId && payload.databaseChanges?.length) {
-      await this.insertChanges(manager, auditLogId, payload.databaseChanges);
+    if (auditLogId) {
+      const attached = await this.auditLogsRepo.attachPendingChanges(
+        manager,
+        auditLogId,
+        payload.requestId ?? null,
+      );
+      if (!attached && payload.databaseChanges?.length) {
+        await this.insertChanges(manager, auditLogId, payload.databaseChanges);
+      }
     }
     await manager.query(
       `INSERT INTO "audit_outbox" ("idempotency_key", "payload", "status", "attempts")
