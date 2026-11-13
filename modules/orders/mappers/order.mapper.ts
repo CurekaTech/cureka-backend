@@ -166,13 +166,30 @@ export type AdminOrderCustomerResponse = {
 /** Customer-care / admin staff who created the order from the backend. Null for storefront orders. */
 export type AdminOrderPlacedByResponse = {
   id: string;
+  /** Display name (admin `full_name`). */
+  fullName: string;
+  /** Same as `fullName` — username shown on the admin order detail. */
+  username: string;
+  email: string;
+  /** Custom RBAC role name, else the enum / JWT role (e.g. super_admin). */
+  role: string | null;
+};
+
+export type AdminPlacedBySource = {
+  id: string;
   fullName: string;
   email: string;
+  role?: string | null;
+  roleRecord?: { name?: string | null; slug?: string | null } | null;
 };
 
 export type AdminOrderResponse = OrderResponse & {
   customer: AdminOrderCustomerResponse | null;
   placedBy?: AdminOrderPlacedByResponse | null;
+  /** Admin who force-marked the order DELIVERED. */
+  completedBy?: AdminOrderPlacedByResponse | null;
+  /** Admin who requested cancellation. */
+  cancelledBy?: AdminOrderPlacedByResponse | null;
   /** Present when admin order detail is resolved from a payment request (`PAY…`). */
   paymentRequestId?: string | null;
   paymentRequestRefId?: string;
@@ -184,29 +201,61 @@ export type AdminOrderResponse = OrderResponse & {
 
 const ACTOR_UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ACTOR_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function isAdminActorId(value?: string | null): value is string {
   return typeof value === 'string' && ACTOR_UUID_RE.test(value);
 }
 
+export function isAdminActorEmail(value?: string | null): value is string {
+  return typeof value === 'string' && ACTOR_EMAIL_RE.test(value.trim());
+}
+
+/** UUID or email stored on `createdBy` / payment-request `createdBy`. */
+export function isPlacedByActorKey(value?: string | null): value is string {
+  return isAdminActorId(value) || isAdminActorEmail(value);
+}
+
+export function pickPlacedByActorKey(
+  ...candidates: Array<string | null | undefined>
+): string | null {
+  for (const value of candidates) {
+    if (isPlacedByActorKey(value)) return value.trim();
+  }
+  return null;
+}
+
 export function mapAdminPlacedBy(
-  admin?: { id: string; fullName: string; email: string } | null,
+  admin?: AdminPlacedBySource | null,
 ): AdminOrderPlacedByResponse | null {
   if (!admin) return null;
+  const role =
+    admin.roleRecord?.name?.trim() ||
+    admin.roleRecord?.slug?.trim() ||
+    admin.role?.trim() ||
+    null;
   return {
     id: admin.id,
     fullName: admin.fullName,
+    username: admin.fullName,
     email: admin.email,
+    role,
   };
 }
 
 export function withPlacedBy(
   response: AdminOrderResponse,
-  admin?: { id: string; fullName: string; email: string } | null,
+  admin?: AdminPlacedBySource | null,
+  extras?: {
+    completedBy?: AdminPlacedBySource | null;
+    cancelledBy?: AdminPlacedBySource | null;
+  },
 ): AdminOrderResponse {
   return {
     ...response,
     placedBy: mapAdminPlacedBy(admin),
+    completedBy: mapAdminPlacedBy(extras?.completedBy ?? null),
+    cancelledBy: mapAdminPlacedBy(extras?.cancelledBy ?? null),
   };
 }
 

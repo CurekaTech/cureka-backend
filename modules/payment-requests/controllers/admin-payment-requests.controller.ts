@@ -70,7 +70,7 @@ export class AdminPaymentRequestsController {
   @RequirePermissions('payment-request.create')
   @Post()
   create(@Body() dto: CreatePaymentRequestDto, @CurrentAdminUser() user: IAdminJwtPayload) {
-    return this.paymentRequestsService.create(dto, user.email);
+    return this.paymentRequestsService.create(dto, user.sub);
   }
 
 

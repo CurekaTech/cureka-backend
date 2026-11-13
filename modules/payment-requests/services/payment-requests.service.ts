@@ -1944,7 +1944,7 @@ export class PaymentRequestsService {
         notes: existing.notes ?? null,
         paymentMethod,
         orderSource: existing.orderSource ?? OrderSource.ADMIN,
-        createdBy: updatedBy,
+        createdBy: existing.createdBy || updatedBy,
         ...couponDetails,
         platformFee: existing.platformFee,
         codCharge: existing.codCharge,
@@ -2147,7 +2147,7 @@ export class PaymentRequestsService {
         failureReason: reason ?? null,
         paymentMethod,
         orderSource: existing.orderSource ?? OrderSource.WEBSITE,
-        createdBy: updatedBy,
+        createdBy: existing.createdBy || updatedBy,
         platformFee: existing.platformFee,
         codCharge: existing.codCharge,
         items: (existing.items ?? []).map((item) => ({
