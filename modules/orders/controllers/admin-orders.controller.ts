@@ -76,6 +76,7 @@ export class AdminOrdersController {
       'PENDING orders that were never exported are confirmed immediately. ' +
       'Exported orders stay visible as PROCESSING until Unicommerce and Shipway steps settle. ' +
       'Accepts order UUID (`id`) or business refId. Does not execute a refund. ' +
+      'Records the authenticated admin on cancellationRequestedBy and returns `cancelledBy` + `placedBy` (fullName, email, role). ' +
       'Requires `orders.update`.',
   })
   @ResponseMessage('Cancellation request accepted')
@@ -98,6 +99,7 @@ export class AdminOrdersController {
       'Emits shipment.updated so GoKwik receives AWB status DELIVERED when AWB exists. ' +
       'UniCommerce delivered sync is skipped for now. ' +
       'Rejected for CANCELLED / RTO. Idempotent if already DELIVERED. ' +
+      'Records the authenticated admin on `updatedBy` and returns `completedBy` + `placedBy` (fullName, email, role). ' +
       'Requires `orders.update`. Super admin always has it. The system Admin role has it too.',
   })
   @ResponseMessage('Order marked completed successfully')
@@ -158,6 +160,9 @@ export class AdminOrdersController {
       '(placedAt, confirmedAt, processingAt, shippedAt, outForDeliveryAt, deliveredAt, cancelledAt, failedDeliveryAt, rtoAt). ' +
       'Accepts order UUID (`id`), order business refId (e.g. ORD2026123456), or admin payment-request refId (e.g. PAY2026123456). ' +
       'Payment-request IDs are used by the admin create-order wizard before payment is captured. ' +
+      '`placedBy` is the admin who created the order (fullName, email, role). Null for storefront orders. ' +
+      '`completedBy` / `cancelledBy` are the admins who marked delivered or requested cancel. ' +
+      'Complete and cancel use the JWT admin; do not send name/email/role in the body. ' +
       'Requires `orders.read`.',
   })
   @ResponseMessage('Order fetched successfully')

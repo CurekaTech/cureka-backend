@@ -5,10 +5,13 @@ import { OrderStatus } from '../enums/order-status.enum';
 import { PolicyWindowUnit } from '@modules/product/enums/policy-window-unit.enum';
 import { IOrderItemReturnPolicySnapshot } from '../interfaces/order-item-return-policy.interface';
 import {
+  isAdminActorEmail,
   isAdminActorId,
+  isPlacedByActorKey,
   mapAdminPlacedBy,
   mapOrderPaymentSummary,
   mapPaymentRequestToOrderStatuses,
+  pickPlacedByActorKey,
   resolveOrderItemReturnReplace,
   withPlacedBy,
 } from './order.mapper';
@@ -203,17 +206,30 @@ describe('admin placedBy mapping', () => {
     expect(isAdminActorId(null)).toBe(false);
   });
 
-  it('maps admin staff name and email, and returns null when missing', () => {
+  it('accepts admin emails and rejects webhook / system actors', () => {
+    expect(isAdminActorEmail('imran-admin@gmail.com')).toBe(true);
+    expect(isPlacedByActorKey('imran-admin@gmail.com')).toBe(true);
+    expect(isPlacedByActorKey('razorpay-webhook')).toBe(false);
+    expect(pickPlacedByActorKey('razorpay-webhook', 'imran-admin@gmail.com')).toBe(
+      'imran-admin@gmail.com',
+    );
+  });
+
+  it('maps admin staff name, email, and role, and returns null when missing', () => {
     expect(
       mapAdminPlacedBy({
         id: 'admin-1',
         fullName: 'Priya Sharma',
         email: 'priya@cureka.com',
+        role: 'super_admin',
+        roleRecord: { name: 'Super Admin', slug: 'super_admin' },
       }),
     ).toEqual({
       id: 'admin-1',
       fullName: 'Priya Sharma',
+      username: 'Priya Sharma',
       email: 'priya@cureka.com',
+      role: 'Super Admin',
     });
     expect(mapAdminPlacedBy(null)).toBeNull();
   });
@@ -221,12 +237,14 @@ describe('admin placedBy mapping', () => {
   it('attaches placedBy onto an admin order response', () => {
     const attached = withPlacedBy(
       { placedBy: null } as Parameters<typeof withPlacedBy>[0],
-      { id: 'admin-1', fullName: 'Asha', email: 'asha@cureka.com' },
+      { id: 'admin-1', fullName: 'Asha', email: 'asha@cureka.com', role: 'telecaller' },
     );
     expect(attached.placedBy).toEqual({
       id: 'admin-1',
       fullName: 'Asha',
+      username: 'Asha',
       email: 'asha@cureka.com',
+      role: 'telecaller',
     });
   });
 });

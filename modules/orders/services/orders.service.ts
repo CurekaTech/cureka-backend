@@ -53,10 +53,14 @@ import { OrderEntity } from '../entities/order.entity';
 import { OrderItemEntity } from '../entities/order-item.entity';
 import {
   AdminOrderResponse,
+  AdminPlacedBySource,
+  isAdminActorEmail,
   isAdminActorId,
+  isPlacedByActorKey,
   mapOrderToResponse,
   mapOrderToAdminResponse,
   mapPaymentRequestToAdminOrderResponse,
+  pickPlacedByActorKey,
   withPaymentRequestOnAdminOrder,
   withPlacedBy,
 } from '../mappers/order.mapper';
@@ -1447,6 +1451,9 @@ export class OrdersService {
     }
 
     if (order) {
+      if (!paymentRequest && order.paymentRequestId) {
+        paymentRequest = await this.findPaymentRequestForAdminOrder(order.paymentRequestId);
+      }
       const response = await this.mapAdminOrderDetail(order);
       const withRequest = paymentRequest
         ? withPaymentRequestOnAdminOrder(response, paymentRequest)
@@ -1520,32 +1527,93 @@ export class OrdersService {
     rows: AdminOrderResponse[],
     fallbackCreatedBy?: string | null,
   ): Promise<AdminOrderResponse[]> {
-    const actorIds = [
+    const paymentRequestIds = [
       ...new Set(
         rows
-          .flatMap((row) => [row.createdBy, fallbackCreatedBy])
-          .filter(isAdminActorId),
+          .map((row) => row.paymentRequestId)
+          .filter((id): id is string => Boolean(id)),
       ),
     ];
-    if (actorIds.length === 0) {
+    const paymentRequests = paymentRequestIds.length
+      ? await this.dataSource.getRepository(PaymentRequestEntity).find({
+          where: { id: In(paymentRequestIds) },
+          withDeleted: true,
+        })
+      : [];
+    const paymentRequestCreatedBy = new Map(
+      paymentRequests.map((request) => [request.id, request.createdBy]),
+    );
+
+    const actorKeys = [
+      ...new Set(
+        rows
+          .flatMap((row) => [
+            row.createdBy,
+            row.paymentRequestId
+              ? paymentRequestCreatedBy.get(row.paymentRequestId)
+              : undefined,
+            fallbackCreatedBy,
+            row.updatedBy,
+            row.cancellationRequestedBy,
+          ])
+          .filter(isPlacedByActorKey),
+      ),
+    ];
+    if (actorKeys.length === 0) {
       return rows.map((row) => withPlacedBy(row, null));
     }
 
-    const admins = await this.adminUsersRepo.find({
-      where: { id: In(actorIds) },
-      withDeleted: true,
-      select: ['id', 'fullName', 'email'],
-    });
+    const admins = await this.findAdminStaffByActorKeys(actorKeys);
     const adminById = new Map(admins.map((admin) => [admin.id, admin]));
+    const adminByEmail = new Map(
+      admins.map((admin) => [admin.email.toLowerCase(), admin]),
+    );
+
+    const resolve = (key?: string | null): AdminPlacedBySource | null => {
+      if (!isPlacedByActorKey(key)) return null;
+      if (isAdminActorId(key)) return adminById.get(key) ?? null;
+      return adminByEmail.get(key.toLowerCase()) ?? null;
+    };
 
     return rows.map((row) => {
-      const actorId = isAdminActorId(row.createdBy)
-        ? row.createdBy
-        : isAdminActorId(fallbackCreatedBy)
-          ? fallbackCreatedBy
+      const placedKey = pickPlacedByActorKey(
+        row.createdBy,
+        row.paymentRequestId ? paymentRequestCreatedBy.get(row.paymentRequestId) : undefined,
+        fallbackCreatedBy,
+      );
+      const completedKey =
+        row.orderStatus === OrderStatus.DELIVERED
+          ? pickPlacedByActorKey(row.updatedBy)
           : null;
-      return withPlacedBy(row, actorId ? (adminById.get(actorId) ?? null) : null);
+      return withPlacedBy(row, resolve(placedKey), {
+        completedBy: resolve(completedKey),
+        cancelledBy: resolve(row.cancellationRequestedBy),
+      });
     });
+  }
+
+  private async findAdminStaffByActorKeys(actorKeys: string[]): Promise<AdminUserEntity[]> {
+    const uuids = actorKeys.filter(isAdminActorId);
+    const emails = actorKeys.filter(isAdminActorEmail).map((email) => email.toLowerCase());
+    const qb = this.adminUsersRepo
+      .createQueryBuilder('admin')
+      .withDeleted()
+      .leftJoinAndSelect('admin.roleRecord', 'roleRecord');
+
+    if (uuids.length && emails.length) {
+      qb.where('admin.id IN (:...uuids)', { uuids }).orWhere(
+        'LOWER(admin.email) IN (:...emails)',
+        { emails },
+      );
+    } else if (uuids.length) {
+      qb.where('admin.id IN (:...uuids)', { uuids });
+    } else if (emails.length) {
+      qb.where('LOWER(admin.email) IN (:...emails)', { emails });
+    } else {
+      return [];
+    }
+
+    return qb.getMany();
   }
 
   private async mapAdminOrderDetail(order: OrderEntity) {
@@ -2471,7 +2539,8 @@ export class OrdersService {
             OrderStatus.CONFIRMED,
             new Date(),
           ),
-          createdBy: params.createdBy ?? 'razorpay-webhook',
+          createdBy:
+            pickPlacedByActorKey(params.createdBy) ?? params.createdBy ?? 'razorpay-webhook',
           updatedBy: params.createdBy ?? 'razorpay-webhook',
         },
         manager,
