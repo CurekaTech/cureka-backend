@@ -317,9 +317,11 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
         : undefined;
       const soleChargeCaptured = cashfreeSoleNonAuthCaptured(captured);
       const amountMatchedCharge = cashfreeUniqueChargeMatchingAmount(captured, params);
+      const amountMatchedAuth = cashfreeUniqueAuthMatchingAmount(captured, params);
       const soleCaptured =
         params.matchSingleCaptured && captured.length === 1 ? captured[0] : undefined;
-      const match = byId ?? soleChargeCaptured ?? amountMatchedCharge ?? soleCaptured;
+      const match =
+        byId ?? soleChargeCaptured ?? amountMatchedCharge ?? amountMatchedAuth ?? soleCaptured;
       if (!match) {
         this.logger.warn(
           {
@@ -353,20 +355,36 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
         );
       }
       const snapshot = cashfreePaymentSnapshot(match);
-      if (
-        cashfreeIsAuthPayment(match) &&
-        params.expectedAmount &&
-        params.expectedCurrency &&
-        (snapshot.amount == null ||
-          snapshot.currency == null ||
-          snapshot.currency.toUpperCase() !== params.expectedCurrency.trim().toUpperCase() ||
-          Math.abs(Number(params.expectedAmount) - Number(snapshot.amount)) >= 0.009)
-      ) {
-        return {
-          state: 'unknown',
-          gatewayOrderId: params.gatewayOrderId,
-          gatewayPaymentId: params.gatewayPaymentId,
-        };
+      if (cashfreeIsAuthPayment(match) && params.expectedAmount) {
+        const expected = Number(params.expectedAmount);
+        const actual = Number(snapshot.amount);
+        const amountOk =
+          snapshot.amount != null &&
+          Number.isFinite(expected) &&
+          Number.isFinite(actual) &&
+          Math.abs(expected - actual) < 0.009;
+        if (!amountOk) {
+          return {
+            state: 'unknown',
+            gatewayOrderId: params.gatewayOrderId,
+            gatewayPaymentId: params.gatewayPaymentId,
+          };
+        }
+        const expectedCurrency = params.expectedCurrency?.trim();
+        if (
+          expectedCurrency &&
+          snapshot.currency &&
+          snapshot.currency.toUpperCase() !== expectedCurrency.toUpperCase()
+        ) {
+          return {
+            state: 'unknown',
+            gatewayOrderId: params.gatewayOrderId,
+            gatewayPaymentId: params.gatewayPaymentId,
+          };
+        }
+        if (!snapshot.currency && expectedCurrency) {
+          return { ...snapshot, currency: expectedCurrency };
+        }
       }
       return snapshot;
     } catch (error) {
@@ -499,6 +517,32 @@ function cashfreeSoleNonAuthCaptured(captured: Record<string, unknown>[]): Recor
   return charges.length === 1 ? charges[0] : undefined;
 }
 
+function cashfreeUniqueAuthMatchingAmount(
+  captured: Record<string, unknown>[],
+  params: { expectedAmount?: string | null; expectedCurrency?: string | null },
+): Record<string, unknown> | undefined {
+  const expectedAmount = params.expectedAmount?.trim();
+  if (!expectedAmount) return undefined;
+  const expected = Number(expectedAmount);
+  if (!Number.isFinite(expected)) return undefined;
+  const expectedCurrency = params.expectedCurrency?.trim();
+  const matches = captured.filter((row) => {
+    if (!cashfreeIsAuthPayment(row)) return false;
+    const snapshot = cashfreePaymentSnapshot(row);
+    if (snapshot.state !== 'captured' || snapshot.amount == null) return false;
+    if (
+      expectedCurrency &&
+      snapshot.currency &&
+      snapshot.currency.toUpperCase() !== expectedCurrency.toUpperCase()
+    ) {
+      return false;
+    }
+    const actual = Number(snapshot.amount);
+    return Number.isFinite(actual) && Math.abs(expected - actual) < 0.009;
+  });
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
 function cashfreeUniqueChargeMatchingAmount(
   captured: Record<string, unknown>[],
   params: { expectedAmount?: string | null; expectedCurrency?: string | null },
@@ -534,7 +578,7 @@ function cashfreePaymentSnapshot(payment: Record<string, unknown>): GatewayCharg
     paymentType: String(payment['payment_type'] ?? '').trim().toUpperCase() || null,
     ...(currency ? { currency } : {}),
   };
-  if (['SUCCESS', 'PAID'].includes(status)) return { ...snapshot, state: 'captured' };
+  if (['SUCCESS', 'PAID', 'CAPTURED'].includes(status)) return { ...snapshot, state: 'captured' };
   if (['FAILED', 'CANCELLED', 'USER_DROPPED'].includes(status)) {
     return {
       ...snapshot,

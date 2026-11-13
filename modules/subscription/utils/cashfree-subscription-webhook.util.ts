@@ -8,6 +8,7 @@ export interface CashfreeSubscriptionWebhookFields {
   paymentStatus: string;
   paymentType: string;
   paymentAmount: number | null;
+  paymentCurrency: string;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -53,11 +54,18 @@ export function readCashfreeSubscriptionWebhook(
     subscriptionStatus: text(
       details['subscription_status'] ?? data['subscription_status'] ?? nested['subscription_status'],
     ),
-    subscriptionPaymentId: text(tags['subscriptionPaymentId']) || undefined,
+    subscriptionPaymentId:
+      text(tags['subscriptionPaymentId'] ?? tags['subscription_payment_id']) || undefined,
     cfPaymentId: text(data['cf_payment_id'] ?? payment['cf_payment_id'] ?? gateway['gateway_payment_id']),
     paymentId: text(data['payment_id'] ?? payment['payment_id']),
     paymentStatus: text(data['payment_status'] ?? payment['payment_status']),
     paymentType: text(data['payment_type'] ?? payment['payment_type']),
     paymentAmount: Number.isFinite(paymentAmount) ? paymentAmount : null,
+    paymentCurrency: text(
+      data['payment_currency'] ??
+        data['currency'] ??
+        payment['payment_currency'] ??
+        payment['currency'],
+    ),
   };
 }

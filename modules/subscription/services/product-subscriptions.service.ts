@@ -1015,11 +1015,7 @@ export class ProductSubscriptionsService {
       }
       const pending = [...payments]
         .reverse()
-        .find(
-          (payment) =>
-            payment.status !== SubscriptionPaymentStatus.PAID &&
-            payment.status !== SubscriptionPaymentStatus.FAILED,
-        );
+        .find((payment) => payment.status !== SubscriptionPaymentStatus.PAID);
       if (!pending) return { paid: false };
       const settled = await this.settleCashfreeSubscriptionPayment({
         paymentId: pending.id,
@@ -1771,6 +1767,10 @@ export class ProductSubscriptionsService {
     gatewayPaymentId?: string;
     gatewaySubscriptionId?: string;
     actor: string;
+    webhookPaymentType?: string;
+    webhookPaymentAmount?: number | null;
+    webhookPaymentStatus?: string;
+    webhookPaymentCurrency?: string;
   }): Promise<boolean> {
     let payment = params.paymentId
       ? await this.paymentsService.findById(params.paymentId)
@@ -1829,7 +1829,7 @@ export class ProductSubscriptionsService {
       params.gatewaySubscriptionId,
       mandate?.gatewaySubscriptionId,
     );
-    const snapshot = await adapter.fetchChargeStatus({
+    let snapshot = await adapter.fetchChargeStatus({
       gatewayOrderId: chargeOrderId,
       gatewayPaymentId: params.gatewayPaymentId ?? payment.gatewayPaymentId,
       gatewaySubscriptionId,
@@ -1839,29 +1839,34 @@ export class ProductSubscriptionsService {
         !chargeOrderId &&
         !params.gatewayPaymentId &&
         !payment.gatewayPaymentId &&
-        payment.attemptKind === SubscriptionPaymentAttemptKind.FIRST_ORDER,
+        this.isCashfreeFirstOrderPayment(payment),
     });
     if (!this.cashfreeCapturedPaymentMatches(payment, snapshot)) {
-      this.logger.warn(
-        {
-          event: AUTOPAY_TRACE,
-          phase: 'cashfree_settle_mismatch',
-          paymentId: payment.id,
-          subscriptionId: payment.subscriptionId,
-          attemptKind: payment.attemptKind ?? null,
-          expectedAmount: payment.amount,
-          expectedCurrency: payment.currency ?? null,
-          snapshotState: snapshot.state,
-          snapshotAmount: snapshot.amount ?? null,
-          snapshotCurrency: snapshot.currency ?? null,
-          snapshotPaymentType: snapshot.paymentType ?? null,
-          gatewaySubscriptionId: gatewaySubscriptionId ?? null,
-          chargeOrderId,
-          nowIst: formatIstDate(new Date()),
-        },
-        `${AUTOPAY_TRACE} Cashfree settlement skipped because the captured payment does not match the subscription`,
-      );
-      return false;
+      const fromWebhook = this.cashfreeAuthWebhookCapture(payment, params);
+      if (fromWebhook && this.cashfreeCapturedPaymentMatches(payment, fromWebhook)) {
+        snapshot = fromWebhook;
+      } else {
+        this.logger.warn(
+          {
+            event: AUTOPAY_TRACE,
+            phase: 'cashfree_settle_mismatch',
+            paymentId: payment.id,
+            subscriptionId: payment.subscriptionId,
+            attemptKind: payment.attemptKind ?? null,
+            expectedAmount: payment.amount,
+            expectedCurrency: payment.currency ?? null,
+            snapshotState: snapshot.state,
+            snapshotAmount: snapshot.amount ?? null,
+            snapshotCurrency: snapshot.currency ?? null,
+            snapshotPaymentType: snapshot.paymentType ?? null,
+            gatewaySubscriptionId: gatewaySubscriptionId ?? null,
+            chargeOrderId,
+            nowIst: formatIstDate(new Date()),
+          },
+          `${AUTOPAY_TRACE} Cashfree settlement skipped because the captured payment does not match the subscription`,
+        );
+        return false;
+      }
     }
     return this.lockService.withDbLock(`settle:${payment.id}`, async () => {
       const current = await this.paymentsService.findById(payment.id);
@@ -1914,7 +1919,7 @@ export class ProductSubscriptionsService {
     if (snapshot.state !== 'captured') return false;
     if (
       (snapshot.paymentType ?? '').toUpperCase() === 'AUTH' &&
-      payment.attemptKind !== SubscriptionPaymentAttemptKind.FIRST_ORDER
+      !this.isCashfreeFirstOrderPayment(payment)
     ) {
       return false;
     }
@@ -1922,12 +1927,65 @@ export class ProductSubscriptionsService {
       return false;
     }
     const expectedCurrency = payment.currency?.trim();
-    const actualCurrency = snapshot.currency?.trim();
+    const actualCurrency =
+      snapshot.currency?.trim() ||
+      ((snapshot.paymentType ?? '').toUpperCase() === 'AUTH' && this.isCashfreeFirstOrderPayment(payment)
+        ? expectedCurrency
+        : '');
     if (!expectedCurrency || !actualCurrency) return false;
     if (expectedCurrency.toUpperCase() !== actualCurrency.toUpperCase()) return false;
     const expected = Number(payment.amount);
     const actual = Number(snapshot.amount);
     return Number.isFinite(expected) && Number.isFinite(actual) && Math.abs(expected - actual) < 0.009;
+  }
+
+  private isCashfreeFirstOrderPayment(payment: {
+    attemptKind?: SubscriptionPaymentAttemptKind | null;
+  }): boolean {
+    return (
+      payment.attemptKind === SubscriptionPaymentAttemptKind.FIRST_ORDER ||
+      payment.attemptKind == null
+    );
+  }
+
+  private cashfreeAuthWebhookCapture(
+    payment: {
+      amount?: string | null;
+      currency?: string | null;
+      attemptKind?: SubscriptionPaymentAttemptKind | null;
+    },
+    params: {
+      webhookPaymentType?: string;
+      webhookPaymentAmount?: number | null;
+      webhookPaymentStatus?: string;
+      webhookPaymentCurrency?: string;
+      gatewayOrderId?: string;
+      gatewayPaymentId?: string;
+    },
+  ): {
+    state: 'captured';
+    amount: string;
+    currency: string;
+    paymentType: string;
+    gatewayOrderId?: string | null;
+    gatewayPaymentId?: string | null;
+  } | null {
+    if (!this.isCashfreeFirstOrderPayment(payment)) return null;
+    if ((params.webhookPaymentType ?? '').toUpperCase() !== 'AUTH') return null;
+    if ((params.webhookPaymentStatus ?? '').toUpperCase() !== 'SUCCESS') return null;
+    if (params.webhookPaymentAmount == null || !Number.isFinite(params.webhookPaymentAmount)) {
+      return null;
+    }
+    const currency = params.webhookPaymentCurrency?.trim() || payment.currency?.trim();
+    if (!currency) return null;
+    return {
+      state: 'captured',
+      amount: Number(params.webhookPaymentAmount).toFixed(2),
+      currency,
+      paymentType: 'AUTH',
+      gatewayOrderId: params.gatewayOrderId ?? null,
+      gatewayPaymentId: params.gatewayPaymentId ?? null,
+    };
   }
 
   async isRazorpayChargeCaptured(params: {

@@ -206,6 +206,36 @@ describe('CashfreeSubscriptionProvider payment status', () => {
     ).resolves.toMatchObject({ state: 'unknown' });
   });
 
+  it('matches a sole AUTH when the first-order amount is the same and currency is missing', async () => {
+    jest.spyOn(global, 'fetch').mockResolvedValueOnce(
+      jsonResponse({
+        payments: [
+          {
+            payment_id: 'CH_7526982201947926347',
+            cf_payment_id: '1343950428',
+            payment_status: 'SUCCESS',
+            payment_amount: 2,
+            payment_type: 'AUTH',
+          },
+        ],
+      }) as never,
+    );
+
+    await expect(
+      provider.fetchChargeStatus({
+        gatewaySubscriptionId: 'sub_1',
+        expectedAmount: '2.00',
+        expectedCurrency: 'INR',
+      }),
+    ).resolves.toMatchObject({
+      state: 'captured',
+      amount: '2.00',
+      currency: 'INR',
+      paymentType: 'AUTH',
+      gatewayPaymentId: '1343950428',
+    });
+  });
+
   it('does not settle against AUTH when stored ids miss and only AUTH is captured', async () => {
     jest.spyOn(global, 'fetch').mockResolvedValueOnce(
       jsonResponse({

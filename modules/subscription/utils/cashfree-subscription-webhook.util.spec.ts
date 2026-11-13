@@ -53,6 +53,41 @@ describe('readCashfreeSubscriptionWebhook', () => {
       paymentStatus: 'SUCCESS',
       paymentType: 'AUTH',
       paymentAmount: 2,
+      paymentCurrency: '',
+    });
+  });
+
+  it('reads AUTH success without subscription_status, using snake_case tags and currency', () => {
+    const fields = readCashfreeSubscriptionWebhook({
+      type: 'SUBSCRIPTION_AUTH_STATUS',
+      data: {
+        payment_id: 'CH_7526982201947926347',
+        cf_payment_id: '1343950428',
+        subscription_id: 'sub_new',
+        cf_subscription_id: '408977956',
+        payment_type: 'AUTH',
+        payment_amount: 2,
+        payment_status: 'SUCCESS',
+        currency: 'INR',
+        subscription_details: {
+          subscription_id: 'sub_new',
+          cf_subscription_id: '408977956',
+          subscription_tags: { subscription_payment_id: 'pay-row-2' },
+        },
+      },
+    });
+
+    expect(fields).toMatchObject({
+      merchantSubscriptionId: 'sub_new',
+      cfSubscriptionId: '408977956',
+      subscriptionStatus: '',
+      subscriptionPaymentId: 'pay-row-2',
+      paymentId: 'CH_7526982201947926347',
+      cfPaymentId: '1343950428',
+      paymentStatus: 'SUCCESS',
+      paymentType: 'AUTH',
+      paymentAmount: 2,
+      paymentCurrency: 'INR',
     });
   });
 

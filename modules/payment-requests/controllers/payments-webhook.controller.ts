@@ -5,6 +5,7 @@ import { FastifyRequest } from 'fastify';
 import { EVENTS } from '@packages/events';
 import { SUBSCRIPTION_PAYMENT_PURPOSE } from '@modules/subscription/constants/subscription-payment-purpose.constants';
 import { SubscriptionMandateProvider } from '@modules/subscription/enums/subscription-mandate-provider.enum';
+import { SubscriptionMandateStatus } from '@modules/subscription/enums/subscription-mandate-status.enum';
 import { MembershipsService } from '@modules/subscription/services/memberships.service';
 import { ProductSubscriptionsService } from '@modules/subscription/services/product-subscriptions.service';
 import { SubscriptionMandateService } from '@modules/subscription/services/subscription-mandate.service';
@@ -236,11 +237,13 @@ export class PaymentsWebhookController {
       const isAuthPayment = subscription.paymentType.toUpperCase() === 'AUTH';
       if (eventType === 'SUBSCRIPTION_PAYMENT_SUCCESS' || eventType === 'SUBSCRIPTION_PAYMENT_FAILED') {
         if (eventType === 'SUBSCRIPTION_PAYMENT_FAILED') {
-          await this.productSubscriptionsService.handlePaymentFailed({
-            gatewayOrderId: subscription.paymentId || merchantSubscriptionId || String(orderId ?? ''),
-            reason: String(paymentData?.['payment_message'] ?? 'Cashfree subscription charge failed'),
-            actor: 'cashfree-subscription-webhook',
-          });
+          if (!isAuthPayment && subscription.paymentId && !subscription.paymentId.startsWith('sub_')) {
+            await this.productSubscriptionsService.handlePaymentFailed({
+              gatewayOrderId: subscription.paymentId,
+              reason: String(paymentData?.['payment_message'] ?? 'Cashfree subscription charge failed'),
+              actor: 'cashfree-subscription-webhook',
+            });
+          }
           this.logger.warn(
             { eventType, merchantSubscriptionId, cfSubscriptionId, requestId: req.id },
             'Cashfree subscription payment failed, so no order was created',
@@ -270,6 +273,10 @@ export class PaymentsWebhookController {
             gatewayPaymentId: subscriptionCfPaymentId || undefined,
             gatewaySubscriptionId: merchantSubscriptionId || cfSubscriptionId || undefined,
             actor: 'cashfree-subscription-webhook',
+            webhookPaymentType: subscription.paymentType,
+            webhookPaymentAmount: subscription.paymentAmount,
+            webhookPaymentStatus: subscription.paymentStatus,
+            webhookPaymentCurrency: subscription.paymentCurrency,
           });
           this.logger.log(
             { settled, isAuthPayment, subscriptionPaymentId: subscriptionPaymentId ?? null, cfSubscriptionId, requestId: req.id },
@@ -315,6 +322,16 @@ export class PaymentsWebhookController {
             gatewayPaymentId: subscriptionCfPaymentId || undefined,
             actor: 'cashfree-webhook',
           });
+          await this.subscriptionMandateService.handleProviderWebhook({
+            provider: SubscriptionMandateProvider.CASHFREE,
+            gatewayMandateId: cfSubscriptionId || undefined,
+            gatewaySubscriptionId: merchantSubscriptionId || cfSubscriptionId,
+            authorizationOrderId: merchantSubscriptionId || undefined,
+            gatewayPaymentId: subscriptionCfPaymentId || undefined,
+            status: SubscriptionMandateStatus.CONFIRMED,
+            actor: 'cashfree-webhook',
+            raw: payload,
+          });
         }
         const paymentId =
           subscriptionPaymentId ||
@@ -328,6 +345,10 @@ export class PaymentsWebhookController {
           gatewayPaymentId: subscriptionCfPaymentId || undefined,
           gatewaySubscriptionId: merchantSubscriptionId || cfSubscriptionId || undefined,
           actor: 'cashfree-subscription-webhook',
+          webhookPaymentType: subscription.paymentType || 'AUTH',
+          webhookPaymentAmount: subscription.paymentAmount,
+          webhookPaymentStatus: subscription.paymentStatus,
+          webhookPaymentCurrency: subscription.paymentCurrency,
         });
         this.logger.log(
           { settled, subscriptionPaymentId: paymentId ?? null, cfSubscriptionId, requestId: req.id },

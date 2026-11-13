@@ -855,6 +855,114 @@ describe('Product subscription Razorpay UPI renewal', () => {
     expect(ordersService.createOrderFromSubscription).toHaveBeenCalled();
   });
 
+  it('settles FIRST_ORDER from a signed AUTH SUCCESS webhook when Cashfree payment list is empty', async () => {
+    const cashfreeFetch = jest.fn().mockResolvedValue({ state: 'unknown' });
+    mandateService.adapter.mockImplementation((provider: SubscriptionMandateProvider) =>
+      provider === SubscriptionMandateProvider.CASHFREE
+        ? { isConfigured: () => true, fetchChargeStatus: cashfreeFetch, charge, submitRecurringDebit, listOrderCharge }
+        : { isConfigured: () => true, charge, submitRecurringDebit, fetchChargeStatus, listOrderCharge },
+    );
+    const firstPayment = {
+      id: 'pay-first',
+      status: SubscriptionPaymentStatus.FAILED as string,
+      amount: '2.00',
+      currency: 'INR',
+      attemptKind: SubscriptionPaymentAttemptKind.FIRST_ORDER,
+      subscriptionId: 'sub-1',
+      billingCycleRef: '2026-11-13T1220Z',
+      paymentGateway: 'CASHFREE',
+      gatewayOrderId: 'sub_new',
+    };
+    paymentsService.findById.mockImplementation(async (id: string) =>
+      id === 'pay-first' ? firstPayment : null,
+    );
+    mandateService.recordedFirstChargePaymentId.mockResolvedValue('pay-first');
+    paymentsService.markPaidIdempotent.mockImplementation(async () => {
+      firstPayment.status = SubscriptionPaymentStatus.PAID;
+      return { payment: firstPayment, newlyPaid: true };
+    });
+    subscriptionsRepository.findById.mockResolvedValue(
+      subscription({ status: ProductSubscriptionStatus.PENDING_PAYMENT }),
+    );
+    mandateService.getForSubscription.mockResolvedValue({
+      authorizationOrderId: 'sub_new',
+    });
+    billingCycleService.findBySubscriptionId.mockResolvedValue([]);
+    billingCycleService.getOrCreate.mockResolvedValue({
+      id: 'cycle-1',
+      status: SubscriptionBillingCycleStatus.SCHEDULED,
+    });
+
+    await expect(
+      service.settleCashfreeSubscriptionPayment({
+        paymentId: 'pay-first',
+        gatewayOrderId: 'CH_7526982201947926347',
+        gatewayPaymentId: '1343950428',
+        gatewaySubscriptionId: '408977956',
+        actor: 'cashfree-subscription-webhook',
+        webhookPaymentType: 'AUTH',
+        webhookPaymentAmount: 2,
+        webhookPaymentStatus: 'SUCCESS',
+        webhookPaymentCurrency: 'INR',
+      }),
+    ).resolves.toBe(true);
+    expect(ordersService.createOrderFromSubscription).toHaveBeenCalled();
+  });
+
+  it('syncs a Cashfree first payment even after a decline webhook marked it FAILED', async () => {
+    const cashfreeFetch = jest.fn().mockResolvedValue({
+      state: 'captured',
+      amount: '2.00',
+      currency: 'INR',
+      paymentType: 'AUTH',
+      gatewayPaymentId: '1343950428',
+    });
+    mandateService.adapter.mockImplementation((provider: SubscriptionMandateProvider) =>
+      provider === SubscriptionMandateProvider.CASHFREE
+        ? { isConfigured: () => true, fetchChargeStatus: cashfreeFetch, charge, submitRecurringDebit, listOrderCharge }
+        : { isConfigured: () => true, charge, submitRecurringDebit, fetchChargeStatus, listOrderCharge },
+    );
+    const firstPayment = {
+      id: 'pay-first',
+      status: SubscriptionPaymentStatus.FAILED as string,
+      amount: '2.00',
+      currency: 'INR',
+      attemptKind: SubscriptionPaymentAttemptKind.FIRST_ORDER,
+      subscriptionId: 'sub-1',
+      userId: 'user-1',
+      billingCycleRef: '2026-11-13T1220Z',
+      paymentGateway: 'CASHFREE',
+      gatewayOrderId: 'sub_new',
+    };
+    subscriptionsRepository.findByIdAndUserId.mockResolvedValue(
+      subscription({ status: ProductSubscriptionStatus.PENDING_PAYMENT }),
+    );
+    mandateService.getForSubscription.mockResolvedValue({
+      provider: SubscriptionMandateProvider.CASHFREE,
+      authorizationOrderId: 'sub_new',
+      gatewaySubscriptionId: 'sub_new',
+    });
+    paymentsService.findBySubscriptionId.mockResolvedValue([firstPayment]);
+    paymentsService.findById.mockImplementation(async (id: string) =>
+      id === 'pay-first' ? firstPayment : null,
+    );
+    paymentsService.markPaidIdempotent.mockImplementation(async () => {
+      firstPayment.status = SubscriptionPaymentStatus.PAID;
+      return { payment: firstPayment, newlyPaid: true };
+    });
+    subscriptionsRepository.findById.mockResolvedValue(
+      subscription({ status: ProductSubscriptionStatus.PENDING_PAYMENT }),
+    );
+    billingCycleService.findBySubscriptionId.mockResolvedValue([]);
+    billingCycleService.getOrCreate.mockResolvedValue({
+      id: 'cycle-1',
+      status: SubscriptionBillingCycleStatus.SCHEDULED,
+    });
+
+    await expect(service.syncRazorpayPayment('user-1', 'sub-1')).resolves.toEqual({ paid: true });
+    expect(ordersService.createOrderFromSubscription).toHaveBeenCalled();
+  });
+
   it('creates one order when the Cashfree payment is captured for the product amount', async () => {
     const cashfreeFetch = jest.fn().mockResolvedValue({
       state: 'captured',
