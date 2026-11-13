@@ -8,15 +8,63 @@ function text(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
+function snakeToField(column: string): string {
+  return column.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase());
+}
+
 function toDatabaseChange(change: AuditLogChangeEntity) {
   return {
     table: change.tableName,
+    tableName: change.tableName,
     recordId: change.recordId,
     column: change.columnName,
-    field: change.field,
+    field: change.field && change.field.includes('_') ? snakeToField(change.field) : change.field,
     changeType: change.changeType,
+    operation: change.operation ?? change.changeType,
     oldValue: redactAuditValue(change.oldValue),
     newValue: redactAuditValue(change.newValue),
+    before: redactAuditValue(change.oldValue),
+    after: redactAuditValue(change.newValue),
+  };
+}
+
+export function groupDatabaseChanges(changes: ReturnType<typeof toDatabaseChange>[]) {
+  const groups = new Map<
+    string,
+    {
+      tableName: string;
+      recordId: string | null;
+      operation: string;
+      fields: Array<{ field: string; column: string; before: unknown; after: unknown; changeType: string }>;
+    }
+  >();
+  for (const change of changes) {
+    const key = `${change.tableName}:${change.recordId ?? ''}:${change.operation ?? ''}`;
+    const group = groups.get(key) ?? {
+      tableName: change.tableName,
+      recordId: change.recordId,
+      operation: change.operation ?? change.changeType,
+      fields: [],
+    };
+    group.fields.push({
+      field: change.field,
+      column: change.column,
+      before: change.before,
+      after: change.after,
+      changeType: change.changeType,
+    });
+    groups.set(key, group);
+  }
+  return [...groups.values()];
+}
+
+function changeSummary(groups: ReturnType<typeof groupDatabaseChanges>) {
+  const tables = new Set(groups.map((group) => group.tableName));
+  const records = new Set(groups.map((group) => `${group.tableName}:${group.recordId ?? ''}`));
+  return {
+    totalTables: tables.size,
+    totalRecords: records.size,
+    totalFieldsChanged: groups.reduce((sum, group) => sum + group.fields.length, 0),
   };
 }
 
@@ -71,6 +119,8 @@ export function toAuditDetailView(
 ) {
   const base = baseView(row, lookedUp);
   const databaseChanges = changes.map(toDatabaseChange);
+  const grouped = groupDatabaseChanges(databaseChanges);
+  const summary = changeSummary(grouped);
   const changedFields = databaseChanges.map((change) => change.field);
   const details = base.details as Record<string, unknown>;
   return {
@@ -78,7 +128,9 @@ export function toAuditDetailView(
     requestContext: redactAuditDetails(row.requestContext) ?? null,
     requestPayload: redactAuditDetails(row.requestPayload) ?? null,
     databaseChanges,
-    changedFieldsCount: row.changedFieldsCount || databaseChanges.length,
+    databaseChangeGroups: grouped,
+    changeSummary: summary,
+    changedFieldsCount: summary.totalFieldsChanged || row.changedFieldsCount || 0,
     details: {
       ...details,
       ...(changedFields.length && !Array.isArray(details.fields) ? { fields: changedFields } : {}),

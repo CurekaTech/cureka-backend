@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { AuditLogEntity } from '../entities/audit-log.entity';
 import { AuditLogChangeEntity } from '../entities/audit-log-change.entity';
 import { AuditFieldChange, AuditRequestContext } from '../types/audit-capture.types';
@@ -75,7 +75,12 @@ export class AuditLogsRepository {
         changedFieldsCount: data.changedFieldsCount ?? changes.length,
       });
       const saved = await manager.save(AuditLogEntity, entity);
-      if (changes.length) {
+      const attached = await this.attachPendingChanges(
+        manager,
+        saved.id,
+        data.requestId ?? null,
+      );
+      if (!attached && changes.length) {
         await manager.insert(
           AuditLogChangeEntity,
           changes.map((change) => ({
@@ -90,8 +95,39 @@ export class AuditLogsRepository {
           })),
         );
       }
+      const counted = (await manager.query(
+        `SELECT COUNT(*)::int AS count FROM audit_log_changes WHERE audit_log_id = $1`,
+        [saved.id],
+      )) as Array<{ count: number }>;
+      const count = Number(counted?.[0]?.count ?? 0);
+      if (count !== saved.changedFieldsCount) {
+        saved.changedFieldsCount = count;
+        saved.captureStatus = count > 0 ? (data.requestPayload ? 'captured' : 'partial') : saved.captureStatus;
+        await manager.update(AuditLogEntity, saved.id, {
+          changedFieldsCount: count,
+          captureStatus: saved.captureStatus,
+        });
+      }
       return saved;
     });
+  }
+
+  async attachPendingChanges(
+    manager: EntityManager | { query: (sql: string, params?: unknown[]) => Promise<unknown> },
+    auditLogId: string,
+    requestId: string | null,
+  ): Promise<number> {
+    if (!requestId) return 0;
+    const updated = await manager.query(
+      `UPDATE audit_log_changes
+       SET audit_log_id = $1
+       WHERE request_id = $2 AND audit_log_id IS NULL
+       RETURNING id`,
+      [auditLogId, requestId],
+    );
+    const rows = Array.isArray(updated) ? updated : [];
+    const list = Array.isArray(rows[0]) ? rows[0] : rows;
+    return Array.isArray(list) ? list.filter((item) => item && typeof item === 'object' && 'id' in item).length : 0;
   }
 
   async findChanges(auditLogId: string): Promise<AuditLogChangeEntity[]> {

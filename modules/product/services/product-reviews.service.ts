@@ -112,7 +112,7 @@ export class ProductReviewsService {
       return { canReview: false, existingReview: null };
     }
 
-    const { product } = await this.resolvePublishedProductContext(slug, query);
+    const { product } = await this.resolveReviewableProductContext(slug, query);
     const existing = await this.reviewsRepository.findByUserIdAndProductId(user.sub, product.id);
     const existingReview = existing ? this.mapMyReviewSnapshot(existing) : null;
 
@@ -133,7 +133,7 @@ export class ProductReviewsService {
       throw new ForbiddenException('Please sign in to submit a product review');
     }
 
-    const { product, variant } = await this.resolvePublishedProductContext(slug, dto);
+    const { product, variant } = await this.resolveReviewableProductContext(slug, dto);
 
     const hasDelivered = await this.ordersService.userHasDeliveredProduct(user.sub, product.id);
     if (!hasDelivered) {
@@ -219,7 +219,7 @@ export class ProductReviewsService {
       throw new ForbiddenException('Please sign in to edit your product review');
     }
 
-    const { product, variant } = await this.resolvePublishedProductContext(slug, dto);
+    const { product, variant } = await this.resolveReviewableProductContext(slug, dto);
     const existing = await this.reviewsRepository.findByRefId(refId);
     if (!existing || existing.productId !== product.id) {
       throw new NotFoundException(`Product review with refId ${refId} not found`);
@@ -394,6 +394,42 @@ export class ProductReviewsService {
   private async resolvePublishedProduct(slug: string): Promise<ProductEntity> {
     const { product } = await this.resolvePublishedProductContext(slug);
     return product;
+  }
+
+  /** Review create/edit/eligibility: product may be unpublished or out of stock. */
+  private async resolveReviewableProductContext(
+    slug: string,
+    query?: { variantId?: string; variantSlug?: string },
+  ): Promise<{ product: ProductEntity; variant: ProductVariantEntity | null }> {
+    const productBySlug = await this.productsRepository.findBySlugAnyStatus(slug);
+    let product = productBySlug;
+    let slugVariant: ProductVariantEntity | null = null;
+
+    if (!product) {
+      product = await this.productsRepository.findByVariantSlugAnyStatus(slug);
+      if (product) {
+        slugVariant = await this.variantsRepository.findActiveBySlug(slug);
+        if (slugVariant && slugVariant.productId !== product.id) {
+          slugVariant = null;
+        }
+      }
+    }
+
+    if (!product) {
+      throw new NotFoundException(`Product with slug ${slug} not found`);
+    }
+
+    const variant = await this.resolveRequestedVariant(product.id, {
+      variantId: query?.variantId,
+      variantSlug: query?.variantSlug,
+      fallback: slugVariant,
+    });
+
+    if (slugVariant && variant && slugVariant.id !== variant.id) {
+      throw new BadRequestException('variantId and variantSlug identify different variants');
+    }
+
+    return { product, variant };
   }
 
   private async resolvePublishedProductContext(

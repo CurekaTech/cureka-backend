@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'async_hooks';
+import { randomUUID } from 'crypto';
 
 export type AuditActorType = 'ADMIN' | 'USER' | 'SYSTEM' | 'ANONYMOUS';
 
@@ -38,7 +39,7 @@ export function runAsSystem<T>(
       id: jobName,
       performedBy: `system:${jobName}`,
       ipAddress: null,
-      requestId: null,
+      requestId: randomUUID(),
       batchId,
       method: null,
       path: extras?.path ?? null,

@@ -53,22 +53,43 @@ describe('audit log views', () => {
       columnName: 'name',
       field: 'name',
       changeType: 'updated',
+      operation: 'UPDATE',
       oldValue: 'Test Age Image kfnk',
       newValue: 'Test Age Image Updated',
     } as AuditLogChangeEntity;
     const view = toAuditDetailView(row(), undefined, [change]);
     expect(view.requestPayload).toEqual({ name: 'Test Age Image Updated', slug: 'test-age-image-updated' });
     expect(view.databaseChanges).toEqual([
-      {
+      expect.objectContaining({
         table: 'products',
+        tableName: 'products',
         recordId: '2f3207cc-10df-4a0f-b143-52a185a83da4',
         column: 'name',
         field: 'name',
         changeType: 'updated',
         oldValue: 'Test Age Image kfnk',
         newValue: 'Test Age Image Updated',
-      },
+        before: 'Test Age Image kfnk',
+        after: 'Test Age Image Updated',
+      }),
     ]);
-    expect(view.changedFieldsCount).toBe(2);
+    expect(view.changedFieldsCount).toBe(1);
+    expect(view.changeSummary).toEqual({
+      totalTables: 1,
+      totalRecords: 1,
+      totalFieldsChanged: 1,
+    });
+    expect(view.databaseChangeGroups).toEqual([
+      expect.objectContaining({
+        tableName: 'products',
+        fields: [
+          expect.objectContaining({
+            field: 'name',
+            before: 'Test Age Image kfnk',
+            after: 'Test Age Image Updated',
+          }),
+        ],
+      }),
+    ]);
   });
 });

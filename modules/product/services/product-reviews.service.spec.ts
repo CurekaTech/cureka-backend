@@ -87,6 +87,8 @@ function createService(options?: {
     productsRepository: {
       findPublishedBySlug: jest.fn(async () => ({ id: 'p1', refId: 'PR1', name: 'Serum' })),
       findPublishedByVariantSlug: jest.fn(async () => null),
+      findBySlugAnyStatus: jest.fn(async () => ({ id: 'p1', refId: 'PR1', name: 'Serum' })),
+      findByVariantSlugAnyStatus: jest.fn(async () => null),
     },
     variantsRepository: {
       findById: jest.fn(async (id: string) => options?.variantsById?.[id] ?? null),
@@ -506,6 +508,35 @@ describe('user-variant unique migration', () => {
     expect(source).toContain('"deleted_at" IS NULL');
     expect(source).toContain('PARTITION BY user_id, variant_id');
     expect(source).toContain('ranked.rn > 1');
+  });
+
+  it('lets an eligible customer review a product that is no longer published', async () => {
+    const { service, reviewsRepository } = createService({ ordered: true });
+    const productsRepository = (
+      service as unknown as {
+        productsRepository: {
+          findPublishedBySlug: jest.Mock;
+          findBySlugAnyStatus: jest.Mock;
+        };
+      }
+    ).productsRepository;
+    productsRepository.findPublishedBySlug.mockResolvedValue(null);
+    productsRepository.findBySlugAnyStatus.mockResolvedValue({
+      id: 'p1',
+      refId: 'PR1',
+      name: 'Serum',
+    });
+
+    await service.createForProductSlug(
+      'serum',
+      {
+        rating: 5,
+        review: 'Still great after it went unpublished',
+        reviewDescription: 'Delivered order, product later unpublished',
+      },
+      shopper,
+    );
+    expect(reviewsRepository.create).toHaveBeenCalled();
   });
 });
 

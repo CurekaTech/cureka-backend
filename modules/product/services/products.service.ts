@@ -1370,10 +1370,16 @@ export class ProductsService {
     }
 
     this.validateForSubmission(updated);
-    await this.productsRepository.updateByRefId(refId, {
-      status: ProductStatus.PENDING_REVIEW,
-      rejectionReason: null,
-      updatedBy,
+    await this.dataSource.transaction(async (manager) => {
+      await this.productsRepository.updateByRefId(
+        refId,
+        {
+          status: ProductStatus.PENDING_REVIEW,
+          rejectionReason: null,
+          updatedBy,
+        },
+        manager,
+      );
     });
     updated.status = ProductStatus.PENDING_REVIEW;
     updated.rejectionReason = null;

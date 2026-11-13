@@ -152,6 +152,7 @@ import { MasterDeletionGuardService } from './services/master-deletion-guard.ser
 // ── Audit service ────────────────────────────────────────────────────────────
 import { AuditService } from './services/audit.service';
 import { AuditOutboxWorkerService } from './services/audit-outbox-worker.service';
+import { AuditPgCaptureService } from './services/audit-pg-capture.service';
 
 // ── Blog services ────────────────────────────────────────────────────────────
 import { BlogCategoriesService } from './services/blog-categories.service';
@@ -402,6 +403,7 @@ import { SubscriptionFrequencyCacheListener } from './listeners/subscription-fre
     AuditLogsRepository,
     AuditService,
     AuditOutboxWorkerService,
+    AuditPgCaptureService,
     // ── Blog ─────────────────────────────────────────────────────────────────
     BlogCategoriesRepository,
     BlogPostsRepository,
