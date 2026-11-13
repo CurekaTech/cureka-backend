@@ -473,6 +473,26 @@ export class SubscriptionMandateService {
     }
   }
 
+  async refreshCashfreeAuthorizationCheckout(params: {
+    mandate: SubscriptionMandateEntity;
+    returnUrl?: string;
+  }): Promise<MandateAuthSession> {
+    const merchantId = resolveCashfreeMerchantSubscriptionId(
+      params.mandate.authorizationOrderId,
+      params.mandate.gatewaySubscriptionId,
+    );
+    if (!merchantId) {
+      throw new BadRequestException({
+        code: SUBSCRIPTION_ERROR.AUTOPAY_UNAVAILABLE,
+        message: 'Cashfree AutoPay checkout cannot be restarted for this subscription',
+      });
+    }
+    return this.cashfree.refreshAuthorizationCheckout({
+      gatewaySubscriptionId: merchantId,
+      returnUrl: params.returnUrl,
+    });
+  }
+
   findByGatewayMandateId(gatewayMandateId: string) {
     return this.mandatesRepository.findByGatewayMandateId(gatewayMandateId);
   }

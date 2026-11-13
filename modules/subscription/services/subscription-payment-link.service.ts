@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { cashfreeHostedCheckoutUrl } from '@modules/payment-requests/utils/cashfree-checkout-url.util';
+import { cashfreeSubscriptionReturnUrl } from '../utils/cashfree-subscription-return-url.util';
 import { CashfreePaymentService } from '@modules/payment-requests/services/cashfree-payment.service';
 import { PaymentGatewayResolverService } from '@modules/payment-requests/services/payment-gateway-resolver.service';
 import { RazorpayPaymentLinksService } from '@modules/payment-requests/services/razorpay-payment-links.service';
@@ -62,6 +63,10 @@ export class SubscriptionPaymentLinkService {
 
   async fetchRazorpayOrderPayments(orderId: string): Promise<Array<Record<string, unknown>>> {
     return this.razorpayService.fetchOrderPayments(orderId);
+  }
+
+  async fetchCashfreeOrder(merchantOrderId: string): Promise<Record<string, unknown>> {
+    return this.cashfreeService.getOrder(merchantOrderId);
   }
 
   async createPaymentLink(
@@ -137,6 +142,10 @@ export class SubscriptionPaymentLinkService {
     currency: string,
   ): Promise<CreateSubscriptionPaymentLinkResult> {
     const returnUrl =
+      cashfreeSubscriptionReturnUrl(
+        this.configService.get<string>('STOREFRONT_URL'),
+        input.notes['subscriptionId'],
+      ) ||
       this.configService.get<string>('CASHFREE_RETURN_URL')?.trim() ||
       this.buildStorefrontReturnUrl() ||
       this.configService.get<string>('RAZORPAY_CALLBACK_URL')?.trim() ||

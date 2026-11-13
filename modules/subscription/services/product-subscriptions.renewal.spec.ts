@@ -45,7 +45,7 @@ describe('Product subscription Razorpay UPI renewal', () => {
     listStatusBySubscriptionIds: jest.fn(async () => []),
     findByGatewayOrderId: jest.fn(),
   };
-  const paymentLinkService = { createPaymentLink: jest.fn() };
+  const paymentLinkService = { createPaymentLink: jest.fn(), fetchCashfreeOrder: jest.fn() };
   const billingCycleService = {
     findBySubscriptionId: jest.fn(),
     findById: jest.fn(),
@@ -90,6 +90,7 @@ describe('Product subscription Razorpay UPI renewal', () => {
     chargeCardProduct: jest.fn(),
     findByGatewayMandateId: jest.fn(),
     recordedFirstChargePaymentId: jest.fn(async (): Promise<string | null> => null),
+    refreshCashfreeAuthorizationCheckout: jest.fn(),
     markCardDebitSubmitted: jest.fn(),
     claimCardEmptyListDebit: jest.fn().mockResolvedValue(true),
     revokeForSubscription: jest.fn(),
@@ -1911,6 +1912,111 @@ describe('Product subscription Razorpay UPI renewal', () => {
 
     expect(paymentLinkService.createPaymentLink).toHaveBeenCalledTimes(1);
     expect(ordersService.createOrderFromSubscription).not.toHaveBeenCalled();
+  });
+
+  it('restarts Cashfree AutoPay AUTH checkout on retry instead of a one-time payment order', async () => {
+    subscriptionsRepository.findByIdAndUserId.mockResolvedValue(
+      subscription({
+        status: ProductSubscriptionStatus.PENDING_PAYMENT,
+        paymentGateway: 'CASHFREE',
+        autopayReady: false,
+      }),
+    );
+    paymentsService.findBySubscriptionId.mockResolvedValue([
+      {
+        id: 'pay-first',
+        status: SubscriptionPaymentStatus.LINK_GENERATED,
+        attemptKind: SubscriptionPaymentAttemptKind.FIRST_ORDER,
+        amount: '3.00',
+        gatewayOrderId: 'sub_sub-1',
+        paymentLink: 'https://cureka.techbv.in/api/v1/payments/cashfree/hosted-checkout?subscription_session_id=old',
+      },
+    ]);
+    mandateService.getForSubscription.mockResolvedValue({
+      provider: SubscriptionMandateProvider.CASHFREE,
+      status: 'PENDING',
+      authorizationOrderId: 'sub_sub-1',
+      gatewaySubscriptionId: 'sub_sub-1',
+    });
+    mandateService.refreshCashfreeAuthorizationCheckout.mockResolvedValue({
+      authorizationOrderId: 'sub_sub-1',
+      authorizationLink:
+        'https://cureka.techbv.in/api/v1/payments/cashfree/hosted-checkout?subscription_session_id=new_session',
+      paymentSessionId: 'new_session',
+      currency: 'INR',
+      checkoutPayload: { environment: 'production', subscriptionCheckout: true },
+    });
+    nestConfig.get.mockImplementation((key: string) => {
+      if (key === 'STOREFRONT_URL') return 'https://cureka.techbv.in';
+      if (key === 'RAZORPAY_KEY_ID') return 'rzp_live_example';
+      return undefined;
+    });
+
+    const result = await service.retryPayment('user-1', 'sub-1');
+
+    expect(paymentLinkService.createPaymentLink).not.toHaveBeenCalled();
+    expect(mandateService.refreshCashfreeAuthorizationCheckout).toHaveBeenCalled();
+    expect(paymentsService.attachPaymentLink).toHaveBeenCalledWith(
+      'pay-first',
+      expect.objectContaining({
+        paymentLink: expect.stringContaining('subscription_session_id=new_session'),
+        gatewayOrderId: 'sub_sub-1',
+      }),
+    );
+    expect(result.subscriptionCheckout).toBe(true);
+  });
+
+  it('marks the first order paid from a Cashfree one-time PG capture after a retry', async () => {
+    const cashfreeFetch = jest.fn().mockResolvedValue({ state: 'unknown' });
+    mandateService.adapter.mockImplementation((provider: SubscriptionMandateProvider) =>
+      provider === SubscriptionMandateProvider.CASHFREE
+        ? { isConfigured: () => true, fetchChargeStatus: cashfreeFetch, charge, submitRecurringDebit, listOrderCharge }
+        : { isConfigured: () => true, charge, submitRecurringDebit, fetchChargeStatus, listOrderCharge },
+    );
+    const firstPayment = {
+      id: 'pay-first',
+      status: SubscriptionPaymentStatus.LINK_GENERATED as string,
+      amount: '3.00',
+      currency: 'INR',
+      attemptKind: SubscriptionPaymentAttemptKind.FIRST_ORDER,
+      subscriptionId: 'sub-1',
+      userId: 'user-1',
+      billingCycleRef: '2026-11-13T1220Z',
+      paymentGateway: 'CASHFREE',
+      gatewayOrderId: 'spay-first-R1',
+    };
+    subscriptionsRepository.findByIdAndUserId.mockResolvedValue(
+      subscription({ status: ProductSubscriptionStatus.PENDING_PAYMENT, paymentGateway: 'CASHFREE' }),
+    );
+    mandateService.getForSubscription.mockResolvedValue({
+      provider: SubscriptionMandateProvider.CASHFREE,
+      authorizationOrderId: 'sub_sub-1',
+      gatewaySubscriptionId: 'sub_sub-1',
+    });
+    paymentsService.findBySubscriptionId.mockResolvedValue([firstPayment]);
+    paymentsService.findById.mockImplementation(async (id: string) =>
+      id === 'pay-first' ? firstPayment : null,
+    );
+    paymentLinkService.fetchCashfreeOrder.mockResolvedValue({
+      order_status: 'PAID',
+      order_amount: 3,
+      cf_payment_id: '1343965781',
+    });
+    paymentsService.markPaidIdempotent.mockImplementation(async () => {
+      firstPayment.status = SubscriptionPaymentStatus.PAID;
+      return { payment: firstPayment, newlyPaid: true };
+    });
+    subscriptionsRepository.findById.mockResolvedValue(
+      subscription({ status: ProductSubscriptionStatus.PENDING_PAYMENT }),
+    );
+    billingCycleService.findBySubscriptionId.mockResolvedValue([]);
+    billingCycleService.getOrCreate.mockResolvedValue({
+      id: 'cycle-1',
+      status: SubscriptionBillingCycleStatus.SCHEDULED,
+    });
+
+    await expect(service.syncRazorpayPayment('user-1', 'sub-1')).resolves.toEqual({ paid: true });
+    expect(ordersService.createOrderFromSubscription).toHaveBeenCalled();
   });
 
   it('does not create a retry link while the product charge is unknown, then one capture creates one order', async () => {

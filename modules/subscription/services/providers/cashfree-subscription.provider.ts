@@ -115,6 +115,74 @@ export class CashfreeSubscriptionProvider implements ISubscriptionMandateProvide
     };
   }
 
+  /**
+   * After a declined AUTH the original subscription_session_id is dead.
+   * Ask Cashfree for a new AutoPay checkout session on the same `sub_…`.
+   */
+  async refreshAuthorizationCheckout(params: {
+    gatewaySubscriptionId: string;
+    returnUrl?: string;
+  }): Promise<MandateAuthSession> {
+    this.assertConfigured();
+    const merchantId = this.requireMerchantSubscriptionId(
+      params.gatewaySubscriptionId,
+      'refreshAuthorizationCheckout',
+    );
+    if (!merchantId) {
+      throw new BadRequestException(
+        'Cashfree AutoPay checkout cannot be restarted without a merchant subscription_id',
+      );
+    }
+    let details: Record<string, unknown> = {};
+    try {
+      details = await this.request(
+        'POST',
+        `/subscriptions/${encodeURIComponent(merchantId)}/session`,
+        params.returnUrl ? { subscription_meta: { return_url: params.returnUrl } } : undefined,
+      );
+    } catch (error) {
+      this.logger.warn(
+        {
+          merchantSubscriptionId: merchantId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Cashfree POST /subscriptions/{id}/session failed; fetching the subscription for a session id',
+      );
+      details = await this.request('GET', `/subscriptions/${encodeURIComponent(merchantId)}`);
+    }
+    const sessionId = String(details['subscription_session_id'] ?? '');
+    if (!sessionId) {
+      throw new BadRequestException(
+        'Cashfree did not return an AutoPay checkout session. Retry from Subscribe, not a one-time payment link.',
+      );
+    }
+    const env = (this.configService.get<string>('CASHFREE_ENV') ?? 'sandbox').toLowerCase();
+    const environment = env === 'production' ? 'production' : 'sandbox';
+    const cfId = String(details['cf_subscription_id'] ?? '') || null;
+    return {
+      provider: this.provider,
+      authorizationOrderId: merchantId,
+      gatewaySubscriptionId: merchantId,
+      gatewayMandateId: cfId,
+      currency: 'INR',
+      paymentSessionId: sessionId,
+      authorizationLink: cashfreeSubscriptionHostedCheckoutUrl(
+        sessionId,
+        environment,
+        this.configService.get<string>('API_PUBLIC_URL') ||
+          this.configService.get<string>('STOREFRONT_URL'),
+      ),
+      checkoutPayload: {
+        subscription_session_id: sessionId,
+        paymentSessionId: sessionId,
+        subscription_id: merchantId,
+        cf_subscription_id: cfId,
+        environment,
+        subscriptionCheckout: true,
+      },
+    };
+  }
+
   async fetchMandateStatus(params: {
     gatewaySubscriptionId?: string | null;
   }): Promise<MandateStatusSnapshot> {

@@ -93,6 +93,7 @@ import {
 } from '../utils/subscription-cycle-guard.util';
 import { assertProductFrequenciesAllowed, isSubscriptionTestTenuresEnabled, TEST_PRODUCT_FREQUENCIES } from '../utils/subscription-test-tenures.util';
 import { razorpayUpiDebitAt, UPI_DEBIT_ABSENT_RETRY_MS } from '../utils/razorpay-upi-debit.util';
+import { isMandateAutopayReady } from '../utils/subscription-mandate-status.util';
 import { resolveSubscriptionPaymentPhase } from '../utils/subscription-payment-phase.util';
 import { IUserProductSubscription } from '../interfaces/product-subscription.interface';
 import { MembershipBenefitsApplicationService } from './membership-benefits-application.service';
@@ -374,6 +375,18 @@ export class ProductSubscriptionsService {
       throw error;
     }
     const session = firstChargeMandate?.session;
+    const wantsAutopay = this.mandateService.willRegisterMandateOnFirstCharge({
+      amount: pricing.finalAmount,
+      productMandateMaxAmount: configEntity.mandateMaxAmount,
+    });
+    if (wantsAutopay && !session) {
+      await this.abandonUnpaid(userId, subscription.id);
+      throw new BadRequestException({
+        code: SUBSCRIPTION_ERROR.AUTOPAY_UNAVAILABLE,
+        message:
+          'AutoPay checkout could not be started. This subscription was not charged and was not kept as a one-time payment.',
+      });
+    }
     const isCashfree = session?.provider === 'CASHFREE';
     const checkoutEnvironment: 'sandbox' | 'production' | undefined =
       session?.checkoutPayload.environment === 'sandbox'
@@ -874,6 +887,13 @@ export class ProductSubscriptionsService {
       return this.getMine(userId, sub.id);
     }
     const mandate = await this.mandateService.getForSubscription(sub.id);
+    if (
+      mandate?.provider === SubscriptionMandateProvider.CASHFREE &&
+      !isMandateAutopayReady(mandate.status) &&
+      sub.status === ProductSubscriptionStatus.PENDING_PAYMENT
+    ) {
+      return this.retryCashfreeAuthorizationCheckout(userId, sub, mandate, fresh);
+    }
     const existing = fresh.find(
       (payment) =>
         payment.status === SubscriptionPaymentStatus.LINK_GENERATED &&
@@ -966,6 +986,50 @@ export class ProductSubscriptionsService {
     return this.mapOwned(sub, checkoutExtrasFromLink(link));
   }
 
+  private async retryCashfreeAuthorizationCheckout(
+    userId: string,
+    sub: UserProductSubscriptionEntity,
+    mandate: SubscriptionMandateEntity,
+    payments: Array<{
+      id: string;
+      status: string;
+      attemptKind?: string | null;
+      gatewayOrderId?: string | null;
+    }>,
+  ) {
+    const first =
+      payments.find((row) => row.attemptKind === SubscriptionPaymentAttemptKind.FIRST_ORDER) ??
+      [...payments].reverse().find((row) => row.status !== SubscriptionPaymentStatus.PAID);
+    const session = await this.mandateService.refreshCashfreeAuthorizationCheckout({
+      mandate,
+      returnUrl: cashfreeSubscriptionReturnUrl(
+        this.nestConfig.get<string>('STOREFRONT_URL'),
+        sub.id,
+      ),
+    });
+    const merchantId =
+      resolveCashfreeMerchantSubscriptionId(
+        mandate.authorizationOrderId,
+        mandate.gatewaySubscriptionId,
+      ) ?? session.authorizationOrderId;
+    if (first && session.authorizationLink) {
+      await this.paymentsService.attachPaymentLink(first.id, {
+        paymentLink: session.authorizationLink,
+        gatewayOrderId: merchantId,
+        paymentGateway: 'CASHFREE',
+        actor: userId,
+      });
+    }
+    return this.mapOwned(sub, {
+      paymentLink: session.authorizationLink ?? null,
+      paymentSessionId: session.paymentSessionId ?? null,
+      razorpayOrderId: null,
+      subscriptionCheckout: true,
+      environment: session.checkoutPayload.environment as 'sandbox' | 'production' | undefined,
+      currency: session.currency,
+    });
+  }
+
   async verifyRazorpayPayment(
     userId: string,
     subscriptionId: string,
@@ -1027,7 +1091,9 @@ export class ProductSubscriptionsService {
         ),
         actor: userId,
       });
-      return { paid: settled };
+      if (settled) return { paid: true };
+      const oneTimePaid = await this.settleCashfreeOneTimeOrder(pending, userId);
+      return { paid: oneTimePaid };
     }
     await this.settleReconcilingPayments(subscriptionId);
     const payments = await this.paymentsService.findBySubscriptionId(subscriptionId);
@@ -1937,6 +2003,56 @@ export class ProductSubscriptionsService {
     const expected = Number(payment.amount);
     const actual = Number(snapshot.amount);
     return Number.isFinite(expected) && Number.isFinite(actual) && Math.abs(expected - actual) < 0.009;
+  }
+
+  /**
+   * Retry / pay-early can open a one-time Cashfree PG order. That capture is not
+   * on GET /subscriptions/{id}/payments, so AUTH settlement misses it.
+   */
+  private async settleCashfreeOneTimeOrder(
+    payment: {
+      id: string;
+      amount?: string | null;
+      currency?: string | null;
+      gatewayOrderId?: string | null;
+      attemptKind?: string | null;
+    },
+    actor: string,
+  ): Promise<boolean> {
+    const orderId = payment.gatewayOrderId?.trim() ?? '';
+    if (!orderId || orderId.startsWith('sub_') || /^\d+$/.test(orderId)) return false;
+    if (!this.paymentLinkService.fetchCashfreeOrder) return false;
+    let order: Record<string, unknown>;
+    try {
+      order = await this.paymentLinkService.fetchCashfreeOrder(orderId);
+    } catch (error) {
+      this.logger.warn(
+        {
+          paymentId: payment.id,
+          gatewayOrderId: orderId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Cashfree one-time order could not be read for subscription settlement',
+      );
+      return false;
+    }
+    if (!order || typeof order !== 'object') return false;
+    const status = String(order['order_status'] ?? '').toUpperCase();
+    if (!['PAID', 'ACTIVE'].includes(status)) return false;
+    const actual = Number(order['order_amount']);
+    const expected = Number(payment.amount);
+    if (!Number.isFinite(actual) || !Number.isFinite(expected) || Math.abs(expected - actual) >= 0.009) {
+      return false;
+    }
+    const cfPaymentId = order['cf_payment_id'] ?? order['payment_id'];
+    await this.handlePaymentSuccess({
+      paymentId: payment.id,
+      gatewayOrderId: orderId,
+      gatewayPaymentId: cfPaymentId != null ? String(cfPaymentId) : undefined,
+      actor,
+    });
+    const after = await this.paymentsService.findById(payment.id);
+    return after?.status === SubscriptionPaymentStatus.PAID;
   }
 
   private isCashfreeFirstOrderPayment(payment: {
@@ -4291,6 +4407,52 @@ export class ProductSubscriptionsService {
           (row) => row.billingCycleRef === cycle.billingCycleRef,
         );
     if (!this.isEarlyPaymentEligible(cycle, existingPayment)) return null;
+
+    if (sub.status === ProductSubscriptionStatus.PENDING_PAYMENT) {
+      const mandate = await this.mandateService.getForSubscription(sub.id);
+      if (
+        mandate?.provider === SubscriptionMandateProvider.CASHFREE &&
+        !isMandateAutopayReady(mandate.status)
+      ) {
+        const session = await this.mandateService.refreshCashfreeAuthorizationCheckout({
+          mandate,
+          returnUrl: cashfreeSubscriptionReturnUrl(
+            this.nestConfig.get<string>('STOREFRONT_URL'),
+            sub.id,
+          ),
+        });
+        const payment =
+          existingPayment ??
+          (await this.paymentsService.findBySubscriptionId(sub.id)).find(
+            (row) => row.attemptKind === SubscriptionPaymentAttemptKind.FIRST_ORDER,
+          );
+        if (payment && session.authorizationLink) {
+          const merchantId =
+            resolveCashfreeMerchantSubscriptionId(
+              mandate.authorizationOrderId,
+              mandate.gatewaySubscriptionId,
+            ) ?? payment.gatewayOrderId;
+          if (merchantId) {
+            await this.paymentsService.attachPaymentLink(payment.id, {
+              paymentLink: session.authorizationLink,
+              gatewayOrderId: merchantId,
+              paymentGateway: 'CASHFREE',
+              actor,
+            });
+          }
+        }
+        return {
+          paymentLink: session.authorizationLink ?? null,
+          gatewayOrderId: String(session.authorizationOrderId),
+          paymentGateway: 'CASHFREE',
+          currency: session.currency,
+          paymentSessionId: session.paymentSessionId ?? null,
+          environment: session.checkoutPayload.environment as 'sandbox' | 'production' | undefined,
+          subscriptionCheckout: true,
+          customer: { name: '', email: '', contact: '' },
+        };
+      }
+    }
 
     if (
       existingPayment &&

@@ -358,6 +358,24 @@ describe('CashfreeSubscriptionProvider payment status', () => {
     expect(session.gatewayMandateId).toBe('408863225');
   });
 
+  it('opens a new AutoPay checkout session on the same merchant subscription_id', async () => {
+    jest.spyOn(global, 'fetch').mockResolvedValueOnce(
+      jsonResponse({
+        subscription_id: 'sub_1',
+        subscription_session_id: 'sub_session_retry',
+        cf_subscription_id: '408988182',
+      }) as never,
+    );
+
+    const session = await provider.refreshAuthorizationCheckout({
+      gatewaySubscriptionId: 'sub_1',
+      returnUrl: 'https://cureka.example/account/subscriptions/cashfree-return?subscriptionId=1',
+    });
+    expect(session.paymentSessionId).toBe('sub_session_retry');
+    expect(session.checkoutPayload.subscriptionCheckout).toBe(true);
+    expect(session.authorizationLink).toContain('subscription_session_id=sub_session_retry');
+  });
+
   it('fetches mandate status with the merchant subscription_id', async () => {
     const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValueOnce(
       jsonResponse({

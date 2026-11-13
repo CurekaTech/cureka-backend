@@ -11,6 +11,7 @@ describe('SubscriptionPaymentLinkService preferred gateway', () => {
   };
   const cashfreeService = {
     createOrder: jest.fn(),
+    getOrder: jest.fn(),
     getEnv: jest.fn(() => 'sandbox'),
   };
   const configService = {
@@ -61,6 +62,11 @@ describe('SubscriptionPaymentLinkService preferred gateway', () => {
     });
     expect(result.paymentLink).toBe(
       'https://cureka.techbv.in/api/v1/payments/cashfree/hosted-checkout?payment_session_id=session_cf',
+    );
+    expect(cashfreeService.createOrder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        returnUrl: 'https://cureka.techbv.in/account/subscriptions/cashfree-return?subscriptionId=sub-1',
+      }),
     );
   });
 
