@@ -934,6 +934,11 @@ export class ProductsService {
 
     const effectiveProductType = dto.productType ?? existing.productType;
 
+    const existingAttributeRefIds =
+      existing.attributeMappings
+        ?.map((mapping) => mapping.attribute?.refId)
+        .filter((refId): refId is string => Boolean(refId)) ?? [];
+
     const masters =
       dto.productNatureRefId ||
         dtoHasCategoryHierarchyChanges(dto) ||
@@ -977,6 +982,11 @@ export class ProductsService {
                   : undefined,
             brandRefId: dto.brandRefId ?? existing.brand?.refId ?? '',
             name: dto.name ?? existing.name,
+            // Sparse bulk updates omit unchanged attributes — reuse existing mappings.
+            attributeRefIds:
+              dto.attributeRefIds !== undefined
+                ? dto.attributeRefIds
+                : existingAttributeRefIds,
           } as CreateProductDto)
         : null;
 
@@ -1054,7 +1064,10 @@ export class ProductsService {
             healthConcernRefIds: dto.healthConcernRefIds,
             wellnessGoalRefIds: dto.wellnessGoalRefIds,
             faqRefIds: dto.faqRefIds,
-            attributeRefIds: dto.attributeRefIds,
+            attributeRefIds:
+              dto.attributeRefIds !== undefined
+                ? dto.attributeRefIds
+                : existingAttributeRefIds,
           } as CreateProductDto))
         : null;
 

@@ -121,7 +121,14 @@ export class ProductMasterResolverService {
       rootCategoryIds,
     );
 
-    if (dto.productType === ProductType.VARIABLE && !attributeResolution.attributeIds.length) {
+    // Empty/missing attributes are only invalid when the caller explicitly sent
+    // attributeRefIds (including []). Omitting the field (undefined) means
+    // "preserve existing" on update / sparse bulk patches.
+    if (
+      dto.productType === ProductType.VARIABLE &&
+      dto.attributeRefIds !== undefined &&
+      !attributeResolution.attributeIds.length
+    ) {
       throw new BadRequestException('attributeRefIds are required for variable products');
     }
 
