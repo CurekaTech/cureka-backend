@@ -6,6 +6,10 @@ import { ProductType } from '../enums/product-type.enum';
 import { ProductStatus } from '../enums/product-status.enum';
 import { buildCategoryFilterColumnHeader } from './bulk-upload-columns.util';
 import { normalizeSkuMatchKey } from './sku-match.util';
+import {
+  resolveExportedProductPageUrl,
+  resolveExportedSingleProductUrl,
+} from './bulk-upload-url.util';
 import { IProductInformationItem } from '../interfaces/product-information.interface';
 import { IProductPackMetadataItem } from '../interfaces/product-pack-metadata.interface';
 
@@ -158,9 +162,18 @@ const applyVariantGallery = (
   );
   const images = owned.filter((item) => !isVideoMedia(item));
   const video = owned.find((item) => isVideoMedia(item));
+  const sharedFallback = sortExportMedia(
+    (product.media ?? []).filter(
+      (item) =>
+        !isVideoMedia(item) &&
+        isGalleryMedia(item) &&
+        (item.type === ProductMediaType.COMMON || !item.variantId),
+    ),
+  );
+  const primary = images[0] ?? sharedFallback[0];
 
-  if (images[0]) {
-    writeMediaSlot(values, 'Primary Image Filename', 'Primary Image URL', images[0], toExportMediaUrl);
+  if (primary) {
+    writeMediaSlot(values, 'Primary Image Filename', 'Primary Image URL', primary, toExportMediaUrl);
   }
   images.slice(1, 6).forEach((item, index) => {
     const slot = index + 2;
@@ -264,6 +277,7 @@ const applyCategoryFilters = (
 
 const applyVariantFields = (
   values: ExportRowValues,
+  product: ProductEntity,
   variant: ProductVariantEntity,
   attributeNames: string[],
 ): void => {
@@ -276,7 +290,8 @@ const applyVariantFields = (
   if (variant.hsnCode) values.set('HSN Code', variant.hsnCode);
   if (variant.batchNumber) values.set('Batch Number', variant.batchNumber);
   if (variant.expiryDate) values.set('Expiry Date', variant.expiryDate);
-  if (variant.productPageUrl) values.set('Product Page URL', variant.productPageUrl);
+  const productPageUrl = resolveExportedProductPageUrl(product, variant);
+  if (productPageUrl) values.set('Product Page URL', productPageUrl);
   if (variant.taxClass) values.set('Tax Class', variant.taxClass);
 
   const mrp = toNumber(variant.mrp);
@@ -366,7 +381,6 @@ const buildSharedProductValues = (
   if (product.externalProductId) {
     values.set('Product ID (String)', product.externalProductId);
   }
-  if (product.singleProductUrl) values.set('Single Product URL', product.singleProductUrl);
 
   applyPackMetadata(values, product.packMetadata ?? []);
   if (product.manufacturerAddress) values.set('Manufacturer Address', product.manufacturerAddress);
@@ -468,7 +482,9 @@ const mapSimpleProductRows = (
   if (!variant) return [];
 
   const values = buildSharedProductValues(product, headerSet, toExportMediaUrl);
-  applyVariantFields(values, variant, getAttributeNames(product));
+  applyVariantFields(values, product, variant, getAttributeNames(product));
+  const singleProductUrl = resolveExportedSingleProductUrl(product, variant);
+  if (singleProductUrl) values.set('Single Product URL', singleProductUrl);
   applyVariantGallery(values, product, variant, toExportMediaUrl);
 
   return [buildRowFromValues(headers, values)];
@@ -498,7 +514,9 @@ const mapVariableProductRows = (
       values.set('Product Name*', variant.displayName);
     }
 
-    applyVariantFields(values, variant, attributeNames);
+    applyVariantFields(values, product, variant, attributeNames);
+    const singleProductUrl = resolveExportedSingleProductUrl(product, variant);
+    if (singleProductUrl) values.set('Single Product URL', singleProductUrl);
     applyVariantGallery(values, product, variant, toExportMediaUrl);
 
     return buildRowFromValues(headers, values);
@@ -536,7 +554,9 @@ const mapBundleProductRows = (
     parentValues.set('Bundle Selling Price (Rs)', parentSellingPrice);
   }
 
-  applyVariantFields(parentValues, parentVariant, []);
+  applyVariantFields(parentValues, product, parentVariant, []);
+  const singleProductUrl = resolveExportedSingleProductUrl(product, parentVariant);
+  if (singleProductUrl) parentValues.set('Single Product URL', singleProductUrl);
   applyVariantGallery(parentValues, product, parentVariant, exportContext?.toExportMediaUrl);
 
   const rows: ExportCellValue[][] = [buildRowFromValues(headers, parentValues)];

@@ -55,6 +55,8 @@ export interface IParsedVariant {
   sku: string;
   /** Optional variant slug from Product URL Slug. */
   productUrlSlug?: string;
+  /** Live PDP URL from Product Page URL (column U). */
+  productPageUrl?: string;
   /** Per-row Product ID (String) for variant attach / persistence. */
   externalProductId?: string;
   displayName?: string;
@@ -835,6 +837,8 @@ export class BulkUploadParserService {
         sku: productSkuCode,
         productUrlSlug:
           this.getFirstAvailable(getVal, ['product url slug', 'product_url_slug']) || undefined,
+        productPageUrl:
+          this.getFirstAvailable(getVal, ['product page url', 'product_page_url']) || undefined,
         externalProductId: rowExternalProductId,
         barcode: getVal('barcode (ean/upc)') || undefined,
         gtinNumber:
@@ -1375,6 +1379,7 @@ export class BulkUploadParserService {
     | 'rowNumber'
     | 'sku'
     | 'productUrlSlug'
+    | 'productPageUrl'
     | 'externalProductId'
     | 'barcode'
     | 'gtinNumber'

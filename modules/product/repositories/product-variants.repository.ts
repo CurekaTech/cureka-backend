@@ -25,6 +25,7 @@ import {
   validateUniqueVariantCombinations,
 } from '../validators/variant.validator';
 import { ProductsRepository } from './products.repository';
+import { normalizeSkuMatchKey } from '../utils/sku-match.util';
 
 const matchesStockScope = (
   actual: ProductType | undefined,
@@ -532,14 +533,16 @@ export class ProductVariantsRepository {
 
     const variantRepo = manager.getRepository(ProductVariantEntity);
     const existing = await variantRepo.find({ where: { productId } });
-    const existingBySku = new Map(existing.map((variant) => [variant.sku, variant]));
-    const payloadSkus = new Set(variants.map((variant) => variant.sku));
+    const existingBySku = new Map(
+      existing.map((variant) => [normalizeSkuMatchKey(variant.sku), variant]),
+    );
+    const payloadSkus = new Set(variants.map((variant) => normalizeSkuMatchKey(variant.sku)));
     const oosTransitions: VariantOosTransition[] = [];
 
     // Remove variants dropped from the payload first so their combination keys
     // do not block new/updated variants (partial unique index ignores soft-deleted rows).
     for (const variant of existing) {
-      if (!payloadSkus.has(variant.sku)) {
+      if (!payloadSkus.has(normalizeSkuMatchKey(variant.sku))) {
         const mediaRepo = manager.getRepository(ProductMediaEntity);
         if (productType === ProductType.VARIABLE) {
           // simple→variable (and pack SKU renames): keep galleries by detaching from the
@@ -561,7 +564,7 @@ export class ProductVariantsRepository {
     // Clear combination keys on variants being updated so attribute swaps (e.g. L↔M)
     // do not hit UQ_product_variants_combination mid-sync.
     const variantIdsToUpdate = variants
-      .map((dto) => existingBySku.get(dto.sku)?.id)
+      .map((dto) => existingBySku.get(normalizeSkuMatchKey(dto.sku))?.id)
       .filter((id): id is string => Boolean(id));
 
     if (variantIdsToUpdate.length) {
@@ -574,7 +577,7 @@ export class ProductVariantsRepository {
     }
 
     for (const dto of variants) {
-      const matched = existingBySku.get(dto.sku);
+      const matched = existingBySku.get(normalizeSkuMatchKey(dto.sku));
       if (matched) {
         const transition = await this.updateVariant(
           manager,
