@@ -403,6 +403,14 @@ export const MENU_HIERARCHY: MenuItem[] = [
         requiredPermissions: ['product_reviews.read'],
         permission: { module: 'product_reviews', actions: ['read', 'status', 'delete'] },
       },
+      {
+        name: 'Website Experience Reviews',
+        key: 'website-experience-reviews',
+        icon: 'Star',
+        href: '/website-experience-reviews',
+        requiredPermissions: ['website_experience_reviews.read'],
+        permission: { module: 'website_experience_reviews', actions: ['read'] },
+      },
       // {
       //   name: 'Return Policies',
       //   key: 'products-return-policies',

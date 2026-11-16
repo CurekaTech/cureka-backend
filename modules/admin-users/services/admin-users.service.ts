@@ -31,8 +31,11 @@ import { IUser } from '@modules/users/interfaces/user.interface';
 import { mapUserEntityToResponse } from '@modules/users/mappers/user.mapper';
 import { DataSource, QueryFailedError } from 'typeorm';
 import { AuditService } from '@modules/master/services/audit.service';
+import { AuditEntityType } from '@modules/master/constants/audit-entity-type.constant';
 import { getAuditActor } from '@modules/master/utils/audit-actor.context';
 import { auditIdempotency } from '@modules/master/utils/audit-idempotency.util';
+import { diffAuditFields } from '@modules/master/utils/audit-diff.util';
+import { AdminUserEntity } from '../entities/admin-user.entity';
 
 @Injectable()
 export class AdminUsersService {
@@ -83,16 +86,22 @@ export class AdminUsersService {
     }
 
     try {
-      const entity = await this.adminUsersRepository.create({
-        ...createData,
-        role: targetRole,
-        roleId: roleRecord?.id,
-        password: hashedPassword,
-        refId: await generateUniqueRefId(dto.fullName, (refId) =>
-          this.adminUsersRepository.existsByRefId(refId),
-        ),
-        createdBy,
+      const entity = await this.dataSource.transaction(async (manager) => {
+        return this.adminUsersRepository.create(
+          {
+            ...createData,
+            role: targetRole,
+            roleId: roleRecord?.id,
+            password: hashedPassword,
+            refId: await generateUniqueRefId(dto.fullName, (refId) =>
+              this.adminUsersRepository.existsByRefId(refId),
+            ),
+            createdBy,
+          },
+          manager,
+        );
       });
+      await this.recordAdminUserWrite(entity, 'created', createdBy, {}, this.adminUserSnapshot(entity));
       return mapAdminUserEntityToResponse(entity);
     } catch (error) {
       if (this.isEmailUniqueViolation(error)) {
@@ -222,6 +231,13 @@ export class AdminUsersService {
       throw new NotFoundException(`Admin user with refId ${refId} not found after update`);
     }
 
+    await this.recordAdminUserWrite(
+      updated,
+      'updated',
+      getAuditActor()?.performedBy,
+      this.adminUserSnapshot(existing),
+      this.adminUserSnapshot(updated),
+    );
     return mapAdminUserEntityToResponse(updated);
   }
 
@@ -285,7 +301,16 @@ export class AdminUsersService {
     if (!existing) {
       throw new NotFoundException(`Admin user with refId ${refId} not found`);
     }
-    await this.adminUsersRepository.softDeleteByRefId(refId);
+    await this.dataSource.transaction(async (manager) => {
+      await this.adminUsersRepository.softDeleteByRefId(refId, manager);
+    });
+    await this.recordAdminUserWrite(
+      existing,
+      'deleted',
+      getAuditActor()?.performedBy,
+      this.adminUserSnapshot(existing),
+      {},
+    );
   }
 
   /** Used by auth module — never expose password via public API responses. */
@@ -348,10 +373,20 @@ export class AdminUsersService {
     data: Parameters<AdminUsersRepository['restoreAndUpdate']>[1],
   ) {
     try {
-      const restored = await this.adminUsersRepository.restoreAndUpdate(id, data);
-      if (!restored) {
-        throw new NotFoundException('Admin user could not be restored');
-      }
+      const restored = await this.dataSource.transaction(async (manager) => {
+        const saved = await this.adminUsersRepository.restoreAndUpdate(id, data, manager);
+        if (!saved) {
+          throw new NotFoundException('Admin user could not be restored');
+        }
+        return saved;
+      });
+      await this.recordAdminUserWrite(
+        restored,
+        'created',
+        data.updatedBy,
+        {},
+        this.adminUserSnapshot(restored),
+      );
       return restored;
     } catch (error) {
       if (this.isEmailUniqueViolation(error)) {
@@ -359,6 +394,53 @@ export class AdminUsersService {
       }
       throw error;
     }
+  }
+
+  private adminUserSnapshot(user: {
+    fullName: string;
+    email: string;
+    phone?: string | null;
+    role: string;
+    roleId?: string | null;
+    isActive: boolean;
+  }): Record<string, unknown> {
+    return {
+      fullName: user.fullName,
+      email: user.email,
+      phone: user.phone ?? null,
+      role: user.role,
+      roleId: user.roleId ?? null,
+      isActive: user.isActive,
+    };
+  }
+
+  private recordAdminUserWrite(
+    entity: Pick<AdminUserEntity, 'id' | 'refId' | 'fullName' | 'email' | 'role' | 'isActive'>,
+    action: 'created' | 'updated' | 'deleted',
+    performedBy: string | undefined,
+    before: Record<string, unknown>,
+    after: Record<string, unknown>,
+  ): Promise<void> {
+    return this.auditService.recordWrite({
+      entityType: AuditEntityType.ADMIN_USER,
+      entityId: entity.id,
+      entityRefId: entity.refId,
+      action,
+      performedBy,
+      name: entity.fullName,
+      details: {
+        email: entity.email,
+        role: entity.role,
+        isActive: entity.isActive,
+      },
+      databaseChanges: diffAuditFields({
+        table: 'admin_users',
+        recordId: entity.id,
+        before,
+        after,
+        changeType: action,
+      }),
+    });
   }
 
   private isEmailUniqueViolation(error: unknown): boolean {

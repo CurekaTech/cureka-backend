@@ -24,12 +24,22 @@ describe('AdminUsersService.create', () => {
     findByRefId: jest.fn(),
   };
 
+  const dataSource = {
+    transaction: jest.fn(async (callback: (manager: unknown) => Promise<unknown>) =>
+      callback({}),
+    ),
+  };
+  const auditService = {
+    recordWrite: jest.fn().mockResolvedValue(undefined),
+    enqueueCritical: jest.fn().mockResolvedValue(undefined),
+  };
+
   const service = new AdminUsersService(
     adminUsersRepository as never,
     rolesRepository as never,
     {} as never,
-    {} as never,
-    {} as never,
+    dataSource as never,
+    auditService as never,
   );
 
   const dto = {
@@ -48,6 +58,10 @@ describe('AdminUsersService.create', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     rolesRepository.findByRefId.mockResolvedValue(roleRecord);
+    auditService.recordWrite.mockResolvedValue(undefined);
+    dataSource.transaction.mockImplementation(async (callback: (manager: unknown) => Promise<unknown>) =>
+      callback({}),
+    );
   });
 
   it('rejects an active admin with the same email using 409 instead of a database unique error', async () => {
@@ -92,8 +106,16 @@ describe('AdminUsersService.create', () => {
         role: AdminUserRole.ADMIN,
         roleId: 'role-1',
       }),
+      expect.anything(),
     );
     expect(adminUsersRepository.create).not.toHaveBeenCalled();
+    expect(auditService.recordWrite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entityType: 'admin_user',
+        action: 'created',
+        entityRefId: 'OLDREF',
+      }),
+    );
     expect(result.email).toBe('care@cureka.com');
     expect(result.isActive).toBe(true);
   });

@@ -400,6 +400,12 @@ export const ADMIN_PERMISSION_SEEDS: readonly IPermissionSeed[] = [
     action: PermissionAction.DELETE,
   },
   {
+    name: 'View Website Experience Reviews',
+    code: 'website_experience_reviews.read',
+    module: 'website_experience_reviews',
+    action: PermissionAction.READ,
+  },
+  {
     name: 'View Support Tickets',
     code: 'support_tickets.read',
     module: 'support',

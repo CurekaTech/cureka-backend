@@ -20,6 +20,7 @@ export const AuditEntityType = {
   REPORT: 'report',
   PRODUCT_SUBSCRIPTION: 'product_subscription',
   PRODUCT_SUBSCRIPTION_CONFIG: 'product_subscription_config',
+  ADMIN_USER: 'admin_user',
 } as const;
 
 export type AuditEntityTypeValue =

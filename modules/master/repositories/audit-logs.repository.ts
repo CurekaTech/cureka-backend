@@ -16,6 +16,7 @@ const LABEL_TABLES: Record<string, { table: string; expr: string }> = {
   banner: { table: 'banners', expr: 'title' },
   user: { table: 'users', expr: "trim(concat_ws(' ', first_name, last_name))" },
   order: { table: 'orders', expr: 'order_number' },
+  admin_user: { table: 'admin_users', expr: 'full_name' },
 };
 
 function isUuid(value: string | null | undefined): value is string {

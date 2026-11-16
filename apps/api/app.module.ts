@@ -46,6 +46,7 @@ import { CspReportModule } from './csp-report/csp-report.module';
 import { PublicModule } from '@modules/public/public.module';
 import { GoogleMerchantModule } from '@modules/google-merchant/google-merchant.module';
 import { ProductModule } from '@modules/product/product.module';
+import { WebsiteExperienceReviewsModule } from '@modules/website-experience-reviews/website-experience-reviews.module';
 import { UnicommerceModule } from '@modules/unicommerce/unicommerce.module';
 import { OrdersModule } from '@modules/orders/orders.module';
 import { PromotionalOffersModule } from '@modules/promotional-offers/promotional-offers.module';
@@ -141,6 +142,7 @@ import { PromotionalPagesModule } from '@modules/promotional-pages/promotional-p
     ProductModule,
     UnicommerceModule,
     OrdersModule,
+    WebsiteExperienceReviewsModule,
     PromotionalOffersModule,
     RolesModule,
     PaymentRequestsModule,

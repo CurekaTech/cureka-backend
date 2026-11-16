@@ -12,9 +12,13 @@ export class AdminUsersRepository {
     private readonly repo: Repository<AdminUserEntity>,
   ) {}
 
-  async create(data: Partial<AdminUserEntity>): Promise<AdminUserEntity> {
-    const entity = this.repo.create(data);
-    return this.repo.save(entity);
+  async create(
+    data: Partial<AdminUserEntity>,
+    manager?: EntityManager,
+  ): Promise<AdminUserEntity> {
+    const repo = manager ? manager.getRepository(AdminUserEntity) : this.repo;
+    const entity = repo.create(data);
+    return repo.save(entity);
   }
 
   async findById(id: string): Promise<AdminUserEntity | null> {
@@ -51,8 +55,9 @@ export class AdminUsersRepository {
     return this.findByRefId(refId);
   }
 
-  async softDeleteByRefId(refId: string): Promise<void> {
-    await this.repo.softDelete({ refId });
+  async softDeleteByRefId(refId: string, manager?: EntityManager): Promise<void> {
+    const repo = manager ? manager.getRepository(AdminUserEntity) : this.repo;
+    await repo.softDelete({ refId });
   }
 
   async findByEmail(email: string): Promise<AdminUserEntity | null> {
@@ -143,9 +148,17 @@ export class AdminUsersRepository {
   async restoreAndUpdate(
     id: string,
     data: Partial<AdminUserEntity>,
+    manager?: EntityManager,
   ): Promise<AdminUserEntity | null> {
-    await this.repo.restore(id);
-    await this.repo.update(id, data);
+    const repo = manager ? manager.getRepository(AdminUserEntity) : this.repo;
+    await repo.restore(id);
+    await repo.update(id, data);
+    if (manager) {
+      return repo.findOne({
+        where: { id },
+        relations: { roleRecord: { permissions: true } },
+      });
+    }
     return this.findById(id);
   }
 
