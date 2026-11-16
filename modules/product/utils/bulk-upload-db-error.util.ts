@@ -227,6 +227,17 @@ export function mapBulkUploadDbError(
     };
   }
 
+  if (/attributeRefIds are required for variable products/i.test(message)) {
+    return {
+      column: 'Attribute Details 1',
+      invalidValue: (group.attributeDetailNames ?? []).flat().filter(Boolean).join(', '),
+      reason:
+        'Variable products require at least one attribute name and value (Attribute Details N + att_attribute_N_value_1).',
+      suggestedFix:
+        'Fill Attribute Details 1..N with master attribute names and matching att_attribute_N_value_1 cells on each variant row, then retry.',
+    };
+  }
+
   if (
     /product type cannot be changed|converting to a single product|converting a variant product|single products cannot have variant attributes|simple products must have exactly one variant|simple products cannot have variant attributes|variant attribute/i.test(
       message,

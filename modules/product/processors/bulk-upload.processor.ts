@@ -1211,7 +1211,11 @@ export class BulkUploadProcessor extends WorkerHost {
                       : []
                     : attributeRefIds.size > 0
                       ? Array.from(attributeRefIds)
-                      : undefined,
+                      : // Create: empty array triggers "attributes required".
+                        // Update: omit so existing variable attributes are preserved.
+                        existingProductRefId
+                        ? undefined
+                        : [],
                 ...(group.subscriptionEnabled !== undefined
                   ? { subscriptionEnabled: group.subscriptionEnabled }
                   : {}),
@@ -1434,13 +1438,8 @@ export class BulkUploadProcessor extends WorkerHost {
         this.validatorService.getActiveCategoryFilterNames(),
       );
 
-      // 3. Generate and upload Error Report Excel sheet if failures exist
-      let errorFileUrl: string | null = null;
-      if (allErrors.length > 0) {
-        errorFileUrl = await this.generateAndUploadErrorReport(uploadRefId, allErrors);
-      }
-
-      // Determine final status
+      // Determine final status first so the UI leaves the spinner even if
+      // error-report generation / upload is slow.
       let finalStatus = BulkUploadStatus.COMPLETED;
       if (failedSheetRows > 0) {
         finalStatus = successfulSheetRows > 0 ? BulkUploadStatus.PARTIAL_SUCCESS : BulkUploadStatus.FAILED;
@@ -1483,8 +1482,22 @@ export class BulkUploadProcessor extends WorkerHost {
         status: finalStatus,
         completedAt: new Date(),
         errorSummary: allErrors,
-        errorFileUrl,
       });
+
+      // Error report is best-effort after terminal status is persisted.
+      let errorFileUrl: string | null = null;
+      if (allErrors.length > 0) {
+        try {
+          errorFileUrl = await this.generateAndUploadErrorReport(uploadRefId, allErrors);
+          await this.bulkUploadsRepository.updateFieldsByRefId(uploadRefId, {
+            errorFileUrl,
+          });
+        } catch (reportError) {
+          this.logger.error(
+            `Failed to generate/upload error report for ${uploadRefId}: ${this.getErrorMessage(reportError)}`,
+          );
+        }
+      }
 
       this.logger.log(
         `Bulk Upload Phase 10 completed for ${uploadRefId}. Status: ${finalStatus}. Scanned: ${totalRowsScanned} sheet rows. Successful rows: ${successfulSheetRows}. Failed rows: ${failedSheetRows}.`
