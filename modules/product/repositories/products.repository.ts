@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Brackets, In, ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm';
+import { EntityManager, Brackets, In, Not, ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm';
 import { decodeCursor } from '@packages/common';
 import { BrandEntity } from '@modules/master/entities/brand.entity';
 import { ProductEntity } from '../entities/product.entity';
@@ -556,11 +556,53 @@ export class ProductsRepository {
   }
 
   async countForBulkExport(): Promise<number> {
-    return this.repo.count();
+    return this.repo
+      .createQueryBuilder('product')
+      .where('product.deletedAt IS NULL')
+      .andWhere('product.status NOT IN (:...excluded)', {
+        excluded: [ProductStatus.ARCHIVED, ProductStatus.INACTIVE],
+      })
+      .getCount();
+  }
+
+  /**
+   * Largest attribute count among exportable products (mappings preferred).
+   * Used so export headers include enough Attribute Details N / att_attribute_N slots.
+   */
+  async findMaxAttributeCountForBulkExport(): Promise<number> {
+    const rows = await this.repo.manager.query<Array<{ max_count: string | number | null }>>(
+      `
+      SELECT MAX(counts.attr_count) AS max_count
+      FROM (
+        SELECT pam.product_id, COUNT(*)::int AS attr_count
+        FROM product_attribute_mappings pam
+        INNER JOIN products p ON p.id = pam.product_id
+        WHERE p.deleted_at IS NULL
+          AND p.status NOT IN ('archived', 'inactive')
+        GROUP BY pam.product_id
+        UNION ALL
+        SELECT v.product_id, COUNT(DISTINCT a.id)::int AS attr_count
+        FROM product_variants v
+        INNER JOIN products p ON p.id = v.product_id
+        INNER JOIN variant_attribute_values vav ON vav.variant_id = v.id
+        INNER JOIN attributes a ON a.id = vav.attribute_id
+        WHERE v.deleted_at IS NULL
+          AND p.deleted_at IS NULL
+          AND p.status NOT IN ('archived', 'inactive')
+        GROUP BY v.product_id
+      ) counts
+      `,
+    );
+    const raw = rows[0]?.max_count;
+    const parsed = raw == null ? 0 : Number(raw);
+    return Number.isFinite(parsed) ? parsed : 0;
   }
 
   async findForBulkExportBatch(offset: number, limit: number): Promise<ProductEntity[]> {
     const products = await this.repo.find({
+      where: {
+        status: Not(In([ProductStatus.ARCHIVED, ProductStatus.INACTIVE])),
+      },
       relations: {
         productNature: true,
         category: true,

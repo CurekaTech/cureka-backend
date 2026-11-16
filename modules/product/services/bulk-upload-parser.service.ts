@@ -65,11 +65,13 @@ export interface IParsedVariant {
   hsnCode?: string;
   batchNumber?: string;
   expiryDate?: string;
-  mrp: number;
-  sellingPrice: number;
+  /** Blank cell → undefined (preserve on update; required on create via validator). */
+  mrp?: number;
+  sellingPrice?: number;
   discountPercentage?: number;
   taxClass?: string;
-  stock: number;
+  /** Blank cell → undefined (preserve on update; required on create via validator). */
+  stock?: number;
   /** Admin OOS flag from "Out Of Stock" column (Yes/No). Empty cell leaves the stored flag unchanged. */
   outOfStock?: boolean;
   /** Admin inventory flag from "In Cureka Inventory" column (Yes/No). Empty cell leaves the stored flag unchanged. */
@@ -95,13 +97,14 @@ export interface IParsedVariant {
   metaKeywords: string[];
   categoryFilters: { categoryFilterRefId: string; values: string[] }[];
   sizeChart?: string;
-  subscriptionEnabled: boolean;
-  returnAllowed: boolean;
+  /** Blank Yes/No → undefined (preserve on update). */
+  subscriptionEnabled?: boolean;
+  returnAllowed?: boolean;
   returnPolicy?: string;
   returnWindowDays?: number;
-  codAvailable: boolean;
-  emiAvailable: boolean;
-  replaceAllowed: boolean;
+  codAvailable?: boolean;
+  emiAvailable?: boolean;
+  replaceAllowed?: boolean;
   replaceWindowDays?: number;
   manufacturer?: string;
   packer?: string;
@@ -169,13 +172,14 @@ export interface IParsedProductGroup {
   categoryFilters: { categoryFilterRefId: string; values: string[] }[];
   sizeChart?: string;
   faqBanner?: string;
-  subscriptionEnabled: boolean;
-  returnAllowed: boolean;
+  /** Blank Yes/No → undefined (preserve on update). */
+  subscriptionEnabled?: boolean;
+  returnAllowed?: boolean;
   returnPolicy?: string;
   returnWindowDays?: number;
-  codAvailable: boolean;
-  emiAvailable: boolean;
-  replaceAllowed: boolean;
+  codAvailable?: boolean;
+  emiAvailable?: boolean;
+  replaceAllowed?: boolean;
   replaceWindowDays?: number;
   status?: string;
   manufacturer?: string;
@@ -707,15 +711,18 @@ export class BulkUploadParserService {
             getVal('size chart url'),
             this.getFirstAvailable(getVal, ['size chart filename/path', 'size chart']),
           ),
-          subscriptionEnabled: getVal('subscription available').toLowerCase() === 'yes',
-          returnAllowed:
-            getVal('return policy').toLowerCase().includes('return') ||
-            getVal('return window days') !== '',
+          subscriptionEnabled: this.parseOptionalYesNo(getVal('subscription available')),
+          returnAllowed: (() => {
+            const policy = getVal('return policy').trim();
+            const windowDays = getVal('return window days').trim();
+            if (!policy && !windowDays) return undefined;
+            return policy.toLowerCase().includes('return') || windowDays !== '';
+          })(),
           returnPolicy: getVal('return policy') || undefined,
           returnWindowDays: safeParseInt(getVal('return window days')),
-          codAvailable: getVal('cod available').toLowerCase() === 'yes',
-          emiAvailable: getVal('emi available').toLowerCase() === 'yes',
-          replaceAllowed: getVal('replacement allowed').toLowerCase() === 'yes',
+          codAvailable: this.parseOptionalYesNo(getVal('cod available')),
+          emiAvailable: this.parseOptionalYesNo(getVal('emi available')),
+          replaceAllowed: this.parseOptionalYesNo(getVal('replacement allowed')),
           replaceWindowDays: safeParseInt(getVal('replacement window days')),
           status: getVal('product status') || undefined,
           manufacturer:
@@ -801,12 +808,20 @@ export class BulkUploadParserService {
       }
 
       // Vertical variant / simple row → one variant entry
-      const mrp = parseFloat(getVal('mrp (rs)')) || 0;
-      const sellingPrice =
-        parseFloat(this.getFirstAvailable(getVal, ['selling price (rs)', 'discount price (rs)'])) ||
-        0;
+      // Blank price/stock cells stay undefined so updates preserve DB values.
+      const mrpRaw = getVal('mrp (rs)').trim();
+      const mrpParsed = mrpRaw ? parseFloat(mrpRaw) : NaN;
+      const mrp = Number.isFinite(mrpParsed) ? mrpParsed : undefined;
+      const sellingRaw = this.getFirstAvailable(getVal, [
+        'selling price (rs)',
+        'discount price (rs)',
+      ]).trim();
+      const sellingParsed = sellingRaw ? parseFloat(sellingRaw) : NaN;
+      const sellingPrice = Number.isFinite(sellingParsed) ? sellingParsed : undefined;
       const discountPercentage = this.normalizeDiscountPercentage(getVal('discount percentage'));
-      const stock = parseInt(getVal('quantity / stock'), 10) || 0;
+      const stockRaw = getVal('quantity / stock').trim();
+      const stockParsed = stockRaw ? parseInt(stockRaw, 10) : NaN;
+      const stock = Number.isFinite(stockParsed) ? stockParsed : undefined;
       const outOfStock = this.parseOptionalYesNo(getVal('out of stock'));
       const inCurekaInventory = this.parseOptionalYesNo(getVal('in cureka inventory'));
       const estimatedDeliveryRaw = getVal('estimated delivery time').trim();
@@ -1428,15 +1443,18 @@ export class BulkUploadParserService {
         getVal('size chart url'),
         this.getFirstAvailable(getVal, ['size chart filename/path', 'size chart']),
       ),
-      subscriptionEnabled: getVal('subscription available').toLowerCase() === 'yes',
-      returnAllowed:
-        getVal('return policy').toLowerCase().includes('return') ||
-        getVal('return window days') !== '',
+      subscriptionEnabled: this.parseOptionalYesNo(getVal('subscription available')),
+      returnAllowed: (() => {
+        const policy = getVal('return policy').trim();
+        const windowDays = getVal('return window days').trim();
+        if (!policy && !windowDays) return undefined;
+        return policy.toLowerCase().includes('return') || windowDays !== '';
+      })(),
       returnPolicy: getVal('return policy') || undefined,
       returnWindowDays: safeParseInt(getVal('return window days')),
-      codAvailable: getVal('cod available').toLowerCase() === 'yes',
-      emiAvailable: getVal('emi available').toLowerCase() === 'yes',
-      replaceAllowed: getVal('replacement allowed').toLowerCase() === 'yes',
+      codAvailable: this.parseOptionalYesNo(getVal('cod available')),
+      emiAvailable: this.parseOptionalYesNo(getVal('emi available')),
+      replaceAllowed: this.parseOptionalYesNo(getVal('replacement allowed')),
       replaceWindowDays: safeParseInt(getVal('replacement window days')),
       manufacturer:
         this.getFirstAvailable(getVal, ['manufacturer', 'manufacturer name']) || undefined,

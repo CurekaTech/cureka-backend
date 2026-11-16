@@ -421,6 +421,7 @@ export class BulkUploadValidatorService {
       return Array.from(skuRefIds)[0];
     }
     if (skuRefIds.size > 1) {
+      // Ambiguous — caller must fail closed (no create).
       return undefined;
     }
 
@@ -451,6 +452,7 @@ export class BulkUploadValidatorService {
       return Array.from(identityRefIds)[0];
     }
     if (identityRefIds.size > 1) {
+      // Ambiguous secondary identity — caller must fail closed (no create).
       return undefined;
     }
 
@@ -465,6 +467,46 @@ export class BulkUploadValidatorService {
     }
 
     return undefined;
+  }
+
+  /** True when the sheet provided Product ID / vendor SKU identity that did not resolve uniquely. */
+  hasUnresolvedOrAmbiguousIdentity(group: IParsedProductGroup): boolean {
+    const skuRefIds = new Set<string>();
+    for (const variant of group.variants ?? []) {
+      if (!variant.sku?.trim()) continue;
+      const refId = this.resolveProductRefIdBySku(variant.sku);
+      if (refId) skuRefIds.add(refId);
+    }
+    if (skuRefIds.size > 1) return true;
+
+    const identityRefIds = new Set<string>();
+    const providedExternalIds: string[] = [];
+    const addByExternalId = (raw?: string) => {
+      const trimmed = raw?.trim();
+      if (!trimmed) return;
+      providedExternalIds.push(trimmed);
+      const normalized = trimmed.toLowerCase();
+      const productRefId = this.externalProductIdToProductRefIdMap.get(normalized);
+      if (productRefId) identityRefIds.add(productRefId);
+      const variantSku = this.externalVariantIdToSkuMap.get(normalized);
+      if (variantSku) {
+        const variantProductRefId = this.resolveProductRefIdBySku(variantSku);
+        if (variantProductRefId) identityRefIds.add(variantProductRefId);
+      }
+    };
+    addByExternalId(group.externalProductId);
+    for (const variant of group.variants ?? []) {
+      addByExternalId(variant.externalProductId);
+    }
+
+    if (identityRefIds.size > 1) return true;
+
+    // Product ID filled but unknown → do not create a duplicate under a new identity.
+    if (providedExternalIds.length && identityRefIds.size === 0 && skuRefIds.size === 0) {
+      return true;
+    }
+
+    return false;
   }
 
   /**
@@ -669,6 +711,30 @@ export class BulkUploadValidatorService {
       } else {
         group.mergeSourceProductRefIds = undefined;
         group.canonicalProductRefId = resolvedExistingProductRefId;
+      }
+
+      // Fail closed: ambiguous or unresolved identity must not create duplicates.
+      if (!resolvedExistingProductRefId && this.hasUnresolvedOrAmbiguousIdentity(group)) {
+        const identityHint =
+          group.externalProductId?.trim() ||
+          group.variants?.find((variant) => variant.externalProductId?.trim())?.externalProductId ||
+          group.vendorSku?.trim() ||
+          group.variants?.map((variant) => variant.sku).filter(Boolean).join(', ') ||
+          '';
+        groupErrors.push({
+          rowNumber: group.rowNumber,
+          sku: productSku,
+          column: group.externalProductId?.trim()
+            ? 'Product ID (String)'
+            : group.vendorSku?.trim()
+              ? 'Vendor SKU'
+              : 'Product SKU Code',
+          invalidValue: identityHint,
+          reason:
+            'This row could not be matched confidently to a single existing product. Bulk upload will not create a duplicate.',
+          suggestedFix:
+            'Use the exact Product SKU Code from Product Export (or a known Product ID). Leave Product ID / Vendor SKU blank only when creating a genuinely new product with a new SKU.',
+        });
       }
 
       // A. Mandatory Parent Field Validations
@@ -1112,7 +1178,12 @@ export class BulkUploadValidatorService {
         false,
         group.mergeSourceProductRefIds ?? [],
       );
-      this.validateVariantPricing(variant, groupErrors, productSku);
+      this.validateVariantPricing(
+        variant,
+        groupErrors,
+        productSku,
+        Boolean(resolvedExistingProductRefId),
+      );
     }
   }
 
@@ -1270,7 +1341,12 @@ export class BulkUploadValidatorService {
         false,
         group.mergeSourceProductRefIds ?? [],
       );
-      this.validateVariantPricing(variant, groupErrors, productSku);
+      this.validateVariantPricing(
+        variant,
+        groupErrors,
+        productSku,
+        Boolean(resolvedExistingProductRefId),
+      );
 
       const resolvedAttributes: Array<{ attributeRefId: string; value: string; label: string }> = [];
       const attributeDetailNames = flattenAttributeDetailNames(group.attributeDetailNames ?? []);
@@ -1547,8 +1623,22 @@ export class BulkUploadValidatorService {
     variant: IParsedProductGroup['variants'][number],
     groupErrors: IValidationError[],
     parentSku: string,
+    isExistingProduct = false,
   ): void {
-    if (variant.mrp <= 0) {
+    const mrpMissing = variant.mrp === undefined || variant.mrp === null;
+    const sellingMissing = variant.sellingPrice === undefined || variant.sellingPrice === null;
+
+    // Create: prices are mandatory. Update: blank cells preserve existing DB prices.
+    if (!isExistingProduct && mrpMissing) {
+      groupErrors.push({
+        rowNumber: variant.rowNumber,
+        sku: variant.sku || parentSku,
+        column: 'MRP',
+        invalidValue: '',
+        reason: 'MRP is mandatory for new products.',
+        suggestedFix: 'Enter a valid numerical MRP greater than zero.',
+      });
+    } else if (!mrpMissing && (variant.mrp as number) <= 0) {
       groupErrors.push({
         rowNumber: variant.rowNumber,
         sku: variant.sku || parentSku,
@@ -1559,7 +1649,16 @@ export class BulkUploadValidatorService {
       });
     }
 
-    if (variant.sellingPrice <= 0) {
+    if (!isExistingProduct && sellingMissing) {
+      groupErrors.push({
+        rowNumber: variant.rowNumber,
+        sku: variant.sku || parentSku,
+        column: 'Selling Price',
+        invalidValue: '',
+        reason: 'Selling price is mandatory for new products.',
+        suggestedFix: 'Enter a valid numerical selling price greater than zero.',
+      });
+    } else if (!sellingMissing && (variant.sellingPrice as number) <= 0) {
       groupErrors.push({
         rowNumber: variant.rowNumber,
         sku: variant.sku || parentSku,
@@ -1570,7 +1669,11 @@ export class BulkUploadValidatorService {
       });
     }
 
-    if (variant.sellingPrice > variant.mrp) {
+    if (
+      !mrpMissing &&
+      !sellingMissing &&
+      (variant.sellingPrice as number) > (variant.mrp as number)
+    ) {
       groupErrors.push({
         rowNumber: variant.rowNumber,
         sku: variant.sku || parentSku,

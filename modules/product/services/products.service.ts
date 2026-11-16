@@ -95,6 +95,11 @@ export interface ProductMutationOptions {
   skipDetailEnrichment?: boolean;
   /** Use a lighter product load (no media/faqs/tags hydration). */
   lightweightLoad?: boolean;
+  /**
+   * Bulk change-only updates: patch provided variants without soft-deleting
+   * SKUs absent from the payload, and skip attribute rewrite when omitted.
+   */
+  bulkUploadChangeOnly?: boolean;
 }
 
 @Injectable()
@@ -1230,16 +1235,33 @@ export class ProductsService {
         const skipSkuUniqueness =
           effectiveProductType === ProductType.BUNDLE && this.allowDuplicateSkuForBundles();
 
-        await this.variantsRepository.syncVariants(
-          manager,
-          existing.id,
-          existing.slug,
-          productSlug,
-          effectiveProductType,  // use the new type, not the old one
-          variantsForSync,
-          attributeIdByRefId,
-          { skipSkuUniqueness },
-        ).then((transitions) => oosTransitions.push(...transitions));
+        if (options?.bulkUploadChangeOnly) {
+          await this.variantsRepository
+            .patchVariantsForBulkUpload(
+              manager,
+              existing.id,
+              existing.slug,
+              productSlug,
+              effectiveProductType,
+              variantsForSync,
+              attributeIdByRefId,
+              { skipSkuUniqueness },
+            )
+            .then((transitions) => oosTransitions.push(...transitions));
+        } else {
+          await this.variantsRepository
+            .syncVariants(
+              manager,
+              existing.id,
+              existing.slug,
+              productSlug,
+              effectiveProductType, // use the new type, not the old one
+              variantsForSync,
+              attributeIdByRefId,
+              { skipSkuUniqueness },
+            )
+            .then((transitions) => oosTransitions.push(...transitions));
+        }
       } else if (
         needsVariantSync &&
         effectiveProductType === ProductType.BUNDLE &&

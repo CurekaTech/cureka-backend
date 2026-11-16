@@ -329,10 +329,12 @@ const dedupeHeadersByNormalizedName = (headers: string[]): string[] => {
  * One sheet for mixed simple + variable uploads.
  * Includes simple/bundle columns, Attribute Details, and CF_ columns.
  * Variable products use vertical rows bound by style_group_id (no horizontal att_* slots).
+ * `attributeSlotCount` defaults to 5 (sample-compatible); export may raise it for N>5 attributes.
  */
 export const buildUnifiedBulkUploadHeaders = (
   categoryFilterHeaders: string[] = [],
   extraProductInformationLabels: string[] = [],
+  attributeSlotCount?: number,
 ): string[] => {
   const baseHeaders = buildBulkUploadTemplateHeaders(extraProductInformationLabels);
   const bundleSkuIndex = baseHeaders.findIndex(
@@ -342,7 +344,7 @@ export const buildUnifiedBulkUploadHeaders = (
 
   return dedupeHeadersByNormalizedName([
     ...baseHeaders.slice(0, insertAt),
-    ...buildVariableTemplateExtraHeaders(),
+    ...buildVariableTemplateExtraHeaders(attributeSlotCount),
     ...baseHeaders.slice(insertAt),
     ...categoryFilterHeaders,
   ]);
