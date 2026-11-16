@@ -73,7 +73,13 @@ const PACK_COLUMN_PREFIXES: Record<
 /** Stable public media URL for a storage key. Null when the key is private or the base URL is unset. */
 export type BulkExportMediaUrlResolver = (storageKey: string) => string | null;
 
-const yesNo = (value: boolean | undefined | null): string => (value ? 'Yes' : 'No');
+/** Headers excluded from the client template — never write filename cells into these. */
+const EXPORT_EXCLUDED_MEDIA_NAME_HEADERS = new Set(['Gallery Image 2']);
+
+const yesNo = (value: boolean | undefined | null): string | null => {
+  if (value === undefined || value === null) return null;
+  return value ? 'Yes' : 'No';
+};
 
 const mediaStorageKey = (item: ProductMediaEntity): string => item.url?.key?.trim() ?? '';
 
@@ -102,7 +108,9 @@ const writeMediaSlot = (
 ): void => {
   const key = mediaStorageKey(item);
   if (!key) return;
-  values.set(nameHeader, key);
+  if (!EXPORT_EXCLUDED_MEDIA_NAME_HEADERS.has(nameHeader)) {
+    values.set(nameHeader, key);
+  }
   const url = toExportMediaUrl?.(key);
   if (url) values.set(urlHeader, url);
 };
@@ -280,6 +288,7 @@ const applyVariantFields = (
   product: ProductEntity,
   variant: ProductVariantEntity,
   attributeNames: string[],
+  headerSet?: Set<string>,
 ): void => {
   values.set('Product SKU Code*', variant.sku);
   if (variant.externalProductId) {
@@ -301,9 +310,11 @@ const applyVariantFields = (
   if (mrp !== null) values.set('MRP (Rs)*', mrp);
   if (sellingPrice !== null) values.set('Selling Price (Rs)*', sellingPrice);
   if (discount !== null) values.set('Discount Percentage', discount);
-  values.set('Quantity / Stock', variant.stock ?? 0);
-  values.set('Out Of Stock', yesNo(variant.outOfStock));
-  values.set('In Cureka Inventory', yesNo(variant.inCurekaInventory));
+  if (variant.stock != null) values.set('Quantity / Stock', variant.stock);
+  const outOfStock = yesNo(variant.outOfStock);
+  if (outOfStock != null) values.set('Out Of Stock', outOfStock);
+  const inCurekaInventory = yesNo(variant.inCurekaInventory);
+  if (inCurekaInventory != null) values.set('In Cureka Inventory', inCurekaInventory);
   if (variant.estimatedDeliveryTime) {
     values.set('Estimated Delivery Time', variant.estimatedDeliveryTime);
   }
@@ -314,7 +325,7 @@ const applyVariantFields = (
   if (variant.width) values.set('Width (cm)', toNumber(variant.width));
   if (variant.height) values.set('Height (cm)', toNumber(variant.height));
   if (variant.lengthUnit) values.set('Dimension Unit', variant.lengthUnit);
-  values.set('Variant Status', variant.status);
+  if (variant.status) values.set('Variant Status', variant.status);
 
   if (variant.slug) values.set('Product URL Slug', variant.slug);
   if (variant.searchTags?.length) values.set('Search Tags', joinPipe(variant.searchTags));
@@ -327,7 +338,16 @@ const applyVariantFields = (
     values.set(`Attribute Details ${index + 1}`, attributeName);
     values.set(`att_attribute_${index + 1}_value_1`, attributeValue.value);
   });
+
+  // Variant-level PI overlays product-level values when present (same label columns).
+  if (headerSet && variant.productInformation?.length) {
+    applyProductInformation(values, variant.productInformation, headerSet);
+  }
 };
+
+/** Max attribute count for a product (mappings, else distinct variant attribute names). */
+export const countProductExportAttributes = (product: ProductEntity): number =>
+  getAttributeNames(product).length;
 
 const buildSharedProductValues = (
   product: ProductEntity,
@@ -397,14 +417,18 @@ const buildSharedProductValues = (
     values.set('Meta Keywords', product.metaKeywords.join(', '));
   }
 
-  values.set('Subscription Available', yesNo(product.subscriptionEnabled));
+  const subscriptionAvailable = yesNo(product.subscriptionEnabled);
+  if (subscriptionAvailable != null) values.set('Subscription Available', subscriptionAvailable);
   if (product.returnPolicy) values.set('Return Policy', product.returnPolicy);
   if (product.returnWindowDays != null) {
     values.set('Return Window Days', product.returnWindowDays);
   }
-  values.set('COD Available', yesNo(product.codAvailable));
-  values.set('EMI Available', yesNo(product.emiAvailable));
-  values.set('Replacement Allowed', yesNo(product.replaceAllowed));
+  const codAvailable = yesNo(product.codAvailable);
+  if (codAvailable != null) values.set('COD Available', codAvailable);
+  const emiAvailable = yesNo(product.emiAvailable);
+  if (emiAvailable != null) values.set('EMI Available', emiAvailable);
+  const replacementAllowed = yesNo(product.replaceAllowed);
+  if (replacementAllowed != null) values.set('Replacement Allowed', replacementAllowed);
   if (product.replaceWindowDays != null) {
     values.set('Replacement Window Days', product.replaceWindowDays);
   }
@@ -482,7 +506,7 @@ const mapSimpleProductRows = (
   if (!variant) return [];
 
   const values = buildSharedProductValues(product, headerSet, toExportMediaUrl);
-  applyVariantFields(values, product, variant, getAttributeNames(product));
+  applyVariantFields(values, product, variant, getAttributeNames(product), headerSet);
   const singleProductUrl = resolveExportedSingleProductUrl(product, variant);
   if (singleProductUrl) values.set('Single Product URL', singleProductUrl);
   applyVariantGallery(values, product, variant, toExportMediaUrl);
@@ -514,7 +538,7 @@ const mapVariableProductRows = (
       values.set('Product Name*', variant.displayName);
     }
 
-    applyVariantFields(values, product, variant, attributeNames);
+    applyVariantFields(values, product, variant, attributeNames, headerSet);
     const singleProductUrl = resolveExportedSingleProductUrl(product, variant);
     if (singleProductUrl) values.set('Single Product URL', singleProductUrl);
     applyVariantGallery(values, product, variant, toExportMediaUrl);
@@ -554,7 +578,7 @@ const mapBundleProductRows = (
     parentValues.set('Bundle Selling Price (Rs)', parentSellingPrice);
   }
 
-  applyVariantFields(parentValues, product, parentVariant, []);
+  applyVariantFields(parentValues, product, parentVariant, [], headerSet);
   const singleProductUrl = resolveExportedSingleProductUrl(product, parentVariant);
   if (singleProductUrl) parentValues.set('Single Product URL', singleProductUrl);
   applyVariantGallery(parentValues, product, parentVariant, exportContext?.toExportMediaUrl);

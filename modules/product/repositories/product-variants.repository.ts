@@ -597,6 +597,204 @@ export class ProductVariantsRepository {
     return this.fillProductNames(oosTransitions, manager);
   }
 
+  /**
+   * Bulk change-only variant updates:
+   * - Never soft-deletes SKUs absent from the payload
+   * - Updates only provided scalar fields
+   * - Rewrites attributes only when `attributes` is present on the DTO
+   */
+  async patchVariantsForBulkUpload(
+    manager: EntityManager,
+    productId: string,
+    previousProductSlug: string,
+    productSlug: string,
+    productType: ProductType,
+    variants: CreateVariantDto[],
+    attributeIdByRefId: Map<string, string>,
+    options?: { skipSkuUniqueness?: boolean },
+  ): Promise<VariantOosTransition[]> {
+    if (!variants.length) return [];
+
+    const variantRepo = manager.getRepository(ProductVariantEntity);
+    const attributeRepo = manager.getRepository(VariantAttributeValueEntity);
+    const existing = await variantRepo.find({
+      where: { productId },
+      relations: ['attributeValues', 'attributeValues.attribute'],
+    });
+    const existingBySku = new Map(
+      existing.map((variant) => [normalizeSkuMatchKey(variant.sku), variant]),
+    );
+    const oosTransitions: VariantOosTransition[] = [];
+
+    const toCreate: CreateVariantDto[] = [];
+    for (const dto of variants) {
+      const matched = existingBySku.get(normalizeSkuMatchKey(dto.sku));
+      if (!matched) {
+        toCreate.push(dto);
+        continue;
+      }
+
+      const mergedForPricing = {
+        mrp: dto.mrp !== undefined ? dto.mrp : Number(matched.mrp),
+        sellingPrice:
+          dto.sellingPrice !== undefined ? dto.sellingPrice : Number(matched.sellingPrice),
+        discountPercentage:
+          dto.discountPercentage !== undefined
+            ? dto.discountPercentage
+            : matched.discountPercentage != null
+              ? Number(matched.discountPercentage)
+              : undefined,
+      };
+      validateVariantPricing(mergedForPricing);
+
+      const shouldRewriteAttributes = dto.attributes !== undefined;
+      let attributeInputs: IVariantAttributeInput[] = [];
+      let combinationKey = matched.combinationKey;
+
+      if (shouldRewriteAttributes) {
+        attributeInputs = (dto.attributes ?? []).map((item) => {
+          const attributeId = attributeIdByRefId.get(item.attributeRefId);
+          if (!attributeId) {
+            throw new ConflictException(`Attribute refId "${item.attributeRefId}" not found`);
+          }
+          return { attributeId, value: item.value };
+        });
+        if (attributeInputs.length) {
+          validateVariantAttributes(
+            attributeInputs.map((item) => ({
+              attributeId: item.attributeId,
+              value: item.value,
+            })),
+          );
+        }
+        combinationKey = buildVariantCombinationKey(attributeInputs);
+        await variantRepo.update({ id: matched.id }, { combinationKey: null });
+      }
+
+      const previous = { stock: matched.stock, outOfStock: matched.outOfStock };
+      const nextInCurekaInventory =
+        dto.inCurekaInventory !== undefined
+          ? dto.inCurekaInventory === true
+          : matched.inCurekaInventory === true;
+      const availability = resolveAvailabilityFromAdminDto(
+        previous,
+        {
+          stock: dto.stock !== undefined ? dto.stock : matched.stock,
+          outOfStock: dto.outOfStock !== undefined ? dto.outOfStock : matched.outOfStock,
+        },
+        managementOptionsForVariant({ inCurekaInventory: nextInCurekaInventory }),
+      );
+
+      const discountPercentage =
+        mergedForPricing.discountPercentage ??
+        computeDiscountPercentage(mergedForPricing.mrp, mergedForPricing.sellingPrice);
+
+      const patch: Partial<ProductVariantEntity> = {
+        mrp: Number(mergedForPricing.mrp).toFixed(2),
+        sellingPrice: Number(mergedForPricing.sellingPrice).toFixed(2),
+        discountPercentage: discountPercentage.toFixed(2),
+        stock: availability.stock,
+        outOfStock: availability.outOfStock,
+        ...(await this.mapVariantDetailColumns(manager, dto, matched)),
+      };
+
+      if (dto.vendorSku !== undefined) patch.vendorSku = dto.vendorSku ?? null;
+      if (dto.barcode !== undefined) patch.barcode = dto.barcode ?? null;
+      if (dto.gtinNumber !== undefined) patch.gtinNumber = dto.gtinNumber ?? null;
+      if (dto.hsnCode !== undefined) patch.hsnCode = dto.hsnCode ?? null;
+      if (dto.batchNumber !== undefined) patch.batchNumber = dto.batchNumber ?? null;
+      if (dto.expiryDate !== undefined) patch.expiryDate = dto.expiryDate ?? null;
+      if (dto.externalProductId !== undefined) {
+        patch.externalProductId = dto.externalProductId?.trim() || null;
+      }
+      if (dto.inCurekaInventory !== undefined) {
+        patch.inCurekaInventory = dto.inCurekaInventory === true;
+      }
+      if (dto.estimatedDeliveryTime !== undefined) {
+        patch.estimatedDeliveryTime = dto.estimatedDeliveryTime;
+      }
+      if (dto.weight !== undefined) patch.weight = dto.weight?.toFixed(3) ?? null;
+      if (dto.weightUnit !== undefined) {
+        patch.weightUnit = pickVariantUnit(dto, 'weightUnit', 'weight_unit');
+      }
+      if (dto.length !== undefined) patch.length = dto.length?.toFixed(2) ?? null;
+      if (dto.width !== undefined) patch.width = dto.width?.toFixed(2) ?? null;
+      if (dto.height !== undefined) patch.height = dto.height?.toFixed(2) ?? null;
+      if (dto.expiresIn !== undefined) patch.expiresIn = dto.expiresIn ?? null;
+      if (dto.taxClass !== undefined) patch.taxClass = dto.taxClass ?? null;
+      if (dto.searchTags !== undefined) patch.searchTags = normalizeSearchTags(dto.searchTags);
+      if (dto.status !== undefined) patch.status = dto.status as VariantStatus;
+      if (dto.productPageUrl !== undefined) {
+        patch.productPageUrl = dto.productPageUrl?.trim() || null;
+      }
+      if (shouldRewriteAttributes) {
+        patch.combinationKey = combinationKey;
+      }
+      if (dto.slug?.trim()) {
+        const attributeValues = shouldRewriteAttributes
+          ? (dto.attributes ?? []).map((item) => item.value)
+          : (matched.attributeValues ?? []).map((item) => item.value);
+        patch.slug = await this.resolveUniqueVariantSlug(
+          productSlug,
+          { slug: dto.slug, attributeValues },
+          matched.id,
+          [],
+          matched.productId,
+        );
+      }
+
+      try {
+        await variantRepo.update({ id: matched.id }, patch);
+      } catch (error) {
+        this.handleUniqueViolation(error, combinationKey, dto.sku, matched.slug);
+        throw error;
+      }
+
+      if (shouldRewriteAttributes) {
+        await attributeRepo.delete({ variantId: matched.id });
+        if (attributeInputs.length) {
+          await attributeRepo.save(
+            attributeInputs.map((item) =>
+              attributeRepo.create({
+                variantId: matched.id,
+                attributeId: item.attributeId,
+                value: item.value.trim(),
+              }),
+            ),
+          );
+        }
+      }
+
+      if (availability.becameOos) {
+        oosTransitions.push({
+          variantId: matched.id,
+          productId: matched.productId,
+          sku: matched.sku,
+          stock: availability.stock,
+          variantDisplayName: matched.displayName,
+          occurredAt: new Date(),
+        });
+      }
+    }
+
+    if (toCreate.length) {
+      await this.createVariants(
+        manager,
+        productId,
+        productSlug,
+        toCreate,
+        attributeIdByRefId,
+        options,
+      );
+    }
+
+    // productType kept for API symmetry with syncVariants (validation already done upstream).
+    void productType;
+    void previousProductSlug;
+
+    return this.fillProductNames(oosTransitions, manager);
+  }
+
   async existsBySlug(slug: string, excludeId?: string): Promise<boolean> {
     const qb = this.repo
       .createQueryBuilder('variant')

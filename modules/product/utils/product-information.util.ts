@@ -135,6 +135,71 @@ export const normalizeProductInformation = (
   return sortProductInformation(normalized);
 };
 
+/**
+ * Merge sheet PI into existing JSONB by label.
+ * Blank / missing sheet labels preserve the existing item; non-blank sheet labels update that item only.
+ * Does not replace the entire array when the sheet only carries a subset of labels.
+ */
+export const mergeProductInformationByLabel = (
+  existing: IProductInformationItemInput[] | null | undefined,
+  incoming: IProductInformationItemInput[] | null | undefined,
+  options?: NormalizeProductInformationOptions,
+): IProductInformationItem[] => {
+  if (!incoming?.length) {
+    return normalizeProductInformation(existing ?? [], options);
+  }
+
+  const byLabel = new Map<string, IProductInformationItemInput>();
+  for (const item of existing ?? []) {
+    const key = item.label?.trim().toLowerCase();
+    if (!key) continue;
+    byLabel.set(key, item);
+  }
+
+  for (const item of incoming) {
+    const key = item.label?.trim().toLowerCase();
+    if (!key) continue;
+    const description = item.description?.trim() ?? '';
+    if (!description) {
+      // Blank sheet cell → preserve existing label content.
+      continue;
+    }
+    const previous = byLabel.get(key);
+    byLabel.set(key, {
+      ...previous,
+      ...item,
+      id: previous?.id ?? item.id,
+      label: previous?.label ?? item.label,
+      description: item.description,
+    });
+  }
+
+  return normalizeProductInformation([...byLabel.values()], options);
+};
+
+/** True when normalized PI arrays are equivalent by label → description. */
+export const productInformationEquals = (
+  left: IProductInformationItemInput[] | null | undefined,
+  right: IProductInformationItemInput[] | null | undefined,
+): boolean => {
+  const normalize = (items: IProductInformationItemInput[] | null | undefined) => {
+    const map = new Map<string, string>();
+    for (const item of items ?? []) {
+      const key = item.label?.trim().toLowerCase();
+      if (!key) continue;
+      map.set(key, (item.description ?? '').trim());
+    }
+    return map;
+  };
+  const a = normalize(left);
+  const b = normalize(right);
+  if (a.size !== b.size) return false;
+  for (const [key, value] of a) {
+    if (b.get(key) !== value) return false;
+  }
+  return true;
+};
+
 export const enrichProductInformation = (
   items:
     | Array<{

@@ -379,11 +379,24 @@ export const buildVerticalAttributeValueHeaders = (
 ): string[] =>
   Array.from({ length: count }, (_, index) => `att_attribute_${index + 1}_value_1`);
 
-/** Variable-only columns: Attribute Details + per-row values (no horizontal att_mrp_N slots). */
-export const buildVariableTemplateExtraHeaders = (): string[] => [
-  ...buildAttributeDetailsHeaders(),
-  ...buildVerticalAttributeValueHeaders(),
-];
+/**
+ * Variable-only columns: Attribute Details + per-row values (no horizontal att_mrp_N slots).
+ * Sample templates keep the default of 5; export may pass a higher count so N>5 round-trips.
+ */
+export const buildVariableTemplateExtraHeaders = (
+  attributeSlotCount = VARIABLE_TEMPLATE_ATTRIBUTE_COUNT,
+): string[] => {
+  const count = Math.max(VARIABLE_TEMPLATE_ATTRIBUTE_COUNT, attributeSlotCount);
+  return [
+    ...buildAttributeDetailsHeaders(count),
+    ...buildVerticalAttributeValueHeaders(count),
+  ];
+};
+
+/** Export/sample slot count: at least the template default, and enough for the largest product. */
+export const resolveBulkUploadAttributeSlotCount = (
+  maxAttributeCount: number,
+): number => Math.max(VARIABLE_TEMPLATE_ATTRIBUTE_COUNT, Math.max(0, maxAttributeCount));
 
 export const buildVariantCombinationKeyFromRefIds = (
   attributes: Array<{ attributeRefId: string; value: string }>,

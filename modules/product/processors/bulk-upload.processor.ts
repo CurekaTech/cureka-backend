@@ -55,6 +55,7 @@ import { GalleryService } from '../../gallery/services/gallery.service';
 import { BulkUploadStatus } from '../enums/bulk-upload-status.enum';
 import { CreateProductDto, UpdateProductDto } from '../dto/product.dto';
 import { normalizeProductInformation } from '../utils/product-information.util';
+import { detectBulkUploadChanges } from '../utils/bulk-upload-change-detect.util';
 import { ProductType } from '../enums/product-type.enum';
 import { ProductStatus } from '../enums/product-status.enum';
 import { ProductMediaType } from '../enums/product-media-type.enum';
@@ -81,6 +82,11 @@ import { runAsSystem } from '@modules/master/utils/audit-actor.context';
 const BULK_MUTATION_OPTIONS = {
   skipDetailEnrichment: true,
   lightweightLoad: true,
+} as const;
+
+const BULK_CHANGE_ONLY_MUTATION_OPTIONS = {
+  ...BULK_MUTATION_OPTIONS,
+  bulkUploadChangeOnly: true,
 } as const;
 
 interface BulkUploadJobData {
@@ -1008,12 +1014,15 @@ export class BulkUploadProcessor extends WorkerHost {
                     hsnCode: v.hsnCode,
                     batchNumber: v.batchNumber,
                     expiryDate: v.expiryDate,
-                    mrp: v.mrp,
-                    sellingPrice: v.sellingPrice,
+                    ...(v.mrp !== undefined ? { mrp: v.mrp } : {}),
+                    ...(v.sellingPrice !== undefined ? { sellingPrice: v.sellingPrice } : {}),
                     discountPercentage: v.discountPercentage,
                     taxClass: v.taxClass,
-                    stock: v.stock,
+                    ...(v.stock !== undefined ? { stock: v.stock } : {}),
                     ...(v.outOfStock !== undefined ? { outOfStock: v.outOfStock } : {}),
+                    ...(v.inCurekaInventory !== undefined
+                      ? { inCurekaInventory: v.inCurekaInventory }
+                      : {}),
                     ...(v.estimatedDeliveryTime !== undefined
                       ? { estimatedDeliveryTime: v.estimatedDeliveryTime }
                       : {}),
@@ -1188,22 +1197,34 @@ export class BulkUploadProcessor extends WorkerHost {
                 categories: refs.categories,
                 brandRefId: refs.brandRefId!,
                 description: descriptionFromProductInformation,
-                tagNames: group.productTags,
-                healthConcernRefIds: refs.healthConcernRefIds,
-                wellnessGoalRefIds: refs.wellnessGoalRefIds,
+                tagNames: group.productTags?.length ? group.productTags : undefined,
+                healthConcernRefIds: refs.healthConcernRefIds?.length
+                  ? refs.healthConcernRefIds
+                  : undefined,
+                wellnessGoalRefIds: refs.wellnessGoalRefIds?.length
+                  ? refs.wellnessGoalRefIds
+                  : undefined,
                 attributeRefIds:
                   group.productType === 'simple'
-                    ? []
+                    ? existingProductRefId
+                      ? undefined
+                      : []
                     : attributeRefIds.size > 0
                       ? Array.from(attributeRefIds)
                       : undefined,
-                subscriptionEnabled: group.subscriptionEnabled,
-                returnAllowed: group.returnAllowed,
+                ...(group.subscriptionEnabled !== undefined
+                  ? { subscriptionEnabled: group.subscriptionEnabled }
+                  : {}),
+                ...(group.returnAllowed !== undefined
+                  ? { returnAllowed: group.returnAllowed }
+                  : {}),
                 returnPolicy: group.returnPolicy,
                 returnWindowDays: group.returnWindowDays,
-                codAvailable: group.codAvailable,
-                emiAvailable: group.emiAvailable,
-                replaceAllowed: group.replaceAllowed,
+                ...(group.codAvailable !== undefined ? { codAvailable: group.codAvailable } : {}),
+                ...(group.emiAvailable !== undefined ? { emiAvailable: group.emiAvailable } : {}),
+                ...(group.replaceAllowed !== undefined
+                  ? { replaceAllowed: group.replaceAllowed }
+                  : {}),
                 replaceWindowDays: group.replaceWindowDays,
                 slug: lookupSlug || group.slugUrl || undefined,
                 externalProductId: group.externalProductId,
@@ -1272,13 +1293,40 @@ export class BulkUploadProcessor extends WorkerHost {
               let publishedNow = false;
 
               if (existingProductRefId) {
-                await this.productsService.update(
-                  existingProductRefId,
+                const existingProduct =
+                  await this.productsRepository.findByRefId(existingProductRefId);
+                if (!existingProduct) {
+                  return {
+                    ok: false as const,
+                    sheetRows,
+                    variantSlots,
+                    errors: this.buildGroupFailureErrors(group, {
+                      column: 'Product SKU Code',
+                      invalidValue: group.variants?.[0]?.sku ?? '',
+                      reason: `Matched product ${existingProductRefId} was not found for update.`,
+                      suggestedFix: 'Re-export the product and upload again.',
+                    }),
+                  };
+                }
+
+                const changeResult = detectBulkUploadChanges(
+                  existingProduct,
                   dto as UpdateProductDto,
-                  'system-bulk-upload',
-                  BULK_MUTATION_OPTIONS,
                 );
-                updated = 1;
+                if (changeResult.skip) {
+                  this.logger.debug?.(
+                    `[BULK_UPLOAD] product="${group.name}" refId=${existingProductRefId} unchanged — skipping DB write`,
+                  );
+                  updated = 0;
+                } else {
+                  await this.productsService.update(
+                    existingProductRefId,
+                    changeResult.sparseDto,
+                    'system-bulk-upload',
+                    BULK_CHANGE_ONLY_MUTATION_OPTIONS,
+                  );
+                  updated = 1;
+                }
               } else {
                 const createdProduct = await this.productsService.createDraft(
                   dto,

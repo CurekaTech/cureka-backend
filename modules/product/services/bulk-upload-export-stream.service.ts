@@ -3,10 +3,13 @@ import { ConfigService } from '@nestjs/config';
 import { createWriteStream } from 'fs';
 import { Writable } from 'stream';
 import { CategoryFiltersRepository } from '@modules/master/repositories/category-filters.repository';
+import { MasterStatus } from '@modules/master/enums/master-status.enum';
 import { buildPublicMediaAbsoluteUrl, isAllowedPublicMediaKey, normalizeStorageKey } from '@packages/storage';
 import { ProductsRepository } from '../repositories/products.repository';
+import { ProductInformationLabelsRepository } from '../repositories/product-information-labels.repository';
 import { ProductType } from '../enums/product-type.enum';
 import { buildUnifiedBulkUploadHeaders, buildCategoryFilterColumnHeader } from '../utils/bulk-upload-columns.util';
+import { resolveBulkUploadAttributeSlotCount } from '../utils/bulk-upload-variable.util';
 import {
   createBulkExportLookupContext,
   IBulkExportLookupContext,
@@ -15,6 +18,7 @@ import {
 } from '../utils/bulk-upload-export.mapper';
 import { CSV_UTF8_BOM, formatCsvRow } from '../utils/bulk-upload-csv.util';
 import { resolveProductBulkBatchSize } from '../constants/bulk-batch.constant';
+
 @Injectable()
 export class BulkUploadExportStreamService {
   private readonly logger = new Logger(BulkUploadExportStreamService.name);
@@ -22,6 +26,7 @@ export class BulkUploadExportStreamService {
   constructor(
     private readonly productsRepository: ProductsRepository,
     private readonly categoryFiltersRepository: CategoryFiltersRepository,
+    private readonly productInformationLabelsRepository: ProductInformationLabelsRepository,
     private readonly configService: ConfigService,
   ) {}
 
@@ -36,12 +41,24 @@ export class BulkUploadExportStreamService {
     };
   }
 
-  async resolveExportHeaders(): Promise<string[]> {
-    const activeFilters = await this.categoryFiltersRepository.findAllActiveOrderedByName();
+  async resolveExportHeaders(attributeSlotCount?: number): Promise<string[]> {
+    const [activeFilters, activeLabels, maxAttributeCount] = await Promise.all([
+      this.categoryFiltersRepository.findAllActiveOrderedByName(),
+      this.productInformationLabelsRepository.findAllByStatus(MasterStatus.ACTIVE),
+      attributeSlotCount != null
+        ? Promise.resolve(attributeSlotCount)
+        : this.productsRepository.findMaxAttributeCountForBulkExport(),
+    ]);
     const categoryFilterHeaders = activeFilters.map((filter) =>
       buildCategoryFilterColumnHeader(filter.name),
     );
-    return buildUnifiedBulkUploadHeaders(categoryFilterHeaders);
+    const informationLabelNames = activeLabels.map((label) => label.name);
+    const slotCount = resolveBulkUploadAttributeSlotCount(maxAttributeCount);
+    return buildUnifiedBulkUploadHeaders(
+      categoryFilterHeaders,
+      informationLabelNames,
+      slotCount,
+    );
   }
 
   async streamExportCsv(
@@ -135,7 +152,6 @@ export class BulkUploadExportStreamService {
     if (!chunk) {
       return Promise.resolve();
     }
-    
 
     return new Promise((resolve, reject) => {
       const canContinue = output.write(chunk, (error) => {
@@ -151,6 +167,7 @@ export class BulkUploadExportStreamService {
       output.once('error', reject);
     });
   }
+
   async writeExportCsvToFile(
     outputPath: string,
     onProgress?: (processedProducts: number, totalProducts: number) => Promise<void> | void,
