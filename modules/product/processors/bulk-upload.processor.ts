@@ -60,7 +60,7 @@ import { ProductType } from '../enums/product-type.enum';
 import { ProductStatus } from '../enums/product-status.enum';
 import { ProductMediaType } from '../enums/product-media-type.enum';
 import { UploadFolder } from '@modules/uploads/enums/upload-folder.enum';
-import { CreateProductMediaDto } from '../dto/variant.dto';
+import { CreateProductMediaDto, CreateVariantDto } from '../dto/variant.dto';
 import { createWriteStream, createReadStream } from 'fs';
 import { mkdir, unlink } from 'fs/promises';
 import { pipeline } from 'stream/promises';
@@ -1265,7 +1265,9 @@ export class BulkUploadProcessor extends WorkerHost {
                     : processedCommonMedia.length
                       ? processedCommonMedia
                       : undefined,
-                variants: variantsForDto,
+                // Update path may omit blank mrp/sellingPrice/stock (preserve DB).
+                // Create path is still guarded by validator (prices required).
+                variants: variantsForDto as CreateVariantDto[] | undefined,
                 bundleItems: group.productType === 'bundle'
                   ? group.bundleItems.map((item) => {
                       const childRefId = this.validatorService.resolveProductRefIdBySku(item.childSku);
