@@ -44,6 +44,7 @@ export const mapParsedVariantToDetailDto = (
   expiresInMonths: variant.expiresInMonths,
   sizeChart: options?.sizeChart,
   singleProductUrl: variant.singleProductUrl,
+  productPageUrl: variant.productPageUrl,
   healthConcernRefIds: refs.healthConcernRefIds,
   wellnessGoalRefIds: refs.wellnessGoalRefIds,
   tagNames: variant.productTags.length ? variant.productTags : undefined,

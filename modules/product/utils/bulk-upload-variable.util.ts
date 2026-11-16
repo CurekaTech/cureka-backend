@@ -132,6 +132,7 @@ export type BulkUploadExpandableVariant = {
   sku?: string;
   externalProductId?: string;
   productUrlSlug?: string;
+  productPageUrl?: string;
   attributes: Array<{ name: string; value: string }>;
 };
 
@@ -177,6 +178,7 @@ export const expandVariantsByDelimitedAttributeValues = <T extends BulkUploadExp
         sku: index === 0 ? variant.sku : '',
         externalProductId: index === 0 ? variant.externalProductId : undefined,
         productUrlSlug: index === 0 ? variant.productUrlSlug : undefined,
+        productPageUrl: index === 0 ? variant.productPageUrl : undefined,
         attributes: attrs.map((attr, attrIndex) => ({
           name: attr.name,
           value: combo[attrIndex] ?? '',

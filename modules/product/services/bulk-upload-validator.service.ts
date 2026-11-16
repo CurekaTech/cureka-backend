@@ -101,6 +101,7 @@ export class BulkUploadValidatorService {
   private productRefIdToNameMap = new Map<string, string>(); // product refId -> product name
   private productRefIdToExternalIdMap = new Map<string, string>(); // product refId -> externalProductId
   private productRefIdToProductTypeMap = new Map<string, string>(); // product refId -> productType
+  private productRefIdSet = new Set<string>();
   private dbSkus = new Set<string>();
   private dbExternalProductIds = new Set<string>();
   private externalProductIdToProductRefIdMap = new Map<string, string>(); // externalProductId (lowercase) -> product refId
@@ -304,6 +305,7 @@ export class BulkUploadValidatorService {
     this.productRefIdToVariantSkusMap = new Map();
     this.externalVariantIdToSkuMap = new Map();
     this.productNameBrandToRefIdMap = new Map();
+    this.productRefIdSet = new Set();
     this.externalProductIdToProductRefIdMap = new Map();
     this.dbExternalProductIds = new Set(
       externalProductIds
@@ -342,6 +344,7 @@ export class BulkUploadValidatorService {
     const nameBrandCounts = new Map<string, number>();
     this.productRefIdToNameMap.clear();
     this.productRefIdToProductTypeMap.clear();
+    this.productRefIdSet = new Set(productsWithBrand.map((product) => product.refId));
     for (const product of productsWithBrand) {
       const brandName = product.brand?.name?.toLowerCase().trim();
       if (!product.name?.trim() || !brandName) continue;
@@ -408,38 +411,57 @@ export class BulkUploadValidatorService {
   }
 
   resolveExistingProductRefIdForGroup(group: IParsedProductGroup): string | undefined {
-    const foundRefIds = new Set<string>();
+    const skuRefIds = new Set<string>();
+    for (const variant of group.variants ?? []) {
+      if (!variant.sku?.trim()) continue;
+      const refId = this.resolveProductRefIdBySku(variant.sku);
+      if (refId) skuRefIds.add(refId);
+    }
+    if (skuRefIds.size === 1) {
+      return Array.from(skuRefIds)[0];
+    }
+    if (skuRefIds.size > 1) {
+      return undefined;
+    }
 
-    if (group.externalProductId?.trim()) {
-      const refId = this.externalProductIdToProductRefIdMap.get(
-        group.externalProductId.toLowerCase().trim(),
-      );
-      if (refId) foundRefIds.add(refId);
+    const identityRefIds = new Set<string>();
+    const addByExternalId = (raw?: string) => {
+      const normalized = raw?.toLowerCase().trim();
+      if (!normalized) return;
+      const productRefId = this.externalProductIdToProductRefIdMap.get(normalized);
+      if (productRefId) identityRefIds.add(productRefId);
+      const variantSku = this.externalVariantIdToSkuMap.get(normalized);
+      if (variantSku) {
+        const variantProductRefId = this.resolveProductRefIdBySku(variantSku);
+        if (variantProductRefId) identityRefIds.add(variantProductRefId);
+      }
+    };
+
+    addByExternalId(group.externalProductId);
+    for (const variant of group.variants ?? []) {
+      addByExternalId(variant.externalProductId);
     }
 
     if (group.vendorSku?.trim()) {
       const refId = this.vendorSkuToProductRefIdMap.get(group.vendorSku.toLowerCase().trim());
-      if (refId) foundRefIds.add(refId);
+      if (refId) identityRefIds.add(refId);
     }
 
-    for (const variant of group.variants ?? []) {
-      if (!variant.sku?.trim()) continue;
-      const refId = this.resolveProductRefIdBySku(variant.sku);
-      if (refId) foundRefIds.add(refId);
+    if (identityRefIds.size === 1) {
+      return Array.from(identityRefIds)[0];
+    }
+    if (identityRefIds.size > 1) {
+      return undefined;
+    }
+
+    const styleGroupId = group.styleGroupId?.trim();
+    if (styleGroupId && this.productRefIdSet.has(styleGroupId)) {
+      return styleGroupId;
     }
 
     if (group.name?.trim() && group.brand?.trim()) {
       const key = `${group.name.toLowerCase().trim()}|${group.brand.toLowerCase().trim()}`;
-      const refId = this.productNameBrandToRefIdMap.get(key);
-      if (refId) foundRefIds.add(refId);
-    }
-
-    if (foundRefIds.size === 0) {
-      return undefined;
-    }
-
-    if (foundRefIds.size === 1) {
-      return Array.from(foundRefIds)[0];
+      return this.productNameBrandToRefIdMap.get(key);
     }
 
     return undefined;
@@ -564,6 +586,11 @@ export class BulkUploadValidatorService {
         if (!normalized) return;
         const refId = this.externalProductIdToProductRefIdMap.get(normalized);
         if (refId) relatedProductRefIds.add(refId);
+        const variantSku = this.externalVariantIdToSkuMap.get(normalized);
+        if (variantSku) {
+          const skuRefId = this.resolveProductRefIdBySku(variantSku);
+          if (skuRefId) relatedProductRefIds.add(skuRefId);
+        }
       };
 
       addRelatedByExternalId(group.externalProductId);
@@ -1309,7 +1336,9 @@ export class BulkUploadValidatorService {
    * 1. Product ID / variant Product ID → reuse related existing SKU when available
    * 2. Sheet SKU when filled (kept as-is; uniqueness validated later)
    * 3. Blank SKU → reuse unused SKUs from the matched product (and style_group merge peers)
-   * 4. Still blank → auto-generate from category/brand (needed for Left/Right expansion extras)
+   * 4. Still blank → auto-generate only for extras on a group that already has a
+   *    sheet SKU, or unused slots on an existing product. Blank unmatched rows
+   *    are rejected so a URL-only re-import cannot create HEA/BRE-style duplicates.
    */
   private resolveVariantSkus(
     group: IParsedProductGroup,
@@ -1318,6 +1347,7 @@ export class BulkUploadValidatorService {
     existingProductRefId?: string,
   ): void {
     const reservedInGroup = new Set<string>();
+    const sheetProvidedAnySku = group.variants.some((variant) => Boolean(variant.sku?.trim()));
 
     for (const variant of group.variants) {
       const existing = normalizeSkuMatchKey(variant.sku);
@@ -1406,8 +1436,10 @@ export class BulkUploadValidatorService {
         continue;
       }
 
-      // 3) Auto-generate (new products and expansion extras like "Left, Right").
-      if (canGenerate) {
+      // 3) Auto-generate only for Left/Right extras on a group that already has a
+      // sheet SKU, or unused slots on an existing product. Never invent SKUs for a
+      // blank unmatched row — that created duplicate products (HEA/BRE/18492).
+      if (canGenerate && (existingProductRefId || sheetProvidedAnySku)) {
         let sku = '';
         do {
           sequence += 1;
@@ -1429,10 +1461,10 @@ export class BulkUploadValidatorService {
         invalidValue: '',
         reason: existingProductRefId
           ? `No Product SKU Code on the sheet, and no unused related SKU remains for ${this.productLabel(existingProductRefId)}.`
-          : 'Product SKU Code is missing and cannot be auto-generated (category and brand are required).',
+          : 'Product SKU Code is missing. The importer will not create a new product from a blank SKU. Keep the exported SKU when changing Product Page URL.',
         suggestedFix: existingProductRefId
-          ? 'Fill Product SKU Code on the sheet, or ensure Category and Brand are present so extras can be auto-generated.'
-          : 'Provide Product SKU Code, or ensure Category and Brand are filled so a SKU can be generated.',
+          ? 'Fill Product SKU Code on the sheet with the existing variant SKU.'
+          : 'Put the existing Product SKU Code on the row (from the export). Leave SKU blank only when adding extra attribute combinations under a row that already has a SKU.',
       });
     }
   }

@@ -72,6 +72,7 @@ import {
 import { isBulkUploadCancelled } from '../utils/bulk-upload-cancel.util';
 import { BulkUploadCancelledError } from '../errors/bulk-upload-cancelled.error';
 import { mapParsedVariantToDetailDto } from '../utils/bulk-upload-variant-details.util';
+import { resolveBulkImportVariantUrlFields } from '../utils/bulk-upload-url.util';
 import { BulkUploadExportStreamService } from '../services/bulk-upload-export-stream.service';
 import { resolveProductBulkBatchSize } from '../constants/bulk-batch.constant';
 import { mapBulkUploadDbError } from '../utils/bulk-upload-db-error.util';
@@ -833,6 +834,9 @@ export class BulkUploadProcessor extends WorkerHost {
               }
 
               const refs = this.validatorService.resolveReferences(group);
+              const existingProductRefId =
+                group.canonicalProductRefId ||
+                this.validatorService.resolveExistingProductRefIdForGroup(group);
               const lookupProductId = normalizeLookupProductId(group.externalProductId);
               const lookupManufacturerAddress = lookupProductId
                 ? manufacturerLookup.byProductId.get(lookupProductId)
@@ -986,10 +990,17 @@ export class BulkUploadProcessor extends WorkerHost {
                   const variantSizeChart =
                     v.sizeChart &&
                     (await this.resolveBulkUploadSizeChart(v.sizeChart, galleryMap));
+                  const importUrlFields = resolveBulkImportVariantUrlFields({
+                    sheetProductPageUrl: v.productPageUrl,
+                    sheetSlug: v.productUrlSlug,
+                    lookupProductPageUrl: variantLookupProductPageUrl,
+                    lookupSlug: variantLookupSlug,
+                    isExistingProduct: Boolean(existingProductRefId),
+                  });
 
                   return {
                     sku: v.sku,
-                    slug: variantLookupSlug || v.productUrlSlug,
+                    ...importUrlFields,
                     externalProductId: v.externalProductId,
                     vendorSku: group.vendorSku,
                     barcode: v.barcode,
@@ -1035,9 +1046,7 @@ export class BulkUploadProcessor extends WorkerHost {
                         resolvedManufacturerAddress: resolvedVariantManufacturerAddress,
                       },
                     ),
-                    ...(variantLookupProductPageUrl
-                      ? { productPageUrl: variantLookupProductPageUrl }
-                      : {}),
+                    ...importUrlFields,
                   };
                 })
               ) : undefined;
@@ -1145,10 +1154,6 @@ export class BulkUploadProcessor extends WorkerHost {
                 sheetHadVariantImages ||
                 resolvedVariantImages ||
                 processedCommonMedia.length > 0;
-
-              const existingProductRefId =
-                group.canonicalProductRefId ||
-                this.validatorService.resolveExistingProductRefIdForGroup(group);
 
               if (
                 existingProductRefId &&
